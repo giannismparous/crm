@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Netlify secrets scan flags when a "Secret" env value appears in the repo.
+# `.firebaserc` stores the same Firebase project id as VITE_FIREBASE_PROJECT_ID
+# (public client config, not a private key). Omit this path from the scan.
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = ".firebaserc"
