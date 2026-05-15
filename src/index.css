@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply min-h-screen bg-surface-50 text-slate-900 font-sans text-[15px] leading-relaxed;
+    background-image: theme(backgroundImage.mesh-gradient);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  .input-base {
+    @apply block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-2 focus:ring-accent/20;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/90 backdrop-blur-sm border border-slate-200/80 shadow-glass;
+  }
+  .glass-strong {
+    @apply bg-white border border-slate-200/90 shadow-card;
+  }
+}
