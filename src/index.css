@@ -17,6 +17,16 @@
   .input-base {
     @apply block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-2 focus:ring-accent/20;
   }
+
+  .simple-rich-text strong {
+    font-weight: 600;
+  }
+  .simple-rich-text u {
+    text-decoration: underline;
+  }
+  .simple-rich-text span[style*="background"] {
+    background-color: #fef9c3 !important;
+  }
 }
 
 @layer utilities {

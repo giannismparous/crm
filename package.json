@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "seed:firestore": "node --env-file=.env scripts/seed-firestore.cjs",
-    "bootstrap:user": "node --env-file=.env scripts/bootstrap-auth-and-seed.cjs"
+    "bootstrap:user": "node --env-file=.env scripts/bootstrap-auth-and-seed.cjs",
+    "set:founder": "node --env-file=.env scripts/set-founder.cjs",
+    "cleanup:seed-people": "node --env-file=.env scripts/remove-seed-people.cjs"
   },
   "dependencies": {
     "firebase": "^10.14.1",

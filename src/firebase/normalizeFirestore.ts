@@ -9,7 +9,17 @@ import type {
   TaskSector,
   TaskStatus,
 } from "../types";
-import { TASK_SECTORS } from "../types";
+import { normalizeFeedbackRequests, taskHasOpenFeedback } from "../utils/taskFeedback";
+import { normalizePersonTaskStats } from "../utils/personTaskStats";
+import { normalizeTaskComments } from "../utils/taskComments";
+import { normalizeOrgRole } from "../auth/roles";
+import { TASK_SECTORS, normalizeDepartments } from "../types";
+import {
+  normalizeAssigneeDepartments,
+  normalizeIdList,
+} from "../utils/taskAssignees";
+import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
+import { normalizeUpdatesByUser } from "../utils/taskUpdates";
 
 function isTimestamp(v: unknown): v is Timestamp {
   return v instanceof Timestamp;
@@ -43,11 +53,19 @@ export function normalizePerson(id: string, data: Record<string, unknown>): Pers
   const p: Person = {
     id: typeof data.id === "string" ? data.id : id,
     name: String(data.name ?? ""),
-    role: String(data.role ?? ""),
+    title: String(data.title ?? data.role ?? ""),
     email: String(data.email ?? ""),
-    department: String(data.department ?? ""),
+    departments: normalizeDepartments(data.departments, data.department),
+    orgRole: normalizeOrgRole(data.orgRole),
   };
   if (typeof data.authUid === "string" && data.authUid) p.authUid = data.authUid;
+  if (typeof data.registrationSeedId === "string" && data.registrationSeedId) {
+    p.registrationSeedId = data.registrationSeedId;
+  }
+  if (typeof data.registeredAt === "string" && data.registeredAt) {
+    p.registeredAt = data.registeredAt;
+  }
+  p.taskStats = normalizePersonTaskStats(data.taskStats);
   return p;
 }
 
@@ -82,11 +100,19 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   const sectorRaw = data.sector;
   const sector: TaskSector =
     typeof sectorRaw === "string" && SECTOR_SET.has(sectorRaw) ? (sectorRaw as TaskSector) : "general";
-  return {
+  const feedbackRequests = normalizeFeedbackRequests(data.feedbackRequests);
+  const task: Task = {
     id: typeof data.id === "string" ? data.id : id,
     title: String(data.title ?? ""),
     description: String(data.description ?? ""),
+    updates: sanitizeTaskUpdates(String(data.updates ?? "")),
+    updatesByUser: normalizeUpdatesByUser(data.updatesByUser),
+    comments: normalizeTaskComments(data.comments),
     assigneeIds: readAssigneeIds(data),
+    assigneeDepartmentIds: normalizeAssigneeDepartments(data.assigneeDepartmentIds),
+    finishedByIds: normalizeIdList(data.finishedByIds),
+    feedbackByIds: normalizeIdList(data.feedbackByIds),
+    feedbackRequests,
     assignedById: String(data.assignedById ?? ""),
     status,
     priority,
@@ -94,9 +120,20 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
     dueDate: due,
     originalDueDate: orig,
     postponeCount,
-    needsFeedback: Boolean(data.needsFeedback),
+    needsFeedback: false,
     createdAt: toIso(data.createdAt) || new Date().toISOString(),
   };
+  const completedAt = toIso(data.completedAt);
+  if (completedAt) task.completedAt = completedAt;
+  const canceledAt = toIso(data.canceledAt);
+  if (canceledAt) task.canceledAt = canceledAt;
+  const canceledById = String(data.canceledById ?? "").trim();
+  if (canceledById) task.canceledById = canceledById;
+  task.needsFeedback =
+    taskHasOpenFeedback(task) ||
+    Boolean(data.needsFeedback) ||
+    normalizeIdList(data.feedbackByIds).length > 0;
+  return task;
 }
 
 export function normalizeReminder(id: string, data: Record<string, unknown>): ContactReminder {

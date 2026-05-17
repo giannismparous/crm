@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import type { SalesContact, Task, TaskListScope, TaskStatus } from "../types";
+import type { ContactReminder, Person, SalesContact, Task, TaskListScope, TaskStatus } from "../types";
+import { isTaskWorker } from "../utils/taskAssignees";
+import { isTaskOpen } from "../utils/personTaskStats";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -46,6 +48,7 @@ function sortDayItems(a: CalendarItem, b: CalendarItem): number {
 function buildItemsByDay(
   tasks: Task[],
   contacts: SalesContact[],
+  people: Person[],
   taskScope: TaskListScope,
   currentUserId: string,
   showReminders: boolean
@@ -59,10 +62,11 @@ function buildItemsByDay(
 
   const tasksFiltered =
     taskScope === "my" && currentUserId
-      ? tasks.filter((t) => t.assigneeIds.includes(currentUserId))
+      ? tasks.filter((t) => isTaskWorker(t, currentUserId, people))
       : tasks;
 
   for (const t of tasksFiltered) {
+    if (!isTaskOpen(t)) continue;
     if (!t.dueDate || t.dueDate.length < 10) continue;
     push(t.dueDate, { kind: "task", id: t.id, title: t.title, status: t.status, dueDate: t.dueDate, order: 0 });
   }
@@ -117,16 +121,29 @@ const STATUS_SHORT: Record<TaskStatus, string> = {
   in_progress: "Doing",
   review: "Review",
   done: "Done",
+  canceled: "Canceled",
 };
 
 export function CalendarTab({
   tasks,
   contacts,
+  people,
   currentUserId,
+  onOpenTask,
+  onOpenContact,
+  onUpdateReminder,
 }: {
   tasks: Task[];
   contacts: SalesContact[];
+  people: Person[];
   currentUserId: string;
+  onOpenTask: (taskId: string) => void;
+  onOpenContact: (contactId: string) => void;
+  onUpdateReminder: (
+    contactId: string,
+    reminderId: string,
+    patch: Partial<ContactReminder>
+  ) => void | Promise<void>;
 }) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -137,8 +154,8 @@ export function CalendarTab({
   const [selectedKey, setSelectedKey] = useState(() => dateKeyLocal(new Date()));
 
   const byDay = useMemo(
-    () => buildItemsByDay(tasks, contacts, taskScope, currentUserId, showReminders),
-    [tasks, contacts, taskScope, currentUserId, showReminders]
+    () => buildItemsByDay(tasks, contacts, people, taskScope, currentUserId, showReminders),
+    [tasks, contacts, people, taskScope, currentUserId, showReminders]
   );
 
   const cells = useMemo(() => monthCells(cursor.y, cursor.m), [cursor.y, cursor.m]);
@@ -185,7 +202,7 @@ export function CalendarTab({
               checked={showReminders}
               onChange={(e) => setShowReminders(e.target.checked)}
             />
-            Show sales reminders
+            Show reminders
           </label>
         </div>
 
@@ -282,24 +299,34 @@ export function CalendarTab({
                   <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
                     {visible.map((item) =>
                       item.kind === "task" ? (
-                        <div
+                        <button
                           key={`t-${item.id}`}
-                          className="truncate rounded border-l-[3px] border-indigo-600 bg-indigo-50 px-1 py-0.5 text-[10px] font-medium leading-tight text-indigo-950 sm:text-[11px]"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTask(item.id);
+                          }}
+                          className="w-full truncate rounded border-l-[3px] border-indigo-600 bg-indigo-50 px-1 py-0.5 text-left text-[10px] font-medium leading-tight text-indigo-950 hover:bg-indigo-100/80 sm:text-[11px]"
                           title={`${item.title} · ${STATUS_SHORT[item.status]}`}
                         >
                           <span className="block truncate">{item.title}</span>
-                        </div>
+                        </button>
                       ) : (
-                        <div
+                        <button
                           key={`r-${item.contactId}-${item.id}`}
-                          className="truncate rounded border-l-[3px] border-amber-600 bg-amber-50 px-1 py-0.5 text-[10px] font-medium leading-tight text-amber-950 sm:text-[11px]"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenContact(item.contactId);
+                          }}
+                          className="w-full truncate rounded border-l-[3px] border-amber-600 bg-amber-50 px-1 py-0.5 text-left text-[10px] font-medium leading-tight text-amber-950 hover:bg-amber-100/80 sm:text-[11px]"
                           title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title} · ${item.contactName}`}
                         >
                           {item.timeLabel ? (
                             <span className="font-semibold text-amber-900">{item.timeLabel} </span>
                           ) : null}
                           <span className="truncate">{item.title}</span>
-                        </div>
+                        </button>
                       )
                     )}
                     {more > 0 && (
@@ -329,25 +356,49 @@ export function CalendarTab({
             <ul className="mt-3 max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-sm">
               {selectedItems.map((item) =>
                 item.kind === "task" ? (
-                  <li
-                    key={`t-${item.id}`}
-                    className="rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 ring-1 ring-indigo-100"
-                  >
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-800">Task</div>
-                    <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
-                    <div className="mt-1 text-xs text-slate-600">{STATUS_SHORT[item.status]}</div>
+                  <li key={`t-${item.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(item.id)}
+                      className="w-full rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-left ring-1 ring-indigo-100 transition hover:border-indigo-200 hover:bg-indigo-50"
+                    >
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-800">Task</div>
+                      <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
+                      <div className="mt-1 text-xs text-slate-600">{STATUS_SHORT[item.status]}</div>
+                    </button>
                   </li>
                 ) : (
                   <li
                     key={`r-${item.contactId}-${item.id}`}
                     className="rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 ring-1 ring-amber-100"
                   >
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Reminder</div>
-                    <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      {item.timeLabel ? `${item.timeLabel} · ` : null}
-                      {item.contactName}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenContact(item.contactId)}
+                      className="w-full text-left transition hover:opacity-90"
+                    >
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Reminder</div>
+                      <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        {item.timeLabel ? `${item.timeLabel} · ` : null}
+                        {item.contactName}
+                      </div>
+                    </button>
+                    <label
+                      className="mt-2 flex cursor-pointer items-center gap-2 border-t border-amber-200/80 pt-2 text-xs text-slate-600"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        onChange={(e) => {
+                          void Promise.resolve(
+                            onUpdateReminder(item.contactId, item.id, { done: e.target.checked })
+                          ).catch(console.error);
+                        }}
+                        className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                      />
+                      Done
+                    </label>
                   </li>
                 )
               )}

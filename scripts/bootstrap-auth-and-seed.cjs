@@ -51,16 +51,21 @@ async function main() {
     }
   }
 
+  const emailLower = email.trim().toLowerCase();
+  const isFounder = emailLower === "giannismparous@gmail.com";
+  const orgRole = isFounder ? "founder" : "member";
+
   await orgRef
     .collection("people")
     .doc(uid)
     .set(
       {
         id: uid,
-        name: displayName,
+        name: isFounder ? "Giannis Mparous" : displayName,
         email,
-        role: "Member",
-        department: "Simasia",
+        title: isFounder ? "Founder" : "",
+        orgRole,
+        departments: ["General"],
         authUid: uid,
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -74,8 +79,9 @@ async function main() {
     .set(
       {
         email,
-        displayName,
+        displayName: isFounder ? "Giannis Mparous" : displayName,
         orgId: ORG_ID,
+        orgRole,
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -92,7 +98,7 @@ async function main() {
         "You’re set up in Firebase. Browse tasks and sales contacts under organizations/SimasiaAI. This task is assigned to you.",
       assigneeIds: [uid],
       assigneeId: uid,
-      assignedById: "p2",
+      assignedById: uid,
       status: "todo",
       priority: "medium",
       sector: "general",

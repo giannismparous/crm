@@ -24,12 +24,7 @@ function addDaysToDateOnly(isoDate, days) {
   return dt.toISOString().slice(0, 10);
 }
 
-const seedPeople = [
-  { id: "p1", name: "Maria Papadopoulou", role: "Operations Lead", email: "maria@company.example", department: "Operations" },
-  { id: "p2", name: "Nikos Andreou", role: "Sales Manager", email: "nikos@company.example", department: "Sales" },
-  { id: "p3", name: "Elena Kostaki", role: "Product Designer", email: "elena@company.example", department: "Product" },
-  { id: "p4", name: "Dimitris Ioannidis", role: "Engineering Lead", email: "dimitris@company.example", department: "Engineering" },
-];
+const seedPeople = [];
 
 const seedTasks = [
   {
@@ -332,9 +327,6 @@ async function seedFirestore() {
 
   const batch = db.batch();
 
-  for (const p of seedPeople) {
-    batch.set(orgRef.collection("people").doc(p.id), { ...p });
-  }
   for (const t of seedTasks) {
     batch.set(orgRef.collection("tasks").doc(t.id), { ...t });
   }
@@ -353,7 +345,7 @@ async function seedFirestore() {
   }
 
   await batch.commit();
-  console.log(`Seeded organizations/${ORG_ID}: people, tasks, contacts (+ reminders).`);
+  console.log(`Seeded organizations/${ORG_ID}: tasks, contacts (+ reminders). Team members come from Auth sign-up.`);
 }
 
 if (require.main === module) {

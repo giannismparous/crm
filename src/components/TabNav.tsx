@@ -2,6 +2,7 @@ import type { TabId } from "../types";
 
 const tabs: { id: TabId; label: string; title: string }[] = [
   { id: "tasks", label: "Tasks", title: "Team tasks — assign and track work" },
+  { id: "team", label: "Team", title: "Team directory — departments and members" },
   { id: "contacts", label: "Contacts", title: "Sales contacts — notes and reminders" },
   { id: "calendar", label: "Calendar", title: "Month view — tasks and reminders by day" },
 ];

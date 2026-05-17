@@ -1,3 +1,5 @@
+import colors from "tailwindcss/colors";
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
@@ -25,7 +27,8 @@ export default {
         },
         mint: "#059669",
         coral: "#e11d48",
-        amber: "#d97706",
+        /** Full scale required — a single hex here replaces defaults and breaks `bg-amber-900` etc. */
+        amber: { ...colors.amber, 500: "#d97706", 600: "#d97706" },
       },
       boxShadow: {
         glass: "0 1px 3px rgba(15, 23, 42, 0.06), 0 8px 24px -4px rgba(15, 23, 42, 0.08)",

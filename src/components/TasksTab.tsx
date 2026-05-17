@@ -1,7 +1,38 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { TaskComment } from "../types";
 import { Clock, ClockAlert } from "lucide-react";
-import type { Person, Task, TaskListScope, TaskPriority, TaskSector } from "../types";
-import { TASK_SECTOR_CHIP_CLASS, TASK_SECTOR_LABELS, TASK_SECTORS } from "../types";
+import type {
+  Person,
+  Task,
+  TaskFeedbackRequest,
+  TaskListScope,
+  TaskListTab,
+  TaskPriority,
+  TaskSector,
+  CommentReactionNotifyChange,
+} from "../types";
+import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTaskStats";
+import type { TaskUpdateIntent } from "../utils/personTaskStats";
+import type { OrgRole } from "../auth/roles";
+import { TASK_SECTOR_CHIP_CLASS, TASK_SECTOR_LABELS, TASK_SECTORS, TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { TaskCommentsSection } from "./TaskCommentsSection";
+import { TaskUpdatesSection } from "./TaskUpdatesSection";
+import {
+  isSelfAssignedSingleWorkerTask,
+  isTaskWorker,
+  reopenTaskPatch,
+  taskInvolvesPerson,
+} from "../utils/taskAssignees";
+import { taskHasFeedbackHistory, taskHasOpenFeedback } from "../utils/taskFeedback";
+import {
+  ConfirmPanel,
+  TaskWorkerActionButtons,
+  TaskWorkerFlowPanel,
+  type WorkerFlow,
+} from "./TaskWorkerActions";
+import type { NotificationKind } from "../types";
+import { taskCommentsPlainText } from "../utils/taskComments";
+import { mergedTaskUpdatesPlainText, taskUpdatesHasContent } from "../utils/taskUpdates";
 
 const PRIORITY_ORDER: TaskPriority[] = ["urgent", "high", "medium", "low"];
 
@@ -58,6 +89,51 @@ function PriorityUrgencyIcon({
   );
 }
 
+/** Multi-select urgency filter; empty selection = all priorities. */
+function PriorityFilter({
+  value,
+  onChange,
+}: {
+  value: TaskPriority[];
+  onChange: (priorities: TaskPriority[]) => void;
+}) {
+  function toggle(p: TaskPriority) {
+    if (value.includes(p)) onChange(value.filter((x) => x !== p));
+    else onChange([...value, p]);
+  }
+
+  return (
+    <div
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5"
+      role="group"
+      aria-label="Filter by urgency"
+    >
+      {PRIORITY_ORDER.map((p) => {
+        const on = value.includes(p);
+        return (
+          <button
+            key={p}
+            type="button"
+            onClick={() => toggle(p)}
+            title={`${on ? "Hide" : "Show"} ${PRIORITY_SHORT_LABEL[p]} — ${PRIORITY_TOOLTIPS[p]}`}
+            aria-label={`${PRIORITY_SHORT_LABEL[p]} urgency`}
+            aria-pressed={on}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition sm:h-8 sm:w-8 ${
+              PRIORITY_BADGE[p].pill
+            } ${
+              on
+                ? "border-accent/60 ring-2 ring-accent/35 ring-offset-1 ring-offset-white"
+                : "border-transparent opacity-35 grayscale hover:opacity-60"
+            }`}
+          >
+            <PriorityUrgencyIcon priority={p} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PrioritySegmented({
   value,
   onChange,
@@ -110,84 +186,96 @@ function addDaysToDateOnly(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function taskInvolvesPerson(task: Task, personId: string): boolean {
-  return task.assigneeIds.includes(personId) || task.assignedById === personId;
-}
+/** Empty filters = show all. People + sectors combine with OR (default) or AND (exclusive). */
+function taskMatchesEveryoneFilter(
+  task: Task,
+  filterPersonIds: string[],
+  filterSectors: TaskSector[],
+  exclusive: boolean,
+  people: Person[]
+): boolean {
+  const hasPeople = filterPersonIds.length > 0;
+  const hasSectors = filterSectors.length > 0;
+  if (!hasPeople && !hasSectors) return true;
 
-/** Empty filterIds = show all. If exclusive, task must involve every selected person (AND); else any (OR). */
-function taskMatchesInvolvedFilter(task: Task, filterPersonIds: string[], exclusive: boolean): boolean {
-  if (filterPersonIds.length === 0) return true;
-  if (exclusive) {
-    return filterPersonIds.every((pid) => taskInvolvesPerson(task, pid));
+  const personMatch = !hasPeople
+    ? true
+    : exclusive
+      ? filterPersonIds.every((pid) => taskInvolvesPerson(task, pid, people))
+      : filterPersonIds.some((pid) => taskInvolvesPerson(task, pid, people));
+
+  const sectorMatch = !hasSectors || filterSectors.includes(task.sector);
+
+  if (hasPeople && hasSectors) {
+    return exclusive ? personMatch && sectorMatch : personMatch || sectorMatch;
   }
-  return filterPersonIds.some((pid) => taskInvolvesPerson(task, pid));
+  return personMatch && sectorMatch;
 }
 
 function personMatchesSearch(p: Person, q: string): boolean {
   const s = q.trim().toLowerCase();
   if (!s) return true;
-  return `${p.name} ${p.email} ${p.role} ${p.department}`.toLowerCase().includes(s);
+  return `${p.name} ${p.email} ${p.title} ${p.departments.join(" ")}`.toLowerCase().includes(s);
 }
 
 /** Footer “For” line: comma-separated names with current user highlighted (no YOU badge). */
 function AssigneeNamesForFooter({
   assigneeIds,
+  assigneeDepartmentIds,
   people,
   currentUserId,
 }: {
   assigneeIds: string[];
+  assigneeDepartmentIds: string[];
   people: Person[];
   currentUserId: string;
 }) {
-  if (assigneeIds.length === 0) {
+  if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) {
     return <span className="font-medium text-slate-500">Open</span>;
   }
-  return (
-    <>
-      {assigneeIds.map((id, i) => {
-        const name = people.find((p) => p.id === id)?.name ?? id;
-        const isMe = id === currentUserId;
-        return (
-          <span key={id}>
-            {i > 0 ? <span className="text-slate-400">, </span> : null}
-            {isMe ? (
-              <span className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2">
-                {name}
-              </span>
-            ) : (
-              <span className="font-medium text-slate-800">{name}</span>
-            )}
+  const parts: ReactNode[] = [];
+  assigneeIds.forEach((id, i) => {
+    const name = people.find((p) => p.id === id)?.name ?? id;
+    const isMe = id === currentUserId;
+    parts.push(
+      <span key={`p-${id}`}>
+        {i > 0 ? <span className="text-slate-400">, </span> : null}
+        {isMe ? (
+          <span className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2">
+            {name}
           </span>
-        );
-      })}
-    </>
-  );
+        ) : (
+          <span className="font-medium text-slate-800">{name}</span>
+        )}
+      </span>
+    );
+  });
+  assigneeDepartmentIds.forEach((dept, i) => {
+    parts.push(
+      <span key={`d-${dept}`}>
+        {assigneeIds.length > 0 || i > 0 ? <span className="text-slate-400">, </span> : null}
+        <span className="font-medium text-violet-900">{dept}</span>
+        <span className="text-slate-500"> (dept)</span>
+      </span>
+    );
+  });
+  return <>{parts}</>;
 }
 
-/** Same compact control as the Everyone “Involved” filter: one row trigger + popover checkboxes. */
-function CompactPeopleMultiSelect({
+
+/** Everyone tab: filter by involved people and/or task sector. */
+function InvolvedFilterMultiSelect({
   people,
-  value,
-  onChange,
-  summaryPrefix,
-  ariaLabel,
-  allowClear = true,
-  minSelected,
-  emptySummary,
-  clearButtonLabel = "Clear",
+  personIds,
+  sectors,
+  onChangePeople,
+  onChangeSectors,
 }: {
   people: Person[];
-  value: string[];
-  onChange: (ids: string[]) => void;
-  /** Optional muted label before summary (e.g. “Involved”). Omit for names only. */
-  summaryPrefix?: string;
-  ariaLabel: string;
-  allowClear?: boolean;
-  minSelected?: number;
-  /** When selection is empty, summary text (default: “All” if allowClear, else “Choose…”). */
-  emptySummary?: string;
-  /** Label for the clear button in the popover (default: “Clear”). */
-  clearButtonLabel?: string;
+  personIds: string[];
+  sectors: TaskSector[];
+  onChangePeople: (ids: string[]) => void;
+  onChangeSectors: (s: TaskSector[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -202,44 +290,49 @@ function CompactPeopleMultiSelect({
     return () => document.removeEventListener("mousedown", handle);
   }, [open]);
 
-  const filtered = useMemo(() => people.filter((p) => personMatchesSearch(p, search)), [people, search]);
+  const filteredPeople = useMemo(
+    () => people.filter((p) => personMatchesSearch(p, search)),
+    [people, search]
+  );
+  const filteredSectors = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [...TASK_SECTORS];
+    return TASK_SECTORS.filter(
+      (s) => TASK_SECTOR_LABELS[s].toLowerCase().includes(q) || s.toLowerCase().includes(q)
+    );
+  }, [search]);
 
-  function toggle(pid: string) {
-    if (value.includes(pid)) {
-      if (minSelected != null && value.length <= minSelected) return;
-      onChange(value.filter((x) => x !== pid));
-    } else onChange([...value, pid]);
+  function togglePerson(id: string) {
+    onChangePeople(personIds.includes(id) ? personIds.filter((x) => x !== id) : [...personIds, id]);
   }
 
-  const summary =
-    value.length === 0
-      ? emptySummary !== undefined
-        ? emptySummary
-        : allowClear
-          ? "All"
-          : "Choose…"
-      : value.length === 1
-        ? people.find((p) => p.id === value[0])?.name ?? "1"
-        : `${value.length}`;
+  function toggleSector(sector: TaskSector) {
+    onChangeSectors(sectors.includes(sector) ? sectors.filter((s) => s !== sector) : [...sectors, sector]);
+  }
+
+  const summary = useMemo(() => {
+    if (personIds.length === 0 && sectors.length === 0) return "All";
+    const bits: string[] = [];
+    if (personIds.length === 1) {
+      bits.push(people.find((p) => p.id === personIds[0])?.name ?? "1 person");
+    } else if (personIds.length > 1) bits.push(`${personIds.length} people`);
+    if (sectors.length === 1) bits.push(TASK_SECTOR_LABELS[sectors[0]!]);
+    else if (sectors.length > 1) bits.push(`${sectors.length} sectors`);
+    return bits.join(", ");
+  }, [personIds, sectors, people]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="input-base flex h-[34px] w-fit min-w-[9rem] max-w-[12rem] items-center justify-between gap-1.5 rounded-lg py-0 pl-2 pr-1.5 text-left text-xs sm:h-9 sm:text-sm"
+        className="input-base flex h-[34px] w-fit min-w-[9rem] max-w-[14rem] items-center justify-between gap-1.5 rounded-lg py-0 pl-2 pr-1.5 text-left text-xs sm:h-9 sm:text-sm"
         aria-expanded={open}
         aria-haspopup="listbox"
       >
         <span className="min-w-0 flex-1 truncate">
-          {summaryPrefix && summaryPrefix.trim() !== "" ? (
-            <>
-              <span className="text-slate-400">{summaryPrefix} </span>
-              <span className="font-medium text-slate-800">{summary}</span>
-            </>
-          ) : (
-            <span className="font-medium text-slate-800">{summary}</span>
-          )}
+          <span className="text-slate-400">Filter </span>
+          <span className="font-medium text-slate-800">{summary}</span>
         </span>
         <span className="shrink-0 text-slate-400" aria-hidden>
           ▾
@@ -247,31 +340,32 @@ function CompactPeopleMultiSelect({
       </button>
       {open && (
         <div
-          className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
           role="listbox"
-          aria-label={ariaLabel}
+          aria-label="Filter by people and sector"
         >
           <input
             type="search"
-            placeholder="Search people…"
+            placeholder="Search people or sectors…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
           />
-          <div className="max-h-36 overflow-y-auto text-xs">
-            {filtered.length === 0 ? (
-              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
-            ) : (
+          <div className="max-h-52 overflow-y-auto text-xs">
+            {filteredPeople.length > 0 && (
               <>
-                {filtered.map((p) => (
+                <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  People
+                </p>
+                {filteredPeople.map((p) => (
                   <label
                     key={p.id}
                     className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
                   >
                     <input
                       type="checkbox"
-                      checked={value.includes(p.id)}
-                      onChange={() => toggle(p.id)}
+                      checked={personIds.includes(p.id)}
+                      onChange={() => togglePerson(p.id)}
                       className="rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
                     <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{p.name}</span>
@@ -279,14 +373,194 @@ function CompactPeopleMultiSelect({
                 ))}
               </>
             )}
+            {filteredSectors.length > 0 && (
+              <>
+                <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Sectors
+                </p>
+                {filteredSectors.map((sector) => (
+                  <label
+                    key={sector}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sectors.includes(sector)}
+                      onChange={() => toggleSector(sector)}
+                      className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                    />
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${TASK_SECTOR_CHIP_CLASS[sector]}`}
+                    >
+                      {TASK_SECTOR_LABELS[sector]}
+                    </span>
+                  </label>
+                ))}
+              </>
+            )}
+            {filteredPeople.length === 0 && filteredSectors.length === 0 && (
+              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
+            )}
           </div>
-          {allowClear && value.length > 0 && (
+          {(personIds.length > 0 || sectors.length > 0) && (
             <button
               type="button"
               className="mt-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-              onClick={() => onChange([])}
+              onClick={() => {
+                onChangePeople([]);
+                onChangeSectors([]);
+              }}
             >
-              {clearButtonLabel}
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssigneeMultiSelect({
+  people,
+  assigneeIds,
+  assigneeDepartmentIds,
+  onChange,
+}: {
+  people: Person[];
+  assigneeIds: string[];
+  assigneeDepartmentIds: string[];
+  onChange: (assigneeIds: string[], assigneeDepartmentIds: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  const filteredPeople = useMemo(
+    () => people.filter((p) => personMatchesSearch(p, search)),
+    [people, search]
+  );
+  const filteredDepts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [...TEAM_DEPARTMENTS];
+    return TEAM_DEPARTMENTS.filter((d) => d.toLowerCase().includes(q));
+  }, [search]);
+
+  function togglePerson(id: string) {
+    if (assigneeIds.includes(id)) onChange(assigneeIds.filter((x) => x !== id), assigneeDepartmentIds);
+    else onChange([...assigneeIds, id], assigneeDepartmentIds);
+  }
+
+  function toggleDept(dept: string) {
+    if (assigneeDepartmentIds.includes(dept))
+      onChange(assigneeIds, assigneeDepartmentIds.filter((d) => d !== dept));
+    else onChange(assigneeIds, [...assigneeDepartmentIds, dept]);
+  }
+
+  const summary = useMemo(() => {
+    if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) return "Open";
+    const bits: string[] = [];
+    if (assigneeIds.length === 1) {
+      bits.push(people.find((p) => p.id === assigneeIds[0])?.name ?? "1 person");
+    } else if (assigneeIds.length > 1) bits.push(`${assigneeIds.length} people`);
+    if (assigneeDepartmentIds.length === 1) bits.push(assigneeDepartmentIds[0]!);
+    else if (assigneeDepartmentIds.length > 1) bits.push(`${assigneeDepartmentIds.length} depts`);
+    return bits.join(", ");
+  }, [assigneeIds, assigneeDepartmentIds, people]);
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="input-base flex h-[34px] w-fit min-w-[9rem] max-w-[14rem] items-center justify-between gap-1.5 rounded-lg py-0 pl-2 pr-1.5 text-left text-xs sm:h-9 sm:text-sm"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{summary}</span>
+        <span className="shrink-0 text-slate-400" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
+          role="listbox"
+          aria-label="Choose assignees"
+        >
+          <input
+            type="search"
+            placeholder="Search people or departments…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input-base mb-1.5 w-full py-1.5 text-xs"
+          />
+          <div className="max-h-52 overflow-y-auto text-xs">
+            {filteredPeople.length > 0 && (
+              <>
+                <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  People
+                </p>
+                {filteredPeople.map((p) => (
+                  <label
+                    key={p.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={assigneeIds.includes(p.id)}
+                      onChange={() => togglePerson(p.id)}
+                      className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{p.name}</span>
+                  </label>
+                ))}
+              </>
+            )}
+            {filteredDepts.length > 0 && (
+              <>
+                <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Departments
+                </p>
+                {filteredDepts.map((d) => (
+                  <label
+                    key={d}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={assigneeDepartmentIds.includes(d)}
+                      onChange={() => toggleDept(d)}
+                      className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                    />
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
+                    >
+                      {d}
+                    </span>
+                  </label>
+                ))}
+              </>
+            )}
+            {filteredPeople.length === 0 && filteredDepts.length === 0 && (
+              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
+            )}
+          </div>
+          {(assigneeIds.length > 0 || assigneeDepartmentIds.length > 0) && (
+            <button
+              type="button"
+              className="mt-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+              onClick={() => onChange([], [])}
+            >
+              Clear
             </button>
           )}
         </div>
@@ -300,63 +574,155 @@ export function TasksTab({
   tasks,
   onAddTask,
   onUpdateTask,
-  onRemoveTask,
+  onCancelTask,
+  onCommentPosted,
+  onCommentReaction,
+  onTaskActionNotify,
+  onFeedbackReply,
   currentUserId,
+  currentUserOrgRole,
+  onBroadcastTaskEvent,
+  focusTaskId,
+  onFocusTaskHandled,
 }: {
   people: Person[];
   tasks: Task[];
   onAddTask: (t: Omit<Task, "id" | "createdAt">) => Promise<void>;
-  onUpdateTask: (id: string, patch: Partial<Task>) => Promise<void>;
-  onRemoveTask: (id: string) => Promise<void>;
+  onUpdateTask: (
+    id: string,
+    patch: Partial<Task>,
+    options?: { intent?: TaskUpdateIntent; actorId?: string }
+  ) => Promise<void>;
+  onCancelTask: (id: string) => Promise<void>;
+  onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
+  onCommentReaction?: (
+    task: Task,
+    comment: TaskComment,
+    change: CommentReactionNotifyChange
+  ) => void | Promise<void>;
+  onTaskActionNotify?: (
+    task: Task,
+    recipientIds: string[],
+    kind: NotificationKind,
+    preview: string
+  ) => void | Promise<void>;
+  onFeedbackReply?: (task: Task, request: TaskFeedbackRequest, body: string) => void | Promise<void>;
   currentUserId: string;
+  currentUserOrgRole: OrgRole;
+  onBroadcastTaskEvent?: (
+    task: Task,
+    kind: NotificationKind,
+    preview: string
+  ) => void | Promise<void>;
+  focusTaskId?: string | null;
+  onFocusTaskHandled?: () => void;
 }) {
   const [scope, setScope] = useState<TaskListScope>("my");
+  const [listTab, setListTab] = useState<TaskListTab>("open");
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [everyoneInvolvedFilter, setEveryoneInvolvedFilter] = useState<string[]>([]);
+  const [everyoneSectorFilter, setEveryoneSectorFilter] = useState<TaskSector[]>([]);
   const [everyoneFilterExclusive, setEveryoneFilterExclusive] = useState(false);
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
+  const taskRefs = useRef<Record<string, HTMLLIElement | null>>({});
+
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const target = tasks.find((t) => t.id === focusTaskId);
+    if (target && !isTaskWorker(target, currentUserId, people)) {
+      setScope("everyone");
+    }
+    const t = window.setTimeout(() => {
+      const el = taskRefs.current[focusTaskId];
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      onFocusTaskHandled?.();
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [focusTaskId, tasks, currentUserId, people, onFocusTaskHandled]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tasks.filter((t) => {
+      if (listTab === "open" && !isTaskOpen(t)) return false;
+      if (listTab === "completed" && !isTaskCompleted(t)) return false;
+      if (listTab === "canceled" && !isTaskCanceled(t)) return false;
       if (scope === "my") {
-        if (!t.assigneeIds.includes(currentUserId)) return false;
-      } else if (!taskMatchesInvolvedFilter(t, everyoneInvolvedFilter, everyoneFilterExclusive)) {
+        if (!isTaskWorker(t, currentUserId, people)) return false;
+      } else if (
+        !taskMatchesEveryoneFilter(t, everyoneInvolvedFilter, everyoneSectorFilter, everyoneFilterExclusive, people)
+      ) {
         return false;
       }
+      if (priorityFilter.length > 0 && !priorityFilter.includes(t.priority)) return false;
       if (!q) return true;
       const blob =
-        `${t.title} ${t.description} ${TASK_SECTOR_LABELS[t.sector]} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
+        `${t.title} ${t.description} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${TASK_SECTOR_LABELS[t.sector]} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [tasks, scope, currentUserId, query, everyoneInvolvedFilter, everyoneFilterExclusive]);
+  }, [
+    tasks,
+    listTab,
+    scope,
+    currentUserId,
+    people,
+    query,
+    everyoneInvolvedFilter,
+    everyoneSectorFilter,
+    everyoneFilterExclusive,
+    priorityFilter,
+  ]);
 
   const sorted = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const prioRank = (p: TaskPriority) => PRIORITY_ORDER.indexOf(p);
     return [...filtered].sort((a, b) => {
-      if (a.status === "done" !== (b.status === "done")) return a.status === "done" ? 1 : -1;
-      if (a.needsFeedback !== b.needsFeedback) return a.needsFeedback ? -1 : 1;
-      const aOver = a.status !== "done" && a.dueDate < today;
-      const bOver = b.status !== "done" && b.dueDate < today;
+      if (listTab === "completed") {
+        const ca = a.completedAt ?? a.createdAt;
+        const cb = b.completedAt ?? b.createdAt;
+        return cb.localeCompare(ca);
+      }
+      if (listTab === "canceled") {
+        const ca = a.canceledAt ?? a.createdAt;
+        const cb = b.canceledAt ?? b.createdAt;
+        return cb.localeCompare(ca);
+      }
+      const created = b.createdAt.localeCompare(a.createdAt);
+      if (created !== 0) return created;
+      if (taskHasOpenFeedback(a) !== taskHasOpenFeedback(b)) return taskHasOpenFeedback(a) ? -1 : 1;
+      const aOver = isTaskOpen(a) && a.dueDate < today;
+      const bOver = isTaskOpen(b) && b.dueDate < today;
       if (aOver !== bOver) return aOver ? -1 : 1;
       const dd = a.dueDate.localeCompare(b.dueDate);
       if (dd !== 0) return dd;
       return prioRank(a.priority) - prioRank(b.priority);
     });
-  }, [filtered]);
+  }, [filtered, listTab]);
+
+  const taskStats = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const openTasks = tasks.filter((t) => isTaskOpen(t)).length;
+    const overdue = tasks.filter((t) => isTaskOpen(t) && t.dueDate < today).length;
+    const completed = tasks.filter((t) => isTaskCompleted(t)).length;
+    const canceled = tasks.filter((t) => isTaskCanceled(t)).length;
+    return { openTasks, overdue, completed, canceled };
+  }, [tasks]);
 
   async function addTask(payload: Omit<Task, "id" | "createdAt">) {
     await onAddTask(payload);
     setShowForm(false);
   }
 
-  function updateTask(id: string, patch: Partial<Task>) {
-    void onUpdateTask(id, patch).catch(console.error);
+  function updateTask(id: string, patch: Partial<Task>, intent?: TaskUpdateIntent) {
+    if (intent === "reopen") setListTab("open");
+    return onUpdateTask(id, patch, { intent, actorId: currentUserId }).catch((e) => {
+      console.error(e);
+      throw e;
+    });
   }
 
-  function removeTask(id: string) {
-    void onRemoveTask(id).catch(console.error);
+  function cancelTask(id: string) {
+    void onCancelTask(id).catch(console.error);
   }
 
   return (
@@ -376,8 +742,66 @@ export function TasksTab({
         </>
       ) : (
         <>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-2">
+              <div>
+                <h2 className="font-display text-base font-semibold text-slate-900">Tasks</h2>
+                <div
+                  className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
+                  aria-label="Tasks summary"
+                >
+                  <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
+                    <span className="tabular-nums font-semibold text-indigo-700">{taskStats.openTasks}</span>
+                    <span className="font-normal">Open</span>
+                  </span>
+                  <span className="px-0.5 text-slate-300" aria-hidden>
+                    |
+                  </span>
+                  <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
+                    <span className="tabular-nums font-semibold text-rose-700">{taskStats.overdue}</span>
+                    <span className="font-normal">Overdue</span>
+                  </span>
+                  <span className="px-0.5 text-slate-300" aria-hidden>
+                    |
+                  </span>
+                  <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
+                    <span className="tabular-nums font-semibold text-emerald-700">{taskStats.completed}</span>
+                    <span className="font-normal">Completed</span>
+                  </span>
+                  <span className="px-0.5 text-slate-300" aria-hidden>
+                    |
+                  </span>
+                  <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
+                    <span className="tabular-nums font-semibold text-slate-600">{taskStats.canceled}</span>
+                    <span className="font-normal">Canceled</span>
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex rounded-lg border border-slate-200 bg-violet-100/80 p-0.5 shadow-inner">
+                  {(
+                    [
+                      ["open", "Open"],
+                      ["completed", "Completed"],
+                      ["canceled", "Canceled"],
+                    ] as const
+                  ).map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setListTab(tab)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
+                        listTab === tab
+                          ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
+                          : "text-slate-600"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
                 <button
                   type="button"
@@ -402,16 +826,16 @@ export function TasksTab({
               </span>
               {scope === "everyone" && (
                 <>
-                  <CompactPeopleMultiSelect
+                  <InvolvedFilterMultiSelect
                     people={people}
-                    value={everyoneInvolvedFilter}
-                    onChange={setEveryoneInvolvedFilter}
-                    summaryPrefix="Involved"
-                    ariaLabel="Filter by involved people"
+                    personIds={everyoneInvolvedFilter}
+                    sectors={everyoneSectorFilter}
+                    onChangePeople={setEveryoneInvolvedFilter}
+                    onChangeSectors={setEveryoneSectorFilter}
                   />
                   <label
                     className="inline-flex cursor-pointer items-center gap-1 text-[10px] font-medium text-slate-500 sm:text-[11px]"
-                    title="Checked: task must involve every selected person. Unchecked: task involves any one of them."
+                    title="Unchecked: match any selected person or sector. Checked: must match all selected people and a selected sector."
                   >
                     <input
                       type="checkbox"
@@ -423,6 +847,7 @@ export function TasksTab({
                   </label>
                 </>
               )}
+              </div>
             </div>
             <button
               type="button"
@@ -433,24 +858,38 @@ export function TasksTab({
             </button>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tasks…"
-              className="input-base max-w-md py-2 text-sm"
+              className="input-base min-w-0 flex-1 py-2 text-sm sm:max-w-md"
             />
+            <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
           </div>
 
           <ul className="space-y-3 overflow-visible">
             {sorted.map((task) => (
-              <li key={task.id} className="overflow-visible">
+              <li
+                key={task.id}
+                ref={(el) => {
+                  taskRefs.current[task.id] = el;
+                }}
+                className="overflow-visible"
+              >
                 <TaskCard
                   task={task}
                   people={people}
                   currentUserId={currentUserId}
-                  onChange={(patch) => updateTask(task.id, patch)}
-                  onCancelTask={() => removeTask(task.id)}
+                  currentUserOrgRole={currentUserOrgRole}
+                  highlighted={task.id === focusTaskId}
+                  onChange={(patch, intent) => updateTask(task.id, patch, intent)}
+                  onCancelTask={() => cancelTask(task.id)}
+                  onCommentPosted={onCommentPosted}
+                  onCommentReaction={onCommentReaction}
+                  onTaskActionNotify={onTaskActionNotify}
+                  onFeedbackReply={onFeedbackReply}
+                  onBroadcastTaskEvent={onBroadcastTaskEvent}
                 />
               </li>
             ))}
@@ -458,7 +897,11 @@ export function TasksTab({
 
           {sorted.length === 0 && (
             <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
-              No tasks here. Switch to Everyone or add a task for someone (including yourself).
+              {listTab === "open"
+                ? "No open tasks. Switch tab, scope, or create a task."
+                : listTab === "completed"
+                  ? "No completed tasks yet."
+                  : "No canceled tasks."}
             </p>
           )}
         </>
@@ -479,6 +922,7 @@ function NewTaskForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [assigneeDepartmentIds, setAssigneeDepartmentIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [sector, setSector] = useState<TaskSector>("general");
@@ -494,6 +938,10 @@ function NewTaskForm({
       title: title.trim(),
       description: description.trim(),
       assigneeIds: [...new Set(assigneeIds)],
+      assigneeDepartmentIds: [...new Set(assigneeDepartmentIds)],
+      finishedByIds: [],
+      feedbackByIds: [],
+      feedbackRequests: [],
       assignedById: currentUserId,
       status: "todo",
       priority,
@@ -502,6 +950,9 @@ function NewTaskForm({
       originalDueDate: dueDate,
       postponeCount: 0,
       needsFeedback: false,
+      updates: "",
+      updatesByUser: {},
+      comments: [],
     });
   }
 
@@ -512,7 +963,7 @@ function NewTaskForm({
     >
       <p className="text-sm font-semibold text-slate-900">New task</p>
       <p className="mt-0.5 text-xs text-slate-500">
-        Assign to nobody (Open) or pick people. You are recorded as who created the task.
+        Assign to people and/or whole departments. You are recorded as who created the task.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <Field label="Title">
@@ -535,13 +986,14 @@ function NewTaskForm({
         </Field>
         <div className="flex min-w-0 flex-col">
           <span className="mb-1 block text-xs font-medium text-slate-600">Assign to</span>
-          <CompactPeopleMultiSelect
+          <AssigneeMultiSelect
             people={people}
-            value={assigneeIds}
-            onChange={setAssigneeIds}
-            ariaLabel="Choose assignees"
-            allowClear
-            emptySummary="Open"
+            assigneeIds={assigneeIds}
+            assigneeDepartmentIds={assigneeDepartmentIds}
+            onChange={(ids, deptIds) => {
+              setAssigneeIds(ids);
+              setAssigneeDepartmentIds(deptIds);
+            }}
           />
         </div>
         <div className="flex min-w-0 flex-col">
@@ -599,39 +1051,78 @@ function TaskCard({
   task,
   people,
   currentUserId,
+  currentUserOrgRole,
+  highlighted,
   onChange,
   onCancelTask,
+  onCommentPosted,
+  onCommentReaction,
+  onTaskActionNotify,
+  onFeedbackReply,
+  onBroadcastTaskEvent,
 }: {
   task: Task;
   people: Person[];
   currentUserId: string;
-  onChange: (patch: Partial<Task>) => void;
+  currentUserOrgRole: OrgRole;
+  highlighted?: boolean;
+  onChange: (patch: Partial<Task>, intent?: TaskUpdateIntent) => void | Promise<void>;
   onCancelTask: () => void;
+  onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
+  onCommentReaction?: (
+    task: Task,
+    comment: TaskComment,
+    change: CommentReactionNotifyChange
+  ) => void | Promise<void>;
+  onTaskActionNotify?: (
+    task: Task,
+    recipientIds: string[],
+    kind: NotificationKind,
+    preview: string
+  ) => void | Promise<void>;
+  onFeedbackReply?: (task: Task, request: TaskFeedbackRequest, body: string) => void | Promise<void>;
+  onBroadcastTaskEvent?: (
+    task: Task,
+    kind: NotificationKind,
+    preview: string
+  ) => void | Promise<void>;
 }) {
   const today = new Date().toISOString().slice(0, 10);
-  const overdue = task.status !== "done" && task.dueDate < today;
+  const canceled = isTaskCanceled(task);
+  const completed = isTaskCompleted(task);
+  const overdue = isTaskOpen(task) && task.dueDate < today;
   const postponed = task.postponeCount > 0;
   const [descOpen, setDescOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const isAssignee = task.assigneeIds.includes(currentUserId);
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [workerFlow, setWorkerFlow] = useState<WorkerFlow>(null);
+  const isWorker = isTaskWorker(task, currentUserId, people);
   const isAssigner = task.assignedById === currentUserId;
+  const canReopen = currentUserOrgRole === "founder" || isTaskWorker;
+  const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? "Someone";
+  const hasOpenFeedback = taskHasOpenFeedback(task);
+  const hasFeedbackHistory = taskHasFeedbackHistory(task);
   const descPreview =
     task.description.length > 160 && !descOpen
       ? task.description.slice(0, 160).trimEnd() + "…"
       : task.description;
+  const selfAssigned = isSelfAssignedSingleWorkerTask(task, people);
+  const assigner = task.assignedById ? people.find((p) => p.id === task.assignedById) : undefined;
+  const assignerName =
+    !selfAssigned && assigner?.name
+      ? assigner.name
+      : !selfAssigned && task.assignedById
+        ? "—"
+        : null;
 
   return (
-    <article className="relative overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <span
-        className={`pointer-events-auto absolute right-0 top-0 z-10 flex translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm ring-1 ring-white/80 ${PRIORITY_BADGE[task.priority].pill}`}
-        title={PRIORITY_TOOLTIPS[task.priority]}
-        role="img"
-        aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
-      >
-        <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-      </span>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 pr-7 sm:pr-8">
+    <article
+      className={`relative overflow-visible rounded-xl border bg-white p-4 shadow-sm sm:p-5 ${
+        highlighted ? "border-accent ring-2 ring-accent/25" : "border-slate-200"
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-1 pr-1 sm:pr-2">
           <div className="flex flex-wrap items-start gap-2">
             <input
               value={task.title}
@@ -647,6 +1138,15 @@ function TaskCard({
             </span>
             <span className="text-slate-300"> · </span>
             <span className="font-medium text-slate-700">Due {formatDue(task.dueDate)}</span>
+            {canceled && (
+              <span className="text-slate-600">
+                {" · Canceled"}
+                {task.canceledAt && ` ${formatDue(task.canceledAt.slice(0, 10))}`}
+              </span>
+            )}
+            {completed && task.completedAt && (
+              <span className="text-emerald-800"> · Completed {formatDue(task.completedAt.slice(0, 10))}</span>
+            )}
             {overdue && <span className="text-rose-700"> · Overdue</span>}
             {postponed && (
               <span className="text-amber-800">
@@ -662,57 +1162,146 @@ function TaskCard({
             )}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {task.status !== "done" ? (
+
+        <div
+          className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-2"
+          aria-live="polite"
+        >
+          {!completed && !canceled ? (
             <>
+              {isWorker && workerFlow === null && !task.finishedByIds.includes(currentUserId) && (
+                <TaskWorkerActionButtons
+                  task={task}
+                  people={people}
+                  currentUserId={currentUserId}
+                  onFinish={() => setWorkerFlow("finish")}
+                  onFeedback={() => setWorkerFlow("feedback")}
+                />
+              )}
+              {hasFeedbackHistory && (
+                <span
+                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
+                    hasOpenFeedback
+                      ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
+                      : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
+                  }`}
+                  title={
+                    hasOpenFeedback
+                      ? "Waiting on feedback — see Comments"
+                      : "Feedback was shared on this task — see Comments"
+                  }
+                >
+                  Needs feedback
+                </span>
+              )}
+              <span
+                className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm ring-1 ring-white/80 ${PRIORITY_BADGE[task.priority].pill}`}
+                title={PRIORITY_TOOLTIPS[task.priority]}
+                role="img"
+                aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
+              >
+                <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              </span>
               {isAssigner && (
                 <button
                   type="button"
-                  onClick={() => onChange({ status: "done" })}
-                  className="rounded-lg border border-emerald-800/50 bg-emerald-900/20 px-2.5 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-800/35 hover:bg-emerald-900/30"
+                  onClick={() =>
+                    void (async () => {
+                      const title = task.title.trim() || "Task";
+                      try {
+                        await onChange({ status: "done" }, "mark_complete");
+                        await onBroadcastTaskEvent?.(
+                          task,
+                          "task_marked_complete",
+                          `${actorLabel} marked “${title}” complete.`
+                        );
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    })()
+                  }
+                  className="shrink-0 rounded-lg border border-emerald-800/50 bg-emerald-900/20 px-2.5 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-800/35 hover:bg-emerald-900/30"
                 >
                   Mark complete
                 </button>
               )}
-              {isAssignee && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onChange({ status: "done" })}
-                    className="rounded-lg border border-emerald-400/70 bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-400/40 hover:bg-emerald-500/30"
-                  >
-                    I finished
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onChange({ needsFeedback: !task.needsFeedback })}
-                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${
-                      task.needsFeedback
-                        ? "border-orange-400 bg-orange-100 text-orange-950 ring-orange-300/90"
-                        : "border-orange-200/90 bg-orange-50 text-orange-900 ring-orange-200/80 hover:bg-orange-100"
-                    }`}
-                  >
-                    I need feedback
-                  </button>
-                </>
+            </>
+          ) : (
+            <>
+              {canReopen && completed && !reopenOpen && (
+                <button
+                  type="button"
+                  onClick={() => setReopenOpen(true)}
+                  className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Reopen
+                </button>
               )}
-              {task.needsFeedback && (
-                <span className="rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-900 ring-1 ring-orange-200/90">
+              {hasFeedbackHistory && (
+                <span
+                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
+                    hasOpenFeedback
+                      ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
+                      : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
+                  }`}
+                  title={
+                    hasOpenFeedback
+                      ? "Waiting on feedback — see Comments"
+                      : "Feedback was shared on this task — see Comments"
+                  }
+                >
                   Needs feedback
                 </span>
               )}
+              <span
+                className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm ring-1 ring-white/80 ${PRIORITY_BADGE[task.priority].pill}`}
+                title={PRIORITY_TOOLTIPS[task.priority]}
+                role="img"
+                aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
+              >
+                <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              </span>
             </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onChange({ status: "todo" })}
-              className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            >
-              Reopen
-            </button>
           )}
         </div>
       </div>
+
+      {reopenOpen && completed && (
+        <div className="mt-3 w-full">
+          <ConfirmPanel
+            message="Reopen this task? It will move back to Open and clear finished status for everyone."
+            yesLabel="Yes, reopen"
+            noLabel="Keep completed"
+            onYes={() =>
+              void (async () => {
+                const title = task.title.trim() || "Task";
+                try {
+                  await onChange(reopenTaskPatch(), "reopen");
+                  await onBroadcastTaskEvent?.(task, "task_reopened", `${actorLabel} reopened “${title}”.`);
+                  setReopenOpen(false);
+                } catch (e) {
+                  console.error(e);
+                }
+              })()
+            }
+            onNo={() => setReopenOpen(false)}
+          />
+        </div>
+      )}
+
+      {isWorker && workerFlow !== null && workerFlow !== "postpone" && onTaskActionNotify && (
+        <TaskWorkerFlowPanel
+          task={task}
+          people={people}
+          currentUserId={currentUserId}
+          flow={workerFlow}
+          onClose={() => setWorkerFlow(null)}
+          onChange={onChange}
+          onNotify={(ids, kind, preview) => void onTaskActionNotify(task, ids, kind, preview)}
+          formatDue={formatDue}
+          addDaysToDateOnly={addDaysToDateOnly}
+        />
+      )}
 
       {task.description && (
         <div className="mt-3">
@@ -729,69 +1318,106 @@ function TaskCard({
         </div>
       )}
 
-      <details className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs">
-        <summary className="cursor-pointer font-medium text-slate-600">Details</summary>
-        <div className="mt-3 space-y-3 text-slate-700">
-          <div>
-            <span className="block text-[11px] font-medium text-slate-500">Description</span>
-            <p className="mt-1 whitespace-pre-wrap rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-xs leading-relaxed text-slate-800">
-              {task.description.trim() ? task.description : <span className="text-slate-400">No description.</span>}
-            </p>
-          </div>
-          <div>
-            <span className="block text-[11px] font-medium text-slate-500">Assigned by</span>
-            <p className="mt-1 text-xs font-medium text-slate-800">
-              {people.find((p) => p.id === task.assignedById)?.name ?? "—"}
-            </p>
-          </div>
-        </div>
-      </details>
+      {(isWorker || taskUpdatesHasContent(task, people)) && (
+        <TaskUpdatesSection
+          task={task}
+          people={people}
+          currentUserId={currentUserId}
+          isWorker={isWorker}
+          onChange={onChange}
+        />
+      )}
+
+      <TaskCommentsSection
+        task={task}
+        people={people}
+        currentUserId={currentUserId}
+        onChange={onChange}
+        onCommentPosted={onCommentPosted}
+        onCommentReaction={onCommentReaction}
+        onFeedbackReply={async (t, request, body) => {
+          await onFeedbackReply?.(t, request, body);
+        }}
+      />
 
       <div className="mt-3 border-t border-slate-100 pt-3">
         {!cancelOpen ? (
-          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-            <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-tight text-slate-600">
-              <span className="min-w-0">
-                <span className="text-slate-400">For </span>
-                <AssigneeNamesForFooter
-                  assigneeIds={task.assigneeIds}
-                  people={people}
-                  currentUserId={currentUserId}
-                />
-              </span>
+          workerFlow === "postpone" && onTaskActionNotify ? (
+            <TaskWorkerFlowPanel
+              task={task}
+              people={people}
+              currentUserId={currentUserId}
+              flow="postpone"
+              onClose={() => setWorkerFlow(null)}
+              onChange={onChange}
+              onNotify={(ids, kind, preview) => void onTaskActionNotify(task, ids, kind, preview)}
+              formatDue={formatDue}
+              addDaysToDateOnly={addDaysToDateOnly}
+            />
+          ) : (
+            <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-tight text-slate-600">
+                <span className="min-w-0">
+                  <span className="text-slate-400">For </span>
+                  <AssigneeNamesForFooter
+                    assigneeIds={task.assigneeIds}
+                    assigneeDepartmentIds={task.assigneeDepartmentIds}
+                    people={people}
+                    currentUserId={currentUserId}
+                  />
+                </span>
+                {(selfAssigned || assignerName) && (
+                  <>
+                    <span className="text-slate-300" aria-hidden>
+                      ·
+                    </span>
+                    {selfAssigned ? (
+                      <span className="text-slate-500">(self assigned)</span>
+                    ) : (
+                      <span className="min-w-0">
+                        <span className="text-slate-400">By </span>
+                        {task.assignedById === currentUserId ? (
+                          <span className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2">
+                            {assignerName}
+                          </span>
+                        ) : (
+                          <span className="font-medium text-slate-800">{assignerName}</span>
+                        )}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {!completed && !canceled && (isWorker || isAssigner) && (
+                  <button
+                    type="button"
+                    onClick={() => setWorkerFlow("postpone")}
+                    className="rounded-md border border-violet-300/70 bg-violet-500/12 px-2 py-0.5 text-xs font-semibold text-violet-900 hover:bg-violet-500/22"
+                    title="Choose a new due date"
+                  >
+                    Postpone
+                  </button>
+                )}
+                {!canceled && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelOpen(true)}
+                    className="rounded-md px-2 py-0.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
-              {task.status !== "done" && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChange({
-                      dueDate: addDaysToDateOnly(task.dueDate, 7),
-                      postponeCount: task.postponeCount + 1,
-                    })
-                  }
-                  className="rounded-md border border-violet-300/70 bg-violet-500/12 px-2 py-0.5 text-xs font-semibold text-violet-900 hover:bg-violet-500/22"
-                  title="Push due date by one week. Counts each click; original due date is unchanged."
-                >
-                  Postpone
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setCancelOpen(true)}
-                className="rounded-md px-2 py-0.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+          )
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-left shadow-sm">
             <p className="text-xs leading-relaxed text-amber-950">
-              Cancelling removes it for <span className="font-medium">everyone</span>. It disappears from this board
+              Cancelling moves this task to the <span className="font-medium">Canceled</span> tab for everyone. Use it
               when work was abandoned, duplicated, or created by mistake — not when the work is actually done (use{" "}
               <span className="font-medium">Mark complete</span>
-              {isAssignee ? (
+              {isWorker ? (
                 <>
                   {" "}
                   or <span className="font-medium">I finished</span>

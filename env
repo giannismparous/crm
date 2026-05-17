@@ -1,0 +1,11 @@
+# Web app (Vite) — from Firebase Console → Project settings → Your apps → Web
+VITE_FIREBASE_API_KEY=AIzaSyB1J0JP0wEm6mcw2gp8n3mwthbRxmYCOR0
+VITE_FIREBASE_AUTH_DOMAIN=crm-product-3e233.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=crm-product-3e233
+VITE_FIREBASE_STORAGE_BUCKET=crm-product-3e233.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=38884063960
+VITE_FIREBASE_APP_ID=1:38884063960:web:3a9cedd2a8a478adc2f5ad
+VITE_FIREBASE_MEASUREMENT_ID=G-SS1YKB7K8Y
+
+# Seed script only (not exposed to the browser). Path to your Admin SDK JSON download.
+FIREBASE_SERVICE_ACCOUNT_PATH=service-account.json

@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react";
 import type { TabId } from "./types";
-import { signOutUser } from "./firebase/config";
 import { TabNav } from "./components/TabNav";
 import { TasksTab } from "./components/TasksTab";
 import { ContactsTab } from "./components/ContactsTab";
 import { AuthScreen } from "./components/AuthScreen";
 import { CalendarTab } from "./components/CalendarTab";
+import { TeamTab } from "./components/TeamTab";
+import { NotificationsBell } from "./components/NotificationsBell";
+import { SettingsModal } from "./components/SettingsPanel";
+import { UserAccountMenu } from "./components/UserAccountMenu";
 import { useOrgFirestore } from "./useOrgFirestore";
+import type { AppNotification } from "./types";
 
 export default function App() {
   const {
@@ -18,33 +22,60 @@ export default function App() {
     tasks,
     contacts,
     currentUserPersonId,
+    currentUserOrgRole,
     updateTask,
     createTask,
-    removeTask,
+    cancelTask,
     addContact,
     updateContact,
     removeContact,
     addReminder,
     updateReminder,
     removeReminder,
+    updatePerson,
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    notifyTaskComment,
+    notifyCommentReaction,
+    notifyTaskAction,
+    notifyTaskFeedbackReply,
+    notifyEveryoneAboutTask,
+    registrationSeeds,
+    canAccessSettings,
+    issueRegistrationSeed,
+    updatePersonOrgRole,
   } = useOrgFirestore();
 
   const [tab, setTab] = useState<TabId>("tasks");
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [focusContactId, setFocusContactId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  function openNotification(n: AppNotification) {
+    setTab("tasks");
+    setFocusTaskId(n.taskId);
+  }
+
+  function openTaskFromCalendar(taskId: string) {
+    setTab("tasks");
+    setFocusTaskId(taskId);
+  }
+
+  function openContactFromCalendar(contactId: string) {
+    setTab("contacts");
+    setFocusContactId(contactId);
+  }
 
   const currentUserId = currentUserPersonId || people[0]?.id || "";
 
-  const stats = useMemo(() => {
-    const openTasks = tasks.filter((t) => t.status !== "done").length;
-    const overdue = tasks.filter((t) => {
-      if (t.status === "done") return false;
-      return t.dueDate < new Date().toISOString().slice(0, 10);
-    }).length;
-    const pendingReminders = contacts.reduce(
-      (n, c) => n + c.reminders.filter((r) => !r.done).length,
-      0
-    );
-    return { openTasks, overdue, pendingReminders, contactCount: contacts.length };
-  }, [tasks, contacts]);
+  const currentUserName = useMemo(() => {
+    const person = people.find((p) => p.id === currentUserPersonId);
+    if (person?.name.trim()) return person.name.trim();
+    if (user?.displayName?.trim()) return user.displayName.trim();
+    if (user?.email) return user.email.split("@")[0] ?? user.email;
+    return "Signed in";
+  }, [people, currentUserPersonId, user]);
 
   const layoutMax = tab === "calendar" ? "max-w-7xl" : "max-w-6xl";
 
@@ -79,14 +110,18 @@ export default function App() {
                 {error}
               </span>
             )}
-            <CompactStats stats={stats} />
-            <button
-              type="button"
-              onClick={() => void signOutUser()}
-              className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50 sm:text-xs"
-            >
-              Sign out
-            </button>
+            <NotificationsBell
+              notifications={notifications}
+              onSelect={openNotification}
+              onMarkRead={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+            />
+            <UserAccountMenu
+              name={currentUserName}
+              email={user?.email}
+              canOpenSettings={canAccessSettings}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
           </div>
         </div>
       </header>
@@ -98,9 +133,19 @@ export default function App() {
             tasks={tasks}
             onAddTask={createTask}
             onUpdateTask={updateTask}
-            onRemoveTask={removeTask}
+            onCancelTask={(id) => cancelTask(id, currentUserPersonId)}
+            onCommentPosted={notifyTaskComment}
+            onCommentReaction={notifyCommentReaction}
+            onTaskActionNotify={notifyTaskAction}
+            onFeedbackReply={notifyTaskFeedbackReply}
             currentUserId={currentUserId}
+            currentUserOrgRole={currentUserOrgRole}
+            onBroadcastTaskEvent={notifyEveryoneAboutTask}
+            focusTaskId={focusTaskId}
+            onFocusTaskHandled={() => setFocusTaskId(null)}
           />
+        ) : tab === "team" ? (
+          <TeamTab people={people} currentUserId={currentUserId} onUpdatePerson={updatePerson} />
         ) : tab === "contacts" ? (
           <ContactsTab
             contacts={contacts}
@@ -110,38 +155,33 @@ export default function App() {
             onAddReminder={addReminder}
             onUpdateReminder={updateReminder}
             onRemoveReminder={removeReminder}
+            focusContactId={focusContactId}
+            onFocusContactHandled={() => setFocusContactId(null)}
           />
         ) : (
-          <CalendarTab tasks={tasks} contacts={contacts} currentUserId={currentUserId} />
+          <CalendarTab
+            tasks={tasks}
+            contacts={contacts}
+            people={people}
+            currentUserId={currentUserId}
+            onOpenTask={openTaskFromCalendar}
+            onOpenContact={openContactFromCalendar}
+            onUpdateReminder={updateReminder}
+          />
         )}
       </main>
-    </div>
-  );
-}
 
-function CompactStats({
-  stats,
-}: {
-  stats: { openTasks: number; overdue: number; pendingReminders: number; contactCount: number };
-}) {
-  const items = [
-    { label: "Open", value: stats.openTasks, className: "text-indigo-700" },
-    { label: "Overdue", value: stats.overdue, className: "text-rose-700" },
-    { label: "Contacts", value: stats.contactCount, className: "text-emerald-700" },
-    { label: "Reminders", value: stats.pendingReminders, className: "text-amber-800" },
-  ];
-  return (
-    <div
-      className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
-      aria-label="Summary counts"
-    >
-      {items.map((item, i) => (
-        <span key={item.label} className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
-          {i > 0 && <span className="px-0.5 text-slate-300" aria-hidden>|</span>}
-          <span className={`tabular-nums font-semibold ${item.className}`}>{item.value}</span>
-          <span className="hidden font-normal sm:inline">{item.label}</span>
-        </span>
-      ))}
+      {canAccessSettings && (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          people={people}
+          seeds={registrationSeeds}
+          currentUserId={currentUserId}
+          onCreateSeed={issueRegistrationSeed}
+          onUpdateOrgRole={updatePersonOrgRole}
+        />
+      )}
     </div>
   );
 }

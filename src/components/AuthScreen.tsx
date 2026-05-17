@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { registerWithEmail, signInWithEmail } from "../firebase/config";
+import { signInWithEmail } from "../firebase/config";
+import { ensureUserProfile } from "../firebase/ensureUserProfile";
+import { registerWithSeed } from "../firebase/registerWithSeed";
 
 export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [seedCode, setSeedCode] = useState("");
   const [mode, setMode] = useState<"signin" | "register">("signin");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -13,8 +16,12 @@ export function AuthScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      if (mode === "signin") await signInWithEmail(email.trim(), password);
-      else await registerWithEmail(email.trim(), password);
+      if (mode === "signin") {
+        const cred = await signInWithEmail(email.trim(), password);
+        await ensureUserProfile(cred.user);
+      } else {
+        await registerWithSeed(email.trim(), password, seedCode);
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -26,7 +33,11 @@ export function AuthScreen() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="font-display text-xl font-semibold text-slate-900">Team CRM</h1>
-        <p className="mt-1 text-sm text-slate-500">Sign in with your team email to load live data.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {mode === "signin"
+            ? "Sign in with your team email to load live data."
+            : "Create an account with a one-time seed from your team admin."}
+        </p>
 
         <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5">
           <button
@@ -50,6 +61,21 @@ export function AuthScreen() {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3">
+          {mode === "register" && (
+            <label className="block text-xs font-medium text-slate-600">
+              Registration seed
+              <input
+                type="text"
+                autoComplete="off"
+                required
+                spellCheck={false}
+                value={seedCode}
+                onChange={(e) => setSeedCode(e.target.value)}
+                placeholder="Paste one-time code"
+                className="input-base mt-1 w-full py-2 font-mono text-sm"
+              />
+            </label>
+          )}
           <label className="block text-xs font-medium text-slate-600">
             Email
             <input
