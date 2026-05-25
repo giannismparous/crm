@@ -2,8 +2,8 @@
   command = "npm run build"
   publish = "dist"
 
-# Netlify secrets scan flags when a "Secret" env value appears in the repo.
-# `.firebaserc` stores the same Firebase project id as VITE_FIREBASE_PROJECT_ID
-# (public client config, not a private key). Omit this path from the scan.
+# Firebase Web SDK config is public in the client bundle (VITE_*). Omit those keys
+# from secrets scanning so deploys are not blocked. See https://ntl.fyi/configure-secrets-scanning
 [build.environment]
-  SECRETS_SCAN_OMIT_PATHS = ".firebaserc"
+  SECRETS_SCAN_OMIT_PATHS = ".firebaserc,.env.example"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_API_KEY,VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_PROJECT_ID,VITE_FIREBASE_STORAGE_BUCKET,VITE_FIREBASE_MESSAGING_SENDER_ID,VITE_FIREBASE_APP_ID,VITE_FIREBASE_MEASUREMENT_ID"

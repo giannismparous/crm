@@ -250,8 +250,9 @@ export function useOrgFirestore() {
         console.error("notifications", e);
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("permission") || msg.includes("Permission")) {
+          const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
           setError(
-            "Notifications blocked by Firestore rules. Publish firestore.rules to project crm-product-3e233 (see README or run: npx firebase deploy --only firestore:rules)."
+            `Notifications blocked by Firestore rules. Publish firestore.rules${projectId ? ` to project ${projectId}` : ""} (see README or run: npx firebase deploy --only firestore:rules).`
           );
         }
       }
