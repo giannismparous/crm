@@ -12,6 +12,7 @@ import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
 import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
+import { GoogleCalendarModal } from "./components/GoogleCalendarModal";
 import { SettingsModal } from "./components/SettingsPanel";
 import { UserAccountMenu } from "./components/UserAccountMenu";
 import { useNotificationAlerts } from "./hooks/useNotificationAlerts";
@@ -75,10 +76,42 @@ function App() {
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [googleCalendarOpen, setGoogleCalendarOpen] = useState(false);
+  const [googleCalendarOauthMessage, setGoogleCalendarOauthMessage] = useState<{
+    text: string;
+    error: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!seesAllOrgData && tab === "contacts") setTab("tasks");
   }, [seesAllOrgData, tab]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("googleCalendar");
+    if (!status) return;
+
+    if (status === "connected") {
+      setGoogleCalendarOauthMessage({
+        text: "Google Calendar connected. Your CRM items are syncing.",
+        error: false,
+      });
+      setGoogleCalendarOpen(true);
+    } else if (status === "error") {
+      const detail = params.get("message")?.trim();
+      setGoogleCalendarOauthMessage({
+        text: detail || "Google Calendar connection failed.",
+        error: true,
+      });
+      setGoogleCalendarOpen(true);
+    }
+
+    params.delete("googleCalendar");
+    params.delete("message");
+    const next = params.toString();
+    const path = window.location.pathname + (next ? `?${next}` : "");
+    window.history.replaceState({}, "", path);
+  }, []);
 
   function openNotification(n: AppNotification) {
     if (n.kind === "reminder_shared" || n.kind === "reminder_due") {
@@ -177,6 +210,7 @@ function App() {
               email={user?.email}
               canOpenSettings={canAccessSettings}
               onOpenSettings={() => setSettingsOpen(true)}
+              onOpenGoogleCalendar={() => setGoogleCalendarOpen(true)}
             />
           </div>
         </div>
@@ -288,6 +322,15 @@ function App() {
           onCreateSeed={issueRegistrationSeed}
         />
       )}
+
+      <GoogleCalendarModal
+        open={googleCalendarOpen}
+        onClose={() => {
+          setGoogleCalendarOpen(false);
+          setGoogleCalendarOauthMessage(null);
+        }}
+        oauthMessage={googleCalendarOauthMessage}
+      />
     </div>
   );
 }

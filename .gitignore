@@ -25,6 +25,8 @@ serviceAccount.json
 **/firebase-adminsdk*.json
 credentials.json
 **/credentials.json
+functions/lib
+functions/node_modules
 
 # Editor
 .vscode/*

@@ -29,6 +29,7 @@ import {
   normalizeNotification,
 } from "./firebase/notifications";
 import { getFirebaseAuth, getFirestoreDb, SIMASIA_AI_ORG_ID } from "./firebase/config";
+import { syncCrmItemToGoogleCalendar } from "./firebase/googleCalendar";
 import { canSeeAllOrgData, hasPrivilege, type OrgRole } from "./auth/roles";
 import { ensureUserProfile } from "./firebase/ensureUserProfile";
 import {
@@ -694,6 +695,8 @@ export function useOrgFirestore() {
         console.error("applyPersonStatDeltas", e);
       }
     }
+
+    void syncCrmItemToGoogleCalendar("task", id);
   },
     [db, people, applyPersonStatDeltas]
   );
@@ -763,6 +766,7 @@ export function useOrgFirestore() {
       }
 
       await applyPersonStatDeltas(statDeltaForNewTask(creatorId));
+      void syncCrmItemToGoogleCalendar("task", id);
     },
     [db, people, applyPersonStatDeltas]
   );
@@ -770,6 +774,7 @@ export function useOrgFirestore() {
   const removeTask = useCallback(
     async (id: string) => {
       await deleteDoc(doc(db, "organizations", ORG, "tasks", id));
+      void syncCrmItemToGoogleCalendar("task", id, "delete");
     },
     [db]
   );
@@ -1060,6 +1065,7 @@ export function useOrgFirestore() {
           : {}),
       }) as Record<string, unknown>;
       await setDoc(ref, scrub(forWrite) as Record<string, unknown>);
+      void syncCrmItemToGoogleCalendar("appointment", id);
       return id;
     },
     [db]
@@ -1101,6 +1107,7 @@ export function useOrgFirestore() {
       const body = scrub(stripUndefinedDeep(forWrite) as Record<string, unknown>) as Record<string, unknown>;
       if (Object.keys(body).length === 0) return;
       await updateDoc(ref, body as DocumentData);
+      void syncCrmItemToGoogleCalendar("appointment", id);
 
       if ("taskId" in patch) {
         const linked = personalReminders.filter((r) => r.appointmentId === id);
@@ -1177,6 +1184,7 @@ export function useOrgFirestore() {
           console.error("notifyReminderShared", e);
         }
       }
+      void syncCrmItemToGoogleCalendar("personalReminder", id);
       return id;
     },
     [db, people]
@@ -1217,6 +1225,7 @@ export function useOrgFirestore() {
         prev.map((r) => (r.id === id ? { ...r, ...linked, id } as PersonalReminder : r))
       );
       await updateDoc(ref, body as DocumentData);
+      void syncCrmItemToGoogleCalendar("personalReminder", id);
 
       if (existing) {
         const ownerId = existing.ownerId;
@@ -1260,6 +1269,7 @@ export function useOrgFirestore() {
   const removePersonalReminder = useCallback(
     async (id: string) => {
       await deleteDoc(doc(db, "organizations", ORG, "personalReminders", id));
+      void syncCrmItemToGoogleCalendar("personalReminder", id, "delete");
     },
     [db]
   );
@@ -1277,6 +1287,7 @@ export function useOrgFirestore() {
   const removeAppointment = useCallback(
     async (id: string) => {
       await deleteDoc(doc(db, "organizations", ORG, "appointments", id));
+      void syncCrmItemToGoogleCalendar("appointment", id, "delete");
     },
     [db]
   );

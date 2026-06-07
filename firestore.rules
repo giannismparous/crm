@@ -72,6 +72,18 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == userId;
+
+      // Google Calendar tokens — Cloud Functions only (Admin SDK bypasses rules).
+      match /integrations/{docId} {
+        allow read, write: if false;
+        match /events/{eventId} {
+          allow read, write: if false;
+        }
+      }
+    }
+
+    match /oauthStates/{stateId} {
+      allow read, write: if false;
     }
   }
 }

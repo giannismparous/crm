@@ -465,24 +465,26 @@ export function SettingsModal({
             </div>
           </SettingsSection>
 
-          <SettingsSection title="Integrations" titleNote="(under development)">
-            <div className="pointer-events-none space-y-2 opacity-50">
+          <SettingsSection title="Integrations">
+            <div className="space-y-2">
               <div className="settings-card flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
                   <GoogleCalendarIcon className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800">Google Calendar</p>
-                  <p className="text-[10px] text-slate-500">Sync appointments</p>
+                  <p className="text-[10px] text-slate-500">Each user connects from the account menu (top right).</p>
                 </div>
               </div>
-              <div className="settings-card flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
-                  <GmailIcon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800">Gmail</p>
-                  <p className="text-[10px] text-slate-500">Email from the CRM</p>
+              <div className="pointer-events-none space-y-2 opacity-50">
+                <div className="settings-card flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
+                    <GmailIcon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-800">Gmail</p>
+                    <p className="text-[10px] text-slate-500">Email from the CRM (coming soon)</p>
+                  </div>
                 </div>
               </div>
             </div>
