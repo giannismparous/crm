@@ -78,6 +78,8 @@ export function PersonalRemindersTab({
   onOpenContact,
   onOpenTask,
   onOpenAppointment,
+  focusReminderId,
+  onFocusReminderHandled,
 }: {
   reminders: PersonalReminder[];
   people: Person[];
@@ -94,8 +96,11 @@ export function PersonalRemindersTab({
   onOpenContact: (contactId: string) => void;
   onOpenTask: (taskId: string) => void;
   onOpenAppointment: (appointmentId: string) => void;
+  focusReminderId?: string | null;
+  onFocusReminderHandled?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState("");
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState(emptyDraft);
   const [draftId, setDraftId] = useState(() => newPersonalReminderDocId());
@@ -179,6 +184,22 @@ export function PersonalRemindersTab({
   useEffect(() => {
     setReopenOpen(false);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!focusReminderId) return;
+    const r = visible.find((x) => x.id === focusReminderId);
+    if (!r) {
+      onFocusReminderHandled?.();
+      return;
+    }
+    setListTab(r.done ? "done" : "open");
+    setShowForm(false);
+    setSelectedId(focusReminderId);
+    requestAnimationFrame(() => {
+      cardRefs.current[focusReminderId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    onFocusReminderHandled?.();
+  }, [focusReminderId, visible, onFocusReminderHandled]);
 
   function ownerLabel(ownerId: string) {
     if (ownerId === currentUserId) return "you";
@@ -396,6 +417,7 @@ export function PersonalRemindersTab({
     const overdue = isReminderOverdue(r.dueAt, r.done);
     return (
       <li>
+        <div ref={(el) => { cardRefs.current[r.id] = el; }}>
         <button
           type="button"
           onClick={() => openDetail(r)}
@@ -412,6 +434,7 @@ export function PersonalRemindersTab({
             {r.done && <span className="ml-2 font-medium text-emerald-700">Done</span>}
           </p>
         </button>
+        </div>
       </li>
     );
   }

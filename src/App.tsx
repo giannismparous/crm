@@ -21,6 +21,7 @@ import type { AppNotification } from "./types";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { needsProfileSetup } from "./utils/profileSetup";
 import { useUserAppearance } from "./hooks/useAppearance";
+import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
 
 function App() {
   const {
@@ -75,6 +76,7 @@ function App() {
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
+  const [focusReminderId, setFocusReminderId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [googleCalendarOpen, setGoogleCalendarOpen] = useState(false);
   const [googleCalendarOauthMessage, setGoogleCalendarOauthMessage] = useState<{
@@ -89,14 +91,14 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("googleCalendar");
-    if (!status) return;
 
     if (status === "connected") {
       setGoogleCalendarOauthMessage({
-        text: "Google Calendar connected. Your CRM items are syncing.",
+        text: "Google Calendar connected. Events sync to your SimasiaAI CRM calendar.",
         error: false,
       });
       setGoogleCalendarOpen(true);
+      params.delete("googleCalendar");
     } else if (status === "error") {
       const detail = params.get("message")?.trim();
       setGoogleCalendarOauthMessage({
@@ -104,10 +106,27 @@ function App() {
         error: true,
       });
       setGoogleCalendarOpen(true);
+      params.delete("googleCalendar");
+      params.delete("message");
     }
 
-    params.delete("googleCalendar");
-    params.delete("message");
+    const deepLink = parseCrmDeepLink(params.toString());
+    if (hasCrmDeepLink(deepLink)) {
+      if (deepLink.tab) setTab(deepLink.tab);
+      else if (deepLink.taskId) setTab("tasks");
+      else if (deepLink.appointmentId) setTab("appointments");
+      else if (deepLink.reminderId) setTab("reminders");
+
+      if (deepLink.taskId) setFocusTaskId(deepLink.taskId);
+      if (deepLink.appointmentId) setFocusAppointmentId(deepLink.appointmentId);
+      if (deepLink.reminderId) setFocusReminderId(deepLink.reminderId);
+
+      params.delete("tab");
+      params.delete("task");
+      params.delete("appointment");
+      params.delete("reminder");
+    }
+
     const next = params.toString();
     const path = window.location.pathname + (next ? `?${next}` : "");
     window.history.replaceState({}, "", path);
@@ -294,6 +313,8 @@ function App() {
             onOpenContact={openContactFromCalendar}
             onOpenTask={openTaskFromCalendar}
             onOpenAppointment={openAppointmentFromCalendar}
+            focusReminderId={focusReminderId}
+            onFocusReminderHandled={() => setFocusReminderId(null)}
           />
         ) : (
           <CalendarTab

@@ -1,6 +1,7 @@
 export const ORG_ID = "SimasiaAI";
 export const ORG_TIMEZONE = "Europe/Athens";
-export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+/** Full calendar scope — required to create the dedicated SimasiaAI CRM calendar. */
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 export const CRM_SOURCE = "simasia-crm";
 
 export type CrmType = "task" | "appointment" | "personalReminder";

@@ -9,7 +9,9 @@ export interface CrmTask {
   status: string;
   priority?: string;
   assigneeIds?: string[];
+  assigneeDepartmentIds?: string[];
   assignedById?: string;
+  projectId?: string;
 }
 
 export interface CrmAppointment {
@@ -22,6 +24,7 @@ export interface CrmAppointment {
   meetingLink?: string;
   status: string;
   participantIds?: string[];
+  participantDepartmentIds?: string[];
   createdById?: string;
 }
 
@@ -33,6 +36,12 @@ export interface CrmPersonalReminder {
   done: boolean;
   ownerId: string;
   participantIds?: string[];
+  participantDepartmentIds?: string[];
+}
+
+export interface CrmProject {
+  id: string;
+  departmentIds?: string[];
 }
 
 export async function loadCrmItem(
@@ -50,39 +59,6 @@ export async function loadCrmItem(
   if (!snap.exists) return null;
   const data = snap.data() as Record<string, unknown>;
   return { id: snap.id, ...data } as CrmTask | CrmAppointment | CrmPersonalReminder;
-}
-
-export function relevantUserIds(
-  crmType: CrmType,
-  item: CrmTask | CrmAppointment | CrmPersonalReminder
-): string[] {
-  const ids = new Set<string>();
-
-  if (crmType === "task") {
-    const task = item as CrmTask;
-    for (const id of task.assigneeIds ?? []) {
-      if (id) ids.add(id);
-    }
-    if (task.assignedById) ids.add(task.assignedById);
-  }
-
-  if (crmType === "appointment") {
-    const apt = item as CrmAppointment;
-    for (const id of apt.participantIds ?? []) {
-      if (id) ids.add(id);
-    }
-    if (apt.createdById) ids.add(apt.createdById);
-  }
-
-  if (crmType === "personalReminder") {
-    const rem = item as CrmPersonalReminder;
-    if (rem.ownerId) ids.add(rem.ownerId);
-    for (const id of rem.participantIds ?? []) {
-      if (id) ids.add(id);
-    }
-  }
-
-  return [...ids];
 }
 
 export function userWantsSync(

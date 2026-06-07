@@ -2,6 +2,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onRequest } from "firebase-functions/v2/https";
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { randomBytes } from "crypto";
 import { google } from "googleapis";
 import type { CrmType, SyncAction } from "./constants";
@@ -13,7 +14,8 @@ import {
   googleRedirectUri,
   integrationRef,
 } from "./config";
-import { createOAuthClient, loadIntegration, saveIntegration } from "./tokens";
+import { ensureSimasiaCalendar } from "./calendarSetup";
+import { createOAuthClient, getAuthedCalendarClient, loadIntegration, saveIntegration } from "./tokens";
 import { fullSyncForUser, syncItemForAllUsers } from "./sync";
 
 initializeApp();
@@ -136,7 +138,7 @@ export const googleCalendarOAuthCallback = onRequest(
       await saveIntegration(db, uid, {
         connected: true,
         googleEmail: googleEmail || undefined,
-        calendarId: "primary",
+        calendarId: existing?.calendarId || "primary",
         refreshToken: tokens.refresh_token ?? existing?.refreshToken,
         accessToken: tokens.access_token ?? undefined,
         accessTokenExpiresAt: tokens.expiry_date ?? undefined,
@@ -150,6 +152,7 @@ export const googleCalendarOAuthCallback = onRequest(
       await stateRef.delete();
 
       try {
+        await ensureSimasiaCalendar(db, uid);
         await fullSyncForUser(db, uid);
       } catch (syncErr) {
         const msg = syncErr instanceof Error ? syncErr.message : "Initial sync failed.";
@@ -178,7 +181,27 @@ export const disconnectGoogleCalendar = onCall(
       }
     }
 
+    const calendarId = integration?.calendarId || "primary";
     const eventsSnap = await db.collection(`users/${uid}/integrations/googleCalendar/events`).get();
+    if (integration?.connected && eventsSnap.docs.length > 0) {
+      try {
+        const calendar = await getAuthedCalendarClient(db, uid);
+        await Promise.all(
+          eventsSnap.docs.map(async (mapDoc) => {
+            const { googleEventId } = mapDoc.data() as { googleEventId: string };
+            try {
+              await calendar.events.delete({ calendarId, eventId: googleEventId });
+            } catch (err) {
+              const code = (err as { code?: number })?.code;
+              if (code !== 404 && code !== 410) throw err;
+            }
+          })
+        );
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+
     const batch = db.batch();
     eventsSnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(integrationRef(db, uid));
@@ -260,6 +283,31 @@ export const syncGoogleCalendarItem = onCall(
     } catch (err) {
       console.error("syncGoogleCalendarItem", err);
       return { ok: false };
+    }
+  }
+);
+
+/** Re-sync calendar when a person's departments change (partner visibility). */
+export const onPersonDepartmentsCalendarSync = onDocumentUpdated(
+  {
+    document: "organizations/SimasiaAI/people/{personId}",
+    region: "us-central1",
+    secrets: [googleClientSecret],
+  },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+
+    const deptBefore = JSON.stringify(before.departments ?? []);
+    const deptAfter = JSON.stringify(after.departments ?? []);
+    if (deptBefore === deptAfter) return;
+
+    const uid = event.params.personId;
+    try {
+      await fullSyncForUser(db, uid);
+    } catch {
+      /* user not connected or sync skipped */
     }
   }
 );

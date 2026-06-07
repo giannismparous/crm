@@ -3,11 +3,19 @@ import { CRM_SOURCE, ORG_TIMEZONE } from "./constants";
 import type { CrmAppointment, CrmPersonalReminder, CrmTask } from "./crmData";
 import { crmAppUrl } from "./config";
 
+const DIVIDER = "────────────────────";
+const READ_ONLY_FOOTER =
+  "Read-only copy from SimasiaAI CRM. Edit or delete items in the CRM only — changes made here are overwritten on the next sync.";
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function appLink(path: string): string {
+function formatLabel(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function deepLink(path: string): string {
   const base = crmAppUrl.value().replace(/\/$/, "");
   return `${base}${path}`;
 }
@@ -24,29 +32,55 @@ function defaultEndIso(startsAt: string, minutes = 60): string {
   return new Date(start.getTime() + minutes * 60_000).toISOString();
 }
 
+function buildDescription(lines: string[], link: string): string {
+  const body = lines.filter(Boolean);
+  return [...body, "", DIVIDER, "Open in SimasiaAI CRM:", link, "", READ_ONLY_FOOTER].join("\n");
+}
+
+function readOnlyEventFields(link: string): Pick<calendar_v3.Schema$Event, "source" | "guestsCanModify" | "guestsCanInviteOthers"> {
+  return {
+    source: { title: "SimasiaAI CRM", url: link },
+    guestsCanModify: false,
+    guestsCanInviteOthers: false,
+  };
+}
+
+function eventMeta(crmType: string, crmId: string) {
+  return {
+    extendedProperties: {
+      private: {
+        crmSource: CRM_SOURCE,
+        crmType,
+        crmId,
+      },
+    },
+  };
+}
+
 export function buildTaskEvent(task: CrmTask): calendar_v3.Schema$Event | null {
   const dueDate = task.dueDate?.trim().slice(0, 10);
   if (!dueDate) return null;
 
+  const title = task.title.trim() || "Untitled task";
+  const link = deepLink(`/?tab=tasks&task=${task.id}`);
+  const details = task.description?.trim() ? stripHtml(task.description) : "";
+
   const lines = [
-    task.description?.trim() ? stripHtml(task.description) : "",
-    `Priority: ${task.priority ?? "medium"}`,
-    `Status: ${task.status}`,
-    `Open in CRM: ${appLink(`/?tab=tasks&task=${task.id}`)}`,
-  ].filter(Boolean);
+    `Type: Task`,
+    `Priority: ${formatLabel(task.priority ?? "medium")}`,
+    `Status: ${formatLabel(task.status)}`,
+    details ? `\nDetails:\n${details}` : "",
+  ];
 
   return {
-    summary: `[CRM Task] ${task.title.trim() || "Untitled task"}`,
-    description: lines.join("\n\n"),
+    summary: `Task · ${title}`,
+    description: buildDescription(lines, link),
+    location: "SimasiaAI CRM",
     start: { date: dueDate },
     end: { date: addDay(dueDate) },
-    extendedProperties: {
-      private: {
-        crmSource: CRM_SOURCE,
-        crmType: "task",
-        crmId: task.id,
-      },
-    },
+    colorId: "9",
+    ...readOnlyEventFields(link),
+    ...eventMeta("task", task.id),
   };
 }
 
@@ -55,25 +89,26 @@ export function buildAppointmentEvent(apt: CrmAppointment): calendar_v3.Schema$E
   if (!startsAt) return null;
   const endsAt = apt.endsAt?.trim() || defaultEndIso(startsAt, 60);
 
+  const title = apt.title.trim() || "Meeting";
+  const link = deepLink(`/?tab=appointments&appointment=${apt.id}`);
+  const details = apt.description?.trim() ? stripHtml(apt.description) : "";
+
   const lines = [
-    apt.description?.trim() ? stripHtml(apt.description) : "",
-    apt.meetingLink?.trim() ? `Meeting link: ${apt.meetingLink.trim()}` : "",
-    `Open in CRM: ${appLink(`/?tab=appointments&appointment=${apt.id}`)}`,
-  ].filter(Boolean);
+    `Type: Meeting / Appointment`,
+    apt.location?.trim() ? `Location: ${apt.location.trim()}` : "",
+    apt.meetingLink?.trim() ? `Join: ${apt.meetingLink.trim()}` : "",
+    details ? `\nDetails:\n${details}` : "",
+  ];
 
   return {
-    summary: apt.title.trim() || "CRM Appointment",
-    description: lines.join("\n\n"),
-    location: apt.location?.trim() || undefined,
+    summary: `Meeting · ${title}`,
+    description: buildDescription(lines, link),
+    location: apt.location?.trim() || apt.meetingLink?.trim() || "SimasiaAI CRM",
     start: { dateTime: startsAt, timeZone: ORG_TIMEZONE },
     end: { dateTime: endsAt, timeZone: ORG_TIMEZONE },
-    extendedProperties: {
-      private: {
-        crmSource: CRM_SOURCE,
-        crmType: "appointment",
-        crmId: apt.id,
-      },
-    },
+    colorId: "10",
+    ...readOnlyEventFields(link),
+    ...eventMeta("appointment", apt.id),
   };
 }
 
@@ -82,22 +117,20 @@ export function buildReminderEvent(rem: CrmPersonalReminder): calendar_v3.Schema
   if (!dueAt) return null;
   const endsAt = defaultEndIso(dueAt, 30);
 
-  const lines = [
-    rem.notes?.trim() || "",
-    `Open in CRM: ${appLink(`/?tab=reminders&reminder=${rem.id}`)}`,
-  ].filter(Boolean);
+  const title = rem.title.trim() || "Reminder";
+  const link = deepLink(`/?tab=reminders&reminder=${rem.id}`);
+  const notes = rem.notes?.trim() || "";
+
+  const lines = [`Type: Personal reminder`, notes ? `\nNotes:\n${notes}` : ""];
 
   return {
-    summary: `[CRM Reminder] ${rem.title.trim() || "Reminder"}`,
-    description: lines.join("\n\n"),
+    summary: `Reminder · ${title}`,
+    description: buildDescription(lines, link),
+    location: "SimasiaAI CRM",
     start: { dateTime: dueAt, timeZone: ORG_TIMEZONE },
     end: { dateTime: endsAt, timeZone: ORG_TIMEZONE },
-    extendedProperties: {
-      private: {
-        crmSource: CRM_SOURCE,
-        crmType: "personalReminder",
-        crmId: rem.id,
-      },
-    },
+    colorId: "5",
+    ...readOnlyEventFields(link),
+    ...eventMeta("personalReminder", rem.id),
   };
 }

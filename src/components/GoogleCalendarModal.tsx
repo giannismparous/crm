@@ -148,8 +148,13 @@ export function GoogleCalendarModal({
 
         <div className="space-y-4 px-4 py-4">
           <p className="text-xs leading-relaxed text-slate-600">
-            Connect your personal Google account. Tasks, appointments, and reminders you are part of
-            will sync to your Google Calendar.
+            One-way sync: CRM → Google Calendar only. Items you can see sync to a separate{" "}
+            <strong>SimasiaAI CRM</strong> calendar (toggle it on/off in Google Calendar).
+          </p>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+            Deleting or editing events in Google Calendar does <strong>not</strong> change the CRM.
+            Manage tasks, meetings, and reminders in the CRM — Google Calendar is a read-only view.
+            If you delete an event in Google, it reappears on the next CRM update or Sync now.
           </p>
 
           {loading ? (
