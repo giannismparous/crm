@@ -1,58 +1,141 @@
 import { useMemo, useState } from "react";
-import type { ContactReminder, Person, SalesContact, Task, TaskListScope, TaskStatus } from "../types";
-import { isTaskWorker } from "../utils/taskAssignees";
+import type {
+  Appointment,
+  PersonalReminder,
+  Person,
+  Project,
+  Task,
+  TaskListScope,
+  TaskPriority,
+  TaskStatus,
+} from "../types";
+import {
+  PRIORITY_SHORT_LABEL,
+  PRIORITY_TOOLTIPS,
+  PriorityFilter,
+  PriorityUrgencyIcon,
+  TASK_PRIORITY_CALENDAR_CHIP,
+} from "./TasksTab";
+import { isPersonalReminderRelevantToPerson } from "../utils/personalReminderLinks";
+import {
+  appointmentStartsAtMs,
+  formatAppointmentTimeRange,
+  isAppointmentRelevantToPerson,
+  isAppointmentScheduled,
+} from "../utils/appointments";
+import { taskInvolvesPerson } from "../utils/taskAssignees";
 import { isTaskOpen } from "../utils/personTaskStats";
+import {
+  datetimeLocalToIso,
+  formatInOrgTime,
+  orgDateKey,
+  orgTodayDateKey,
+  orgWeekday,
+  orgYmdAddDays,
+} from "../utils/orgTimezone";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const MAX_CHIPS_PER_CELL = 4;
 
+/** Distinct from task priority colors (rose / orange / indigo / emerald). */
+const APPOINTMENT_CHIP = {
+  stripe: "border-cyan-600",
+  bg: "bg-cyan-50",
+  hover: "hover:bg-cyan-100/80",
+  text: "text-cyan-950",
+  time: "text-cyan-900",
+  label: "text-cyan-800",
+  ring: "ring-cyan-100",
+  border: "border-cyan-100",
+  hoverBorder: "hover:border-cyan-200",
+  hoverBg: "hover:bg-cyan-50",
+  checkbox: "text-cyan-600 focus:ring-cyan-500",
+  legend: "bg-cyan-600",
+  divider: "border-cyan-200/80",
+} as const;
+
+const REMINDER_CHIP = {
+  stripe: "border-fuchsia-600",
+  bg: "bg-fuchsia-50",
+  hover: "hover:bg-fuchsia-100/80",
+  text: "text-fuchsia-950",
+  time: "text-fuchsia-900",
+  label: "text-fuchsia-800",
+  ring: "ring-fuchsia-100",
+  border: "border-fuchsia-100",
+  hoverBorder: "hover:border-fuchsia-200",
+  hoverBg: "hover:bg-fuchsia-50",
+  checkbox: "text-fuchsia-600 focus:ring-fuchsia-500",
+  legend: "bg-fuchsia-600",
+  divider: "border-fuchsia-200/80",
+} as const;
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function dateKeyLocal(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
 function isoToLocalDateKey(iso: string): string {
-  return dateKeyLocal(new Date(iso));
+  return orgDateKey(iso);
 }
 
 function reminderTimeLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return formatInOrgTime(iso, { hour: "numeric", minute: "2-digit" });
 }
 
 type CalendarItem =
-  | { kind: "task"; id: string; title: string; status: TaskStatus; dueDate: string; order: number }
+  | { kind: "appointment"; id: string; title: string; startsAt: string; order: number; timeLabel: string }
+  | {
+      kind: "task";
+      id: string;
+      title: string;
+      status: TaskStatus;
+      priority: TaskPriority;
+      dueDate: string;
+      projectName?: string;
+      projectColor?: string;
+      order: number;
+    }
   | {
       kind: "reminder";
       id: string;
       title: string;
-      contactId: string;
-      contactName: string;
       dueAt: string;
       order: number;
       timeLabel: string;
     };
 
+const KIND_ORDER: Record<CalendarItem["kind"], number> = {
+  appointment: 0,
+  task: 1,
+  reminder: 2,
+};
+
 function sortDayItems(a: CalendarItem, b: CalendarItem): number {
-  if (a.kind === "task" && b.kind === "reminder") return -1;
-  if (a.kind === "reminder" && b.kind === "task") return 1;
+  const ka = KIND_ORDER[a.kind];
+  const kb = KIND_ORDER[b.kind];
+  if (ka !== kb) return ka - kb;
+  if (a.kind === "appointment" && b.kind === "appointment") return a.order - b.order;
   if (a.kind === "task" && b.kind === "task") return a.title.localeCompare(b.title);
-  return a.order - b.order;
+  if (a.kind === "reminder" && b.kind === "reminder") return a.order - b.order;
+  return 0;
 }
 
 function buildItemsByDay(
+  appointments: Appointment[],
   tasks: Task[],
-  contacts: SalesContact[],
+  projects: Project[],
+  personalReminders: PersonalReminder[],
   people: Person[],
-  taskScope: TaskListScope,
+  scope: TaskListScope,
   currentUserId: string,
-  showReminders: boolean
+  seesAllOrgData: boolean,
+  showAppointments: boolean,
+  showTasks: boolean,
+  showReminders: boolean,
+  priorityFilter: TaskPriority[]
 ): Map<string, CalendarItem[]> {
+  const projectById = new Map(projects.map((p) => [p.id, p]));
   const map = new Map<string, CalendarItem[]>();
   function push(key: string, item: CalendarItem) {
     const arr = map.get(key);
@@ -60,36 +143,66 @@ function buildItemsByDay(
     else map.set(key, [item]);
   }
 
-  const tasksFiltered =
-    taskScope === "my" && currentUserId
-      ? tasks.filter((t) => isTaskWorker(t, currentUserId, people))
-      : tasks;
-
-  for (const t of tasksFiltered) {
-    if (!isTaskOpen(t)) continue;
-    if (!t.dueDate || t.dueDate.length < 10) continue;
-    push(t.dueDate, { kind: "task", id: t.id, title: t.title, status: t.status, dueDate: t.dueDate, order: 0 });
+  if (showAppointments) {
+    const aptsFiltered =
+      scope === "my" && currentUserId
+        ? appointments.filter((a) => isAppointmentRelevantToPerson(a, currentUserId, people))
+        : appointments;
+    for (const a of aptsFiltered) {
+      if (!isAppointmentScheduled(a)) continue;
+      if (!a.startsAt) continue;
+      const key = isoToLocalDateKey(a.startsAt);
+      push(key, {
+        kind: "appointment",
+        id: a.id,
+        title: a.title,
+        startsAt: a.startsAt,
+        order: appointmentStartsAtMs(a),
+        timeLabel: formatAppointmentTimeRange(a),
+      });
+    }
   }
 
-  if (showReminders) {
-    for (const c of contacts) {
-      const contactName = `${c.firstName} ${c.lastName}`.trim() || c.company || "Contact";
-      for (const r of c.reminders) {
-        if (r.done) continue;
-        const key = isoToLocalDateKey(r.dueAt);
-        const d = new Date(r.dueAt);
-        const order = Number.isNaN(d.getTime()) ? 0 : d.getTime();
-        push(key, {
-          kind: "reminder",
-          id: r.id,
-          title: r.title,
-          contactId: c.id,
-          contactName,
-          dueAt: r.dueAt,
-          order,
-          timeLabel: reminderTimeLabel(r.dueAt),
-        });
-      }
+  if (showTasks) {
+    const tasksFiltered =
+      scope === "my" && currentUserId && seesAllOrgData
+        ? tasks.filter((t) => taskInvolvesPerson(t, currentUserId, people))
+        : tasks;
+
+    for (const t of tasksFiltered) {
+      if (!isTaskOpen(t)) continue;
+      if (priorityFilter.length > 0 && !priorityFilter.includes(t.priority)) continue;
+      if (!t.dueDate || t.dueDate.length < 10) continue;
+      const project = t.projectId ? projectById.get(t.projectId) : undefined;
+      push(t.dueDate, {
+        kind: "task",
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueDate: t.dueDate,
+        projectName: project?.name,
+        projectColor: project?.color,
+        order: 0,
+      });
+    }
+  }
+
+  if (showReminders && currentUserId) {
+    for (const r of personalReminders) {
+      if (r.done) continue;
+      if (!isPersonalReminderRelevantToPerson(r, currentUserId, people)) continue;
+      const key = isoToLocalDateKey(r.dueAt);
+      const d = new Date(r.dueAt);
+      const order = Number.isNaN(d.getTime()) ? 0 : d.getTime();
+      push(key, {
+        kind: "reminder",
+        id: r.id,
+        title: r.title,
+        dueAt: r.dueAt,
+        order,
+        timeLabel: reminderTimeLabel(r.dueAt),
+      });
     }
   }
 
@@ -99,21 +212,35 @@ function buildItemsByDay(
   return map;
 }
 
-/** Monday-first grid cells for one month; null = empty padding cell. */
-function monthCells(year: number, monthIndex: number): (number | null)[] {
-  const first = new Date(year, monthIndex, 1);
-  const mondayOffset = (first.getDay() + 6) % 7;
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < mondayOffset; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  while (cells.length < 42) cells.push(null);
+type MonthGridCell = {
+  key: string;
+  day: number;
+  inMonth: boolean;
+};
+
+/** Monday-first 6-week grid; leading/trailing days belong to adjacent months. */
+function monthGridCells(year: number, monthIndex: number): MonthGridCell[] {
+  const mondayOffset = (orgWeekday(year, monthIndex, 1) + 6) % 7;
+  let { year: y, monthIndex: m, day: d } = orgYmdAddDays(year, monthIndex, 1, -mondayOffset);
+  const cells: MonthGridCell[] = [];
+  for (let i = 0; i < 42; i++) {
+    cells.push({
+      key: `${y}-${pad2(m + 1)}-${pad2(d)}`,
+      day: d,
+      inMonth: y === year && m === monthIndex,
+    });
+    ({ year: y, monthIndex: m, day: d } = orgYmdAddDays(y, m, d, 1));
+  }
   return cells;
 }
 
 function monthTitle(year: number, monthIndex: number): string {
-  return new Date(year, monthIndex, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
+  const iso = datetimeLocalToIso(`${year}-${pad2(monthIndex + 1)}-01T12:00`);
+  return formatInOrgTime(iso, { month: "long", year: "numeric" });
+}
+
+function taskChipStyle(priority: TaskPriority) {
+  return TASK_PRIORITY_CALENDAR_CHIP[priority];
 }
 
 const STATUS_SHORT: Record<TaskStatus, string> = {
@@ -125,95 +252,161 @@ const STATUS_SHORT: Record<TaskStatus, string> = {
 };
 
 export function CalendarTab({
+  appointments,
   tasks,
-  contacts,
+  projects,
+  personalReminders,
   people,
   currentUserId,
+  seesAllOrgData = true,
+  onOpenAppointment,
   onOpenTask,
-  onOpenContact,
-  onUpdateReminder,
+  onUpdatePersonalReminder,
+  onOpenPersonalReminder,
 }: {
+  appointments: Appointment[];
   tasks: Task[];
-  contacts: SalesContact[];
+  projects: Project[];
+  personalReminders: PersonalReminder[];
   people: Person[];
   currentUserId: string;
+  seesAllOrgData?: boolean;
+  onOpenAppointment: (appointmentId: string) => void;
   onOpenTask: (taskId: string) => void;
-  onOpenContact: (contactId: string) => void;
-  onUpdateReminder: (
-    contactId: string,
+  onUpdatePersonalReminder: (
     reminderId: string,
-    patch: Partial<ContactReminder>
+    patch: Partial<PersonalReminder>
   ) => void | Promise<void>;
+  onOpenPersonalReminder: () => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
   });
-  const [taskScope, setTaskScope] = useState<TaskListScope>("my");
+  const [scope, setScope] = useState<TaskListScope>("my");
+  const [showAppointments, setShowAppointments] = useState(true);
+  const [showTasks, setShowTasks] = useState(true);
   const [showReminders, setShowReminders] = useState(true);
-  const [selectedKey, setSelectedKey] = useState(() => dateKeyLocal(new Date()));
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
+  const [selectedKey, setSelectedKey] = useState(() => orgTodayDateKey());
 
   const byDay = useMemo(
-    () => buildItemsByDay(tasks, contacts, people, taskScope, currentUserId, showReminders),
-    [tasks, contacts, people, taskScope, currentUserId, showReminders]
+    () =>
+      buildItemsByDay(
+        appointments,
+        tasks,
+        projects,
+        personalReminders,
+        people,
+        scope,
+        currentUserId,
+        seesAllOrgData,
+        showAppointments,
+        showTasks,
+        showReminders,
+        priorityFilter
+      ),
+    [
+      appointments,
+      tasks,
+      projects,
+      personalReminders,
+      people,
+      scope,
+      currentUserId,
+      seesAllOrgData,
+      showAppointments,
+      showTasks,
+      showReminders,
+      priorityFilter,
+    ]
   );
 
-  const cells = useMemo(() => monthCells(cursor.y, cursor.m), [cursor.y, cursor.m]);
-  const todayKey = dateKeyLocal(new Date());
+  const cells = useMemo(() => monthGridCells(cursor.y, cursor.m), [cursor.y, cursor.m]);
+  const todayKey = orgTodayDateKey();
   const selectedItems = selectedKey ? [...(byDay.get(selectedKey) ?? [])].sort(sortDayItems) : [];
 
   function goToday() {
     const d = new Date();
     setCursor({ y: d.getFullYear(), m: d.getMonth() });
-    setSelectedKey(dateKeyLocal(d));
+    setSelectedKey(orgDateKey(d));
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <span className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setTaskScope("my")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                taskScope === "my" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
-              }`}
-            >
-              My tasks
-            </button>
-            <button
-              type="button"
-              onClick={() => setTaskScope("everyone")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                taskScope === "everyone"
-                  ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                  : "text-slate-600"
-              }`}
-            >
-              Everyone
-            </button>
-          </span>
+          {seesAllOrgData ? (
+            <span className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setScope("my")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
+                  scope === "my" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
+                }`}
+              >
+                My calendar
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope("everyone")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
+                  scope === "everyone"
+                    ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
+                    : "text-slate-600"
+                }`}
+              >
+                Everyone
+              </button>
+            </span>
+          ) : (
+            <span className="text-xs font-semibold text-slate-600">My calendar</span>
+          )}
 
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
-            <input
-              type="checkbox"
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              checked={showReminders}
-              onChange={(e) => setShowReminders(e.target.checked)}
-            />
-            Show reminders
-          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className={`rounded border-slate-300 ${APPOINTMENT_CHIP.checkbox}`}
+                checked={showAppointments}
+                onChange={(e) => setShowAppointments(e.target.checked)}
+              />
+              Appointments
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className={`rounded border-slate-300 ${REMINDER_CHIP.checkbox}`}
+                checked={showReminders}
+                onChange={(e) => setShowReminders(e.target.checked)}
+              />
+              Reminders
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={showTasks}
+                onChange={(e) => setShowTasks(e.target.checked)}
+              />
+              Tasks
+            </label>
+            {showTasks && (
+              <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
-          <button
-            type="button"
-            onClick={goToday}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            Today
-          </button>
+          {selectedKey !== todayKey && (
+            <button
+              type="button"
+              onClick={goToday}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Today
+            </button>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
             <button
               type="button"
@@ -261,69 +454,104 @@ export function CalendarTab({
             ))}
           </div>
           <div className="grid grid-cols-7">
-            {cells.map((day, i) => {
+            {cells.map((cell, i) => {
               const colStart = i % 7 === 0;
-              if (day == null) {
-                return (
-                  <div
-                    key={`e-${i}`}
-                    className={`min-h-[5.5rem] border-t border-slate-200 bg-slate-100/90 sm:min-h-[7rem] lg:min-h-[8.5rem] ${colStart ? "" : "border-l"}`}
-                  />
-                );
-              }
-              const key = `${cursor.y}-${pad2(cursor.m + 1)}-${pad2(day)}`;
-              const items = byDay.get(key) ?? [];
-              const isToday = key === todayKey;
-              const isSelected = key === selectedKey;
+              const items = byDay.get(cell.key) ?? [];
+              const isToday = cell.key === todayKey;
+              const isSelected = cell.key === selectedKey;
               const visible = items.slice(0, MAX_CHIPS_PER_CELL);
               const more = items.length - visible.length;
               return (
                 <button
-                  key={key}
+                  key={cell.key}
                   type="button"
-                  onClick={() => setSelectedKey(key)}
-                  title={`${key}: ${items.length} item(s)`}
-                  className={`flex min-h-[5.5rem] flex-col border-t border-slate-200 bg-white p-1 text-left transition sm:min-h-[7rem] sm:p-1.5 lg:min-h-[8.5rem] ${colStart ? "" : "border-l"} ${
-                    isSelected ? "z-[1] ring-2 ring-inset ring-indigo-400" : "hover:bg-slate-50/80"
-                  } ${isToday && !isSelected ? "bg-indigo-50/40" : ""}`}
+                  onClick={() => setSelectedKey(cell.key)}
+                  title={`${cell.key}: ${items.length} item(s)`}
+                  className={`flex min-h-[5.5rem] flex-col border-t border-slate-200 p-1 text-left transition sm:min-h-[7rem] sm:p-1.5 lg:min-h-[8.5rem] ${colStart ? "" : "border-l"} ${
+                    cell.inMonth ? "bg-white" : "bg-slate-100/90"
+                  } ${isSelected ? "z-[1] ring-2 ring-inset ring-indigo-400" : cell.inMonth ? "hover:bg-slate-50/80" : "hover:bg-slate-100"} ${
+                    isToday && !isSelected && cell.inMonth ? "bg-indigo-50/40" : ""
+                  }`}
                 >
                   <div className="flex shrink-0 justify-end">
                     <span
                       className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                        isToday ? "bg-indigo-600 text-white" : "text-slate-800"
+                        isToday
+                          ? "bg-indigo-600 text-white"
+                          : cell.inMonth
+                            ? "text-slate-800"
+                            : "text-slate-400"
                       }`}
                     >
-                      {day}
+                      {cell.day}
                     </span>
                   </div>
-                  <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+                  <div className={`mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden ${cell.inMonth ? "" : "opacity-90"}`}>
                     {visible.map((item) =>
-                      item.kind === "task" ? (
+                      item.kind === "appointment" ? (
                         <button
-                          key={`t-${item.id}`}
+                          key={`a-${item.id}`}
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onOpenTask(item.id);
+                            onOpenAppointment(item.id);
                           }}
-                          className="w-full truncate rounded border-l-[3px] border-indigo-600 bg-indigo-50 px-1 py-0.5 text-left text-[10px] font-medium leading-tight text-indigo-950 hover:bg-indigo-100/80 sm:text-[11px]"
-                          title={`${item.title} · ${STATUS_SHORT[item.status]}`}
-                        >
-                          <span className="block truncate">{item.title}</span>
-                        </button>
-                      ) : (
-                        <button
-                          key={`r-${item.contactId}-${item.id}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenContact(item.contactId);
-                          }}
-                          className="w-full truncate rounded border-l-[3px] border-amber-600 bg-amber-50 px-1 py-0.5 text-left text-[10px] font-medium leading-tight text-amber-950 hover:bg-amber-100/80 sm:text-[11px]"
-                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title} · ${item.contactName}`}
+                          className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${APPOINTMENT_CHIP.stripe} ${APPOINTMENT_CHIP.bg} ${APPOINTMENT_CHIP.text} ${APPOINTMENT_CHIP.hover}`}
+                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}`}
                         >
                           {item.timeLabel ? (
-                            <span className="font-semibold text-amber-900">{item.timeLabel} </span>
+                            <span className={`font-semibold ${APPOINTMENT_CHIP.time}`}>{item.timeLabel} </span>
+                          ) : null}
+                          <span className="truncate">{item.title}</span>
+                        </button>
+                      ) : item.kind === "task" ? (
+                        (() => {
+                          const chip = taskChipStyle(item.priority);
+                          return (
+                            <button
+                              key={`t-${item.id}`}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenTask(item.id);
+                              }}
+                              className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${chip.stripe} ${chip.bg} ${chip.text} ${chip.hover}`}
+                              title={`${item.projectName ? `${item.projectName} · ` : ""}${PRIORITY_SHORT_LABEL[item.priority]} · ${item.title} · ${STATUS_SHORT[item.status]}`}
+                            >
+                              <span className="flex min-w-0 items-center gap-0.5">
+                                <PriorityUrgencyIcon
+                                  priority={item.priority}
+                                  className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5"
+                                />
+                                {item.projectName ? (
+                                  <>
+                                    <span
+                                      className="shrink-0 font-semibold"
+                                      style={{ color: item.projectColor }}
+                                    >
+                                      {item.projectName}
+                                    </span>
+                                    <span className="shrink-0 text-slate-400">·</span>
+                                  </>
+                                ) : null}
+                                <span className="truncate">{item.title}</span>
+                              </span>
+                            </button>
+                          );
+                        })()
+                      ) : (
+                        <button
+                          key={`r-${item.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenPersonalReminder();
+                          }}
+                          className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${REMINDER_CHIP.stripe} ${REMINDER_CHIP.bg} ${REMINDER_CHIP.text} ${REMINDER_CHIP.hover}`}
+                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}`}
+                        >
+                          {item.timeLabel ? (
+                            <span className={`font-semibold ${REMINDER_CHIP.time}`}>{item.timeLabel} </span>
                           ) : null}
                           <span className="truncate">{item.title}</span>
                         </button>
@@ -342,7 +570,7 @@ export function CalendarTab({
         <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-display text-base font-semibold text-slate-900">
             {selectedKey
-              ? new Date(selectedKey + "T12:00:00").toLocaleDateString(undefined, {
+              ? formatInOrgTime(datetimeLocalToIso(`${selectedKey}T12:00`), {
                   weekday: "long",
                   month: "long",
                   day: "numeric",
@@ -355,44 +583,85 @@ export function CalendarTab({
           ) : (
             <ul className="mt-3 max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-sm">
               {selectedItems.map((item) =>
-                item.kind === "task" ? (
-                  <li key={`t-${item.id}`}>
+                item.kind === "appointment" ? (
+                  <li key={`a-${item.id}`}>
                     <button
                       type="button"
-                      onClick={() => onOpenTask(item.id)}
-                      className="w-full rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-left ring-1 ring-indigo-100 transition hover:border-indigo-200 hover:bg-indigo-50"
+                      onClick={() => onOpenAppointment(item.id)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left ring-1 transition ${APPOINTMENT_CHIP.border} ${APPOINTMENT_CHIP.bg}/80 ${APPOINTMENT_CHIP.ring} ${APPOINTMENT_CHIP.hoverBorder} ${APPOINTMENT_CHIP.hoverBg}`}
                     >
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-800">Task</div>
+                      <div className={`text-[10px] font-bold uppercase tracking-wide ${APPOINTMENT_CHIP.label}`}>
+                        Appointment
+                      </div>
                       <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
-                      <div className="mt-1 text-xs text-slate-600">{STATUS_SHORT[item.status]}</div>
+                      {item.timeLabel ? (
+                        <div className="mt-1 text-xs text-slate-600">{item.timeLabel}</div>
+                      ) : null}
                     </button>
                   </li>
+                ) : item.kind === "task" ? (
+                  (() => {
+                    const chip = taskChipStyle(item.priority);
+                    return (
+                      <li key={`t-${item.id}`}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenTask(item.id)}
+                          className={`w-full rounded-lg border px-3 py-2 text-left ring-1 transition ${chip.border} ${chip.bg}/80 ${chip.ring} ${chip.hover}`}
+                          title={PRIORITY_TOOLTIPS[item.priority]}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className={`text-[10px] font-bold uppercase tracking-wide ${chip.label}`}>
+                              Task
+                            </div>
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-semibold ${chip.label}`}
+                            >
+                              <PriorityUrgencyIcon priority={item.priority} className="h-3.5 w-3.5" />
+                              {PRIORITY_SHORT_LABEL[item.priority]}
+                            </span>
+                          </div>
+                          {item.projectName ? (
+                            <div
+                              className="mt-0.5 text-xs font-semibold"
+                              style={{ color: item.projectColor }}
+                            >
+                              {item.projectName}
+                            </div>
+                          ) : null}
+                          <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
+                          <div className="mt-1 text-xs text-slate-600">{STATUS_SHORT[item.status]}</div>
+                        </button>
+                      </li>
+                    );
+                  })()
                 ) : (
                   <li
-                    key={`r-${item.contactId}-${item.id}`}
-                    className="rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 ring-1 ring-amber-100"
+                    key={`r-${item.id}`}
+                    className={`rounded-lg border px-3 py-2 ring-1 ${REMINDER_CHIP.border} ${REMINDER_CHIP.bg}/90 ${REMINDER_CHIP.ring}`}
                   >
                     <button
                       type="button"
-                      onClick={() => onOpenContact(item.contactId)}
+                      onClick={onOpenPersonalReminder}
                       className="w-full text-left transition hover:opacity-90"
                     >
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Reminder</div>
-                      <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        {item.timeLabel ? `${item.timeLabel} · ` : null}
-                        {item.contactName}
+                      <div className={`text-[10px] font-bold uppercase tracking-wide ${REMINDER_CHIP.label}`}>
+                        Reminder
                       </div>
+                      <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
+                      {item.timeLabel ? (
+                        <div className="mt-1 text-xs text-slate-600">{item.timeLabel}</div>
+                      ) : null}
                     </button>
                     <label
-                      className="mt-2 flex cursor-pointer items-center gap-2 border-t border-amber-200/80 pt-2 text-xs text-slate-600"
+                      className={`mt-2 flex cursor-pointer items-center gap-2 border-t pt-2 text-xs text-slate-600 ${REMINDER_CHIP.divider}`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
                         type="checkbox"
                         onChange={(e) => {
                           void Promise.resolve(
-                            onUpdateReminder(item.contactId, item.id, { done: e.target.checked })
+                            onUpdatePersonalReminder(item.id, { done: e.target.checked })
                           ).catch(console.error);
                         }}
                         className="rounded border-slate-300 text-accent focus:ring-accent/30"
@@ -405,12 +674,24 @@ export function CalendarTab({
             </ul>
           )}
 
-          <div className="mt-4 border-t border-slate-100 pt-3 text-[10px] text-slate-500">
-            <span className="mr-2 inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-indigo-600" /> Tasks
+          <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-3 text-[10px] text-slate-500">
+            <span className="inline-flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-sm ${APPOINTMENT_CHIP.legend}`} /> Appointments
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-amber-600" /> Reminders
+              <span className="h-2 w-2 rounded-sm bg-rose-600" /> Urgent
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-orange-600" /> High
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-indigo-600" /> Medium
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-emerald-600" /> Low
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-sm ${REMINDER_CHIP.legend}`} /> Reminders
             </span>
           </div>
         </aside>

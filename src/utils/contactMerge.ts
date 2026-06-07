@@ -1,5 +1,36 @@
 import type { ContactReminder, ContactStage, SalesContact } from "../types";
 import { normalizeContactEmail, normalizeContactPhone } from "./contactDuplicates";
+import {
+  datetimeLocalToIso,
+  formatInOrgTime,
+  toDatetimeLocalValue as orgToDatetimeLocalValue,
+} from "./orgTimezone";
+
+export { toDatetimeLocalValue } from "./orgTimezone";
+
+export function contactHasSaveableIdentity(
+  firstName: string,
+  lastName: string,
+  company: string
+): boolean {
+  return Boolean(firstName.trim() || lastName.trim() || company.trim());
+}
+
+export function normalizeContactIdentity(fields: {
+  firstName: string;
+  lastName: string;
+  company: string;
+}): { firstName: string; lastName: string; company: string } | null {
+  const firstName = fields.firstName.trim();
+  const lastName = fields.lastName.trim();
+  const company = fields.company.trim();
+  if (!contactHasSaveableIdentity(firstName, lastName, company)) return null;
+  return {
+    firstName: firstName || (company ? "-" : ""),
+    lastName,
+    company,
+  };
+}
 
 export type MergeFieldKey =
   | "firstName"
@@ -42,7 +73,7 @@ export const MERGE_FIELD_LABEL: Record<MergeFieldKey, string> = {
   estimatedValue: "Est. deal value",
   currency: "Currency",
   lastContactedAt: "Last contacted",
-  generalNotes: "General notes",
+  generalNotes: "Notes",
 };
 
 export type MergeSourceId = "draft" | string;
@@ -87,7 +118,7 @@ export function contactToMergeValues(contact: SalesContact): Record<MergeFieldKe
     stage: contact.stage,
     estimatedValue: String(contact.estimatedValue),
     currency: contact.currency,
-    lastContactedAt: toDatetimeLocalValue(contact.lastContactedAt),
+    lastContactedAt: orgToDatetimeLocalValue(contact.lastContactedAt),
     generalNotes: contact.generalNotes,
   };
 }
@@ -130,14 +161,8 @@ export function draftToMergeSnapshot(
   };
 }
 
-function toDatetimeLocalValue(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return "";
-  }
+export function lastContactedAtFromLocal(value: string): string {
+  return datetimeLocalToIso(value.trim());
 }
 
 export function mergeValuesEqual(field: MergeFieldKey, a: string, b: string): boolean {
@@ -155,6 +180,7 @@ export function mergeValuesEqual(field: MergeFieldKey, a: string, b: string): bo
     return (Number(a) || 0) === (Number(b) || 0);
   }
   if (field === "lastContactedAt") {
+    if (!a.trim() && !b.trim()) return true;
     const ta = Date.parse(a);
     const tb = Date.parse(b);
     if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta === tb;
@@ -200,7 +226,7 @@ export function buildInitialMergeFormValues(sources: MergeSourceSnapshot[]): Mer
 export function formatMergeFieldDisplay(field: MergeFieldKey, value: string): string {
   if (field === "lastContactedAt" && value) {
     try {
-      return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      return formatInOrgTime(value, { dateStyle: "medium", timeStyle: "short" });
     } catch {
       return value;
     }
@@ -216,10 +242,16 @@ export function formatMergeFieldDisplay(field: MergeFieldKey, value: string): st
 }
 
 export function mergeFormToContactPayload(values: MergeFormValues): Omit<SalesContact, "id" | "reminders"> {
+  const identity = normalizeContactIdentity({
+    firstName: values.firstName,
+    lastName: values.lastName,
+    company: values.company,
+  });
+  if (!identity) throw new Error("First name, last name, or company is required");
   return {
-    firstName: values.firstName.trim(),
-    lastName: values.lastName.trim(),
-    company: values.company.trim(),
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    company: identity.company,
     jobTitle: values.jobTitle.trim(),
     email: values.email.trim(),
     phone: values.phone.trim(),
@@ -227,7 +259,7 @@ export function mergeFormToContactPayload(values: MergeFormValues): Omit<SalesCo
     stage: values.stage as ContactStage,
     estimatedValue: Number(values.estimatedValue) || 0,
     currency: values.currency,
-    lastContactedAt: new Date(values.lastContactedAt).toISOString(),
+    lastContactedAt: lastContactedAtFromLocal(values.lastContactedAt),
     generalNotes: values.generalNotes.trim(),
   };
 }

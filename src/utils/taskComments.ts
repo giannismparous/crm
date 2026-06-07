@@ -1,4 +1,5 @@
-import type { CommentReactions, Task, TaskComment } from "../types";
+import type { CommentReactions, ImageAttachment, Task, TaskComment } from "../types";
+import { imageAttachmentsForFirestore, normalizeImageAttachments } from "./imageAttachments";
 
 const MAX_BODY = 4000;
 
@@ -30,9 +31,17 @@ export function normalizeTaskComments(value: unknown): TaskComment[] {
     const authorId = typeof row.authorId === "string" ? row.authorId.trim() : "";
     const body = typeof row.body === "string" ? row.body.trim().slice(0, MAX_BODY) : "";
     const createdAt = typeof row.createdAt === "string" ? row.createdAt : "";
-    if (!id || !authorId || !body || !createdAt) continue;
+    const attachments = normalizeImageAttachments(row.attachments);
+    if (!id || !authorId || !createdAt || (!body && attachments.length === 0)) continue;
     const reactions = normalizeCommentReactions(row.reactions);
-    out.push({ id, authorId, body, createdAt, ...(reactions ? { reactions } : {}) });
+    out.push({
+      id,
+      authorId,
+      body,
+      createdAt,
+      ...(reactions ? { reactions } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+    });
   }
   out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return out;
@@ -42,20 +51,61 @@ export function taskCommentsPlainText(comments: TaskComment[]): string {
   return comments.map((c) => c.body).join(" ");
 }
 
+export function taskCommentsForFirestore(comments: TaskComment[]): Record<string, unknown>[] {
+  return comments.map((c) => {
+    const row: Record<string, unknown> = {
+      id: c.id,
+      authorId: c.authorId,
+      body: c.body,
+      createdAt: c.createdAt,
+    };
+    if (c.reactions) row.reactions = c.reactions;
+    if (c.attachments?.length) row.attachments = imageAttachmentsForFirestore(c.attachments);
+    return row;
+  });
+}
+
 export function appendTaskComment(
   task: Task,
   authorId: string,
-  body: string
+  body: string,
+  attachments?: ImageAttachment[]
 ): TaskComment[] {
   const text = body.trim().slice(0, MAX_BODY);
-  if (!text) return task.comments;
+  const imgs = attachments ?? [];
+  if (!text && imgs.length === 0) return task.comments;
   const comment: TaskComment = {
     id: crypto.randomUUID(),
     authorId,
     body: text,
     createdAt: new Date().toISOString(),
+    ...(imgs.length > 0 ? { attachments: imgs } : {}),
   };
   return [...task.comments, comment];
+}
+
+export function removeCommentAttachment(
+  task: Task,
+  commentId: string,
+  storagePath: string
+): TaskComment[] | null {
+  const path = storagePath.trim();
+  if (!path) return null;
+
+  let changed = false;
+  const next = task.comments.map((c) => {
+    if (c.id !== commentId) return c;
+    const attachments = (c.attachments ?? []).filter((a) => a.storagePath !== path);
+    if (attachments.length === (c.attachments ?? []).length) return c;
+    changed = true;
+    if (!c.body.trim() && attachments.length === 0) return c;
+    const base = { id: c.id, authorId: c.authorId, body: c.body, createdAt: c.createdAt };
+    const row: TaskComment = { ...base, ...(c.reactions ? { reactions: c.reactions } : {}) };
+    if (attachments.length > 0) row.attachments = attachments;
+    return row;
+  });
+
+  return changed ? next : null;
 }
 
 export type CommentVoteApplyResult = {

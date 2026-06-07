@@ -4,6 +4,7 @@ import {
   MERGE_FIELD_KEYS,
   MERGE_FIELD_LABEL,
   buildInitialMergeFormValues,
+  contactHasSaveableIdentity,
   fieldHasConflict,
   getMergeFieldOptions,
   mergeValuesEqual,
@@ -187,9 +188,11 @@ export function ContactMergePanel({
     setValues((v) => ({ ...v, [field]: value }));
   }
 
+  const canSave = contactHasSaveableIdentity(values.firstName, values.lastName, values.company);
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!values.firstName.trim() || !values.lastName.trim()) return;
+    if (!canSave) return;
     onConfirm(values);
   }
 
@@ -235,7 +238,8 @@ export function ContactMergePanel({
         <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
           <button
             type="submit"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
+            disabled={!canSave}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
           >
             Save merged contact
           </button>

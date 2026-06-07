@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import type { AppNotification } from "../types";
 import { notificationHeadline, notificationTaskLine } from "../utils/notificationText";
+import { formatInOrgTime } from "../utils/orgTimezone";
 
 const COLLAPSED_COUNT = 7;
 
@@ -13,7 +14,7 @@ function formatWhen(iso: string): string {
   if (diff < 60_000) return "Just now";
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatInOrgTime(d, { month: "short", day: "numeric" });
 }
 
 export function NotificationsBell({
@@ -76,7 +77,9 @@ export function NotificationsBell({
 
       {open && (
         <div
-          className="absolute right-0 top-[calc(100%+6px)] z-50 flex w-[min(24rem,calc(100vw-1.5rem))] max-h-[min(28rem,70vh)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg ring-1 ring-black/5"
+          className={`absolute right-0 top-[calc(100%+6px)] z-50 flex w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg ring-1 ring-black/5 transition-[max-height] duration-200 ease-out ${
+            expanded ? "max-h-[min(48rem,88vh)]" : "max-h-[min(24rem,58vh)]"
+          }`}
           role="dialog"
           aria-label="Notifications"
         >

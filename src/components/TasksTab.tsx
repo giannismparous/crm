@@ -3,27 +3,30 @@ import type { TaskComment } from "../types";
 import { Clock, ClockAlert } from "lucide-react";
 import type {
   Person,
+  Project,
   Task,
   TaskFeedbackRequest,
   TaskListScope,
   TaskListTab,
   TaskPriority,
-  TaskSector,
   CommentReactionNotifyChange,
 } from "../types";
 import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTaskStats";
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
-import type { OrgRole } from "../auth/roles";
-import { TASK_SECTOR_CHIP_CLASS, TASK_SECTOR_LABELS, TASK_SECTORS, TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
+import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { PersonAvatarStack, PersonNameInline } from "./PersonAvatar";
 import { TaskCommentsSection } from "./TaskCommentsSection";
 import { TaskUpdatesSection } from "./TaskUpdatesSection";
 import {
+  assigneeAvatarPeople,
   isSelfAssignedSingleWorkerTask,
   isTaskWorker,
   reopenTaskPatch,
   taskInvolvesPerson,
 } from "../utils/taskAssignees";
 import { taskHasFeedbackHistory, taskHasOpenFeedback } from "../utils/taskFeedback";
+import { addDaysToOrgDateKey, datetimeLocalToIso, formatInOrgTime, orgTodayDateKey } from "../utils/orgTimezone";
 import {
   ConfirmPanel,
   TaskWorkerActionButtons,
@@ -33,10 +36,122 @@ import {
 import type { NotificationKind } from "../types";
 import { taskCommentsPlainText } from "../utils/taskComments";
 import { mergedTaskUpdatesPlainText, taskUpdatesHasContent } from "../utils/taskUpdates";
+import {
+  UNASSIGNED_PROJECT_COLOR,
+  UNASSIGNED_PROJECT_ID,
+} from "../utils/projectColors";
 
 const PRIORITY_ORDER: TaskPriority[] = ["urgent", "high", "medium", "low"];
 
-const PRIORITY_SHORT_LABEL: Record<TaskPriority, string> = {
+type TaskListSortMode = "urgency" | "project";
+
+type TaskProjectGroup = {
+  id: string;
+  label: string;
+  color: string;
+  completed: boolean;
+  tasks: Task[];
+};
+
+function compareTasksByUrgency(a: Task, b: Task, listTab: TaskListTab): number {
+  const today = orgTodayDateKey();
+  const prioRank = (p: TaskPriority) => PRIORITY_ORDER.indexOf(p);
+  if (listTab === "completed") {
+    const ca = a.completedAt ?? a.createdAt;
+    const cb = b.completedAt ?? b.createdAt;
+    return cb.localeCompare(ca);
+  }
+  if (listTab === "canceled") {
+    const ca = a.canceledAt ?? a.createdAt;
+    const cb = b.canceledAt ?? b.createdAt;
+    return cb.localeCompare(ca);
+  }
+  const created = b.createdAt.localeCompare(a.createdAt);
+  if (created !== 0) return created;
+  if (taskHasOpenFeedback(a) !== taskHasOpenFeedback(b)) return taskHasOpenFeedback(a) ? -1 : 1;
+  const aOver = isTaskOpen(a) && a.dueDate < today;
+  const bOver = isTaskOpen(b) && b.dueDate < today;
+  if (aOver !== bOver) return aOver ? -1 : 1;
+  const dd = a.dueDate.localeCompare(b.dueDate);
+  if (dd !== 0) return dd;
+  return prioRank(a.priority) - prioRank(b.priority);
+}
+
+function buildProjectTaskGroups(tasks: Task[], projects: Project[]): TaskProjectGroup[] {
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const buckets = new Map<string, Task[]>();
+
+  for (const task of tasks) {
+    const key =
+      task.projectId && projectById.has(task.projectId)
+        ? task.projectId
+        : UNASSIGNED_PROJECT_ID;
+    const list = buckets.get(key) ?? [];
+    list.push(task);
+    buckets.set(key, list);
+  }
+
+  const groups: TaskProjectGroup[] = [];
+  const projectIds = [...buckets.keys()].filter((id) => id !== UNASSIGNED_PROJECT_ID);
+
+  const openIds = projectIds.filter((id) => !projectById.get(id)?.completed);
+  const completeIds = projectIds.filter((id) => projectById.get(id)?.completed);
+  openIds.sort((a, b) => (projectById.get(a)?.name ?? "").localeCompare(projectById.get(b)?.name ?? ""));
+  completeIds.sort((a, b) => (projectById.get(a)?.name ?? "").localeCompare(projectById.get(b)?.name ?? ""));
+
+  for (const id of [...openIds, ...completeIds]) {
+    const project = projectById.get(id)!;
+    groups.push({
+      id,
+      label: project.name,
+      color: project.color,
+      completed: project.completed,
+      tasks: buckets.get(id) ?? [],
+    });
+  }
+
+  const unassigned = buckets.get(UNASSIGNED_PROJECT_ID);
+  if (unassigned && unassigned.length > 0) {
+    groups.push({
+      id: UNASSIGNED_PROJECT_ID,
+      label: "Unassigned",
+      color: UNASSIGNED_PROJECT_COLOR,
+      completed: false,
+      tasks: unassigned,
+    });
+  }
+
+  return groups;
+}
+
+function ProjectGroupHeader({
+  label,
+  color,
+  count,
+  isFirst,
+}: {
+  label: string;
+  color: string;
+  count: number;
+  isFirst?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 border-b-4 pb-2 ${isFirst ? "pt-0" : "pt-4"}`}
+      style={{ borderColor: color }}
+    >
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+      <h3 className="text-sm font-semibold" style={{ color }}>
+        {label}
+      </h3>
+      <span className="text-xs tabular-nums text-slate-500">
+        {count} {count === 1 ? "task" : "tasks"}
+      </span>
+    </div>
+  );
+}
+
+export const PRIORITY_SHORT_LABEL: Record<TaskPriority, string> = {
   urgent: "Urgent",
   high: "High",
   medium: "Medium",
@@ -44,7 +159,7 @@ const PRIORITY_SHORT_LABEL: Record<TaskPriority, string> = {
 };
 
 /** Shown on hover (native tooltip) for priority and segmented control. */
-const PRIORITY_TOOLTIPS: Record<TaskPriority, string> = {
+export const PRIORITY_TOOLTIPS: Record<TaskPriority, string> = {
   urgent: "Critical — treat as top priority; do before other work when possible.",
   high: "High — should be done ASAP; ahead of the normal queue.",
   medium: "Medium — normal priority; schedule with everyday work.",
@@ -70,8 +185,51 @@ const PRIORITY_BADGE: Record<TaskPriority, { pill: string; iconColor: string }> 
   },
 };
 
+/** Calendar / list chip colors keyed by task priority. */
+export const TASK_PRIORITY_CALENDAR_CHIP: Record<
+  TaskPriority,
+  { stripe: string; bg: string; hover: string; label: string; text: string; ring: string; border: string }
+> = {
+  urgent: {
+    stripe: "border-rose-600",
+    bg: "bg-rose-50",
+    hover: "hover:bg-rose-100/80",
+    label: "text-rose-800",
+    text: "text-rose-950",
+    ring: "ring-rose-100",
+    border: "border-rose-100",
+  },
+  high: {
+    stripe: "border-orange-600",
+    bg: "bg-orange-50",
+    hover: "hover:bg-orange-100/80",
+    label: "text-orange-800",
+    text: "text-orange-950",
+    ring: "ring-orange-100",
+    border: "border-orange-100",
+  },
+  medium: {
+    stripe: "border-indigo-600",
+    bg: "bg-indigo-50",
+    hover: "hover:bg-indigo-100/80",
+    label: "text-indigo-800",
+    text: "text-indigo-950",
+    ring: "ring-indigo-100",
+    border: "border-indigo-100",
+  },
+  low: {
+    stripe: "border-emerald-600",
+    bg: "bg-emerald-50",
+    hover: "hover:bg-emerald-100/80",
+    label: "text-emerald-800",
+    text: "text-emerald-950",
+    ring: "ring-emerald-100",
+    border: "border-emerald-100",
+  },
+};
+
 /** Lucide paths use stroke="currentColor" — `text-*` sets `color` (keep mid tones so strokes read as hue, not black). */
-function PriorityUrgencyIcon({
+export function PriorityUrgencyIcon({
   priority,
   className,
 }: {
@@ -90,7 +248,7 @@ function PriorityUrgencyIcon({
 }
 
 /** Multi-select urgency filter; empty selection = all priorities. */
-function PriorityFilter({
+export function PriorityFilter({
   value,
   onChange,
 }: {
@@ -103,11 +261,7 @@ function PriorityFilter({
   }
 
   return (
-    <div
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5"
-      role="group"
-      aria-label="Filter by urgency"
-    >
+    <div className="segment-track shrink-0" role="group" aria-label="Filter by urgency">
       {PRIORITY_ORDER.map((p) => {
         const on = value.includes(p);
         return (
@@ -119,11 +273,7 @@ function PriorityFilter({
             aria-label={`${PRIORITY_SHORT_LABEL[p]} urgency`}
             aria-pressed={on}
             className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition sm:h-8 sm:w-8 ${
-              PRIORITY_BADGE[p].pill
-            } ${
-              on
-                ? "border-accent/60 ring-2 ring-accent/35 ring-offset-1 ring-offset-white"
-                : "border-transparent opacity-35 grayscale hover:opacity-60"
+              on ? `${PRIORITY_BADGE[p].pill} priority-filter-on` : "priority-filter-off"
             }`}
           >
             <PriorityUrgencyIcon priority={p} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -134,7 +284,7 @@ function PriorityFilter({
   );
 }
 
-function PrioritySegmented({
+export function PrioritySegmented({
   value,
   onChange,
   size = "md",
@@ -161,9 +311,7 @@ function PrioritySegmented({
             aria-label={PRIORITY_SHORT_LABEL[p]}
             aria-pressed={selected}
             className={`inline-flex ${btn} shrink-0 items-center justify-center rounded-md border transition ${PRIORITY_BADGE[p].pill} ${
-              selected
-                ? "border-accent ring-2 ring-accent/45 ring-offset-1 ring-offset-white"
-                : "border-slate-300/50 hover:border-slate-400/60"
+              selected ? "priority-filter-on" : "priority-filter-off"
             }`}
           >
             <PriorityUrgencyIcon priority={p} className={icon} />
@@ -175,28 +323,28 @@ function PrioritySegmented({
 }
 
 function formatDue(iso: string) {
-  const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return formatInOrgTime(datetimeLocalToIso(`${iso.slice(0, 10)}T12:00`), {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function addDaysToDateOnly(isoDate: string, days: number): string {
-  if (!isoDate || isoDate.length < 10) return isoDate;
-  const d = new Date(isoDate.slice(0, 10) + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return addDaysToOrgDateKey(isoDate, days);
 }
 
-/** Empty filters = show all. People + sectors combine with OR (default) or AND (exclusive). */
+/** Empty filters = show all. People + departments combine with OR (default) or AND (exclusive). */
 function taskMatchesEveryoneFilter(
   task: Task,
   filterPersonIds: string[],
-  filterSectors: TaskSector[],
+  filterDepartmentIds: string[],
   exclusive: boolean,
   people: Person[]
 ): boolean {
   const hasPeople = filterPersonIds.length > 0;
-  const hasSectors = filterSectors.length > 0;
-  if (!hasPeople && !hasSectors) return true;
+  const hasDepts = filterDepartmentIds.length > 0;
+  if (!hasPeople && !hasDepts) return true;
 
   const personMatch = !hasPeople
     ? true
@@ -204,12 +352,13 @@ function taskMatchesEveryoneFilter(
       ? filterPersonIds.every((pid) => taskInvolvesPerson(task, pid, people))
       : filterPersonIds.some((pid) => taskInvolvesPerson(task, pid, people));
 
-  const sectorMatch = !hasSectors || filterSectors.includes(task.sector);
+  const deptMatch =
+    !hasDepts || filterDepartmentIds.some((d) => task.assigneeDepartmentIds.includes(d));
 
-  if (hasPeople && hasSectors) {
-    return exclusive ? personMatch && sectorMatch : personMatch || sectorMatch;
+  if (hasPeople && hasDepts) {
+    return exclusive ? personMatch && deptMatch : personMatch || deptMatch;
   }
-  return personMatch && sectorMatch;
+  return personMatch && deptMatch;
 }
 
 function personMatchesSearch(p: Person, q: string): boolean {
@@ -233,49 +382,73 @@ function AssigneeNamesForFooter({
   if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) {
     return <span className="font-medium text-slate-500">Open</span>;
   }
+  let itemIndex = 0;
   const parts: ReactNode[] = [];
-  assigneeIds.forEach((id, i) => {
+
+  function pushSeparator() {
+    if (itemIndex > 0) {
+      parts.push(
+        <span key={`sep-${itemIndex}`} className="px-0.5 text-slate-500" aria-hidden>
+          ,
+        </span>
+      );
+    }
+    itemIndex++;
+  }
+
+  assigneeIds.forEach((id) => {
     const name = people.find((p) => p.id === id)?.name ?? id;
     const isMe = id === currentUserId;
+    pushSeparator();
     parts.push(
-      <span key={`p-${id}`}>
-        {i > 0 ? <span className="text-slate-400">, </span> : null}
-        {isMe ? (
-          <span className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2">
-            {name}
-          </span>
-        ) : (
-          <span className="font-medium text-slate-800">{name}</span>
-        )}
-      </span>
+      isMe ? (
+        <span
+          key={`p-${id}`}
+          className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2"
+        >
+          {name}
+        </span>
+      ) : (
+        <span key={`p-${id}`} className="font-medium text-slate-800">
+          {name}
+        </span>
+      )
     );
   });
-  assigneeDepartmentIds.forEach((dept, i) => {
+  assigneeDepartmentIds.forEach((dept) => {
+    pushSeparator();
     parts.push(
-      <span key={`d-${dept}`}>
-        {assigneeIds.length > 0 || i > 0 ? <span className="text-slate-400">, </span> : null}
+      <span key={`d-${dept}`} className="inline-flex items-center">
         <span className="font-medium text-violet-900">{dept}</span>
         <span className="text-slate-500"> (dept)</span>
       </span>
     );
   });
-  return <>{parts}</>;
+
+  const avatarPeople = assigneeAvatarPeople(assigneeIds, assigneeDepartmentIds, people);
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+      <span className="inline-flex flex-wrap items-center gap-y-1">{parts}</span>
+      <PersonAvatarStack people={avatarPeople} size="xs" />
+    </span>
+  );
 }
 
 
-/** Everyone tab: filter by involved people and/or task sector. */
+/** Everyone tab: filter by involved people and/or assigned department. */
 function InvolvedFilterMultiSelect({
   people,
   personIds,
-  sectors,
+  departmentIds,
   onChangePeople,
-  onChangeSectors,
+  onChangeDepartments,
 }: {
   people: Person[];
   personIds: string[];
-  sectors: TaskSector[];
+  departmentIds: string[];
   onChangePeople: (ids: string[]) => void;
-  onChangeSectors: (s: TaskSector[]) => void;
+  onChangeDepartments: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -294,32 +467,32 @@ function InvolvedFilterMultiSelect({
     () => people.filter((p) => personMatchesSearch(p, search)),
     [people, search]
   );
-  const filteredSectors = useMemo(() => {
+  const filteredDepts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return [...TASK_SECTORS];
-    return TASK_SECTORS.filter(
-      (s) => TASK_SECTOR_LABELS[s].toLowerCase().includes(q) || s.toLowerCase().includes(q)
-    );
+    if (!q) return [...TEAM_DEPARTMENTS];
+    return TEAM_DEPARTMENTS.filter((d) => d.toLowerCase().includes(q));
   }, [search]);
 
   function togglePerson(id: string) {
     onChangePeople(personIds.includes(id) ? personIds.filter((x) => x !== id) : [...personIds, id]);
   }
 
-  function toggleSector(sector: TaskSector) {
-    onChangeSectors(sectors.includes(sector) ? sectors.filter((s) => s !== sector) : [...sectors, sector]);
+  function toggleDepartment(dept: string) {
+    onChangeDepartments(
+      departmentIds.includes(dept) ? departmentIds.filter((d) => d !== dept) : [...departmentIds, dept]
+    );
   }
 
   const summary = useMemo(() => {
-    if (personIds.length === 0 && sectors.length === 0) return "All";
+    if (personIds.length === 0 && departmentIds.length === 0) return "All";
     const bits: string[] = [];
     if (personIds.length === 1) {
       bits.push(people.find((p) => p.id === personIds[0])?.name ?? "1 person");
     } else if (personIds.length > 1) bits.push(`${personIds.length} people`);
-    if (sectors.length === 1) bits.push(TASK_SECTOR_LABELS[sectors[0]!]);
-    else if (sectors.length > 1) bits.push(`${sectors.length} sectors`);
+    if (departmentIds.length === 1) bits.push(departmentIds[0]!);
+    else if (departmentIds.length > 1) bits.push(`${departmentIds.length} depts`);
     return bits.join(", ");
-  }, [personIds, sectors, people]);
+  }, [personIds, departmentIds, people]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -342,11 +515,11 @@ function InvolvedFilterMultiSelect({
         <div
           className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
           role="listbox"
-          aria-label="Filter by people and sector"
+          aria-label="Filter by people and department"
         >
           <input
             type="search"
-            placeholder="Search people or sectors…"
+            placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
@@ -373,42 +546,42 @@ function InvolvedFilterMultiSelect({
                 ))}
               </>
             )}
-            {filteredSectors.length > 0 && (
+            {filteredDepts.length > 0 && (
               <>
                 <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Sectors
+                  Departments
                 </p>
-                {filteredSectors.map((sector) => (
+                {filteredDepts.map((dept) => (
                   <label
-                    key={sector}
+                    key={dept}
                     className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
                   >
                     <input
                       type="checkbox"
-                      checked={sectors.includes(sector)}
-                      onChange={() => toggleSector(sector)}
+                      checked={departmentIds.includes(dept)}
+                      onChange={() => toggleDepartment(dept)}
                       className="rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${TASK_SECTOR_CHIP_CLASS[sector]}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(dept)}`}
                     >
-                      {TASK_SECTOR_LABELS[sector]}
+                      {dept}
                     </span>
                   </label>
                 ))}
               </>
             )}
-            {filteredPeople.length === 0 && filteredSectors.length === 0 && (
+            {filteredPeople.length === 0 && filteredDepts.length === 0 && (
               <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
             )}
           </div>
-          {(personIds.length > 0 || sectors.length > 0) && (
+          {(personIds.length > 0 || departmentIds.length > 0) && (
             <button
               type="button"
               className="mt-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
               onClick={() => {
                 onChangePeople([]);
-                onChangeSectors([]);
+                onChangeDepartments([]);
               }}
             >
               Clear
@@ -571,6 +744,7 @@ function AssigneeMultiSelect({
 
 export function TasksTab({
   people,
+  projects,
   tasks,
   onAddTask,
   onUpdateTask,
@@ -586,6 +760,7 @@ export function TasksTab({
   onFocusTaskHandled,
 }: {
   people: Person[];
+  projects: Project[];
   tasks: Task[];
   onAddTask: (t: Omit<Task, "id" | "createdAt">) => Promise<void>;
   onUpdateTask: (
@@ -622,15 +797,16 @@ export function TasksTab({
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [everyoneInvolvedFilter, setEveryoneInvolvedFilter] = useState<string[]>([]);
-  const [everyoneSectorFilter, setEveryoneSectorFilter] = useState<TaskSector[]>([]);
+  const [everyoneDepartmentFilter, setEveryoneDepartmentFilter] = useState<string[]>([]);
   const [everyoneFilterExclusive, setEveryoneFilterExclusive] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
+  const [taskSortMode, setTaskSortMode] = useState<TaskListSortMode>("urgency");
   const taskRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   useEffect(() => {
     if (!focusTaskId) return;
     const target = tasks.find((t) => t.id === focusTaskId);
-    if (target && !isTaskWorker(target, currentUserId, people)) {
+    if (target && !isTaskWorker(target, currentUserId, people) && canSeeAllOrgData(currentUserOrgRole)) {
       setScope("everyone");
     }
     const t = window.setTimeout(() => {
@@ -647,60 +823,57 @@ export function TasksTab({
       if (listTab === "open" && !isTaskOpen(t)) return false;
       if (listTab === "completed" && !isTaskCompleted(t)) return false;
       if (listTab === "canceled" && !isTaskCanceled(t)) return false;
-      if (scope === "my") {
+      if (scope === "my" && canSeeAllOrgData(currentUserOrgRole)) {
         if (!isTaskWorker(t, currentUserId, people)) return false;
       } else if (
-        !taskMatchesEveryoneFilter(t, everyoneInvolvedFilter, everyoneSectorFilter, everyoneFilterExclusive, people)
+        scope === "everyone" &&
+        canSeeAllOrgData(currentUserOrgRole) &&
+        !taskMatchesEveryoneFilter(
+          t,
+          everyoneInvolvedFilter,
+          everyoneDepartmentFilter,
+          everyoneFilterExclusive,
+          people
+        )
       ) {
         return false;
       }
       if (priorityFilter.length > 0 && !priorityFilter.includes(t.priority)) return false;
       if (!q) return true;
+      const projectName = projects.find((p) => p.id === t.projectId)?.name ?? "";
       const blob =
-        `${t.title} ${t.description} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${TASK_SECTOR_LABELS[t.sector]} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
+        `${t.title} ${t.description} ${projectName} ${t.assigneeDepartmentIds.join(" ")} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
       return blob.includes(q);
     });
   }, [
     tasks,
     listTab,
     scope,
+    currentUserOrgRole,
     currentUserId,
     people,
     query,
     everyoneInvolvedFilter,
-    everyoneSectorFilter,
+    everyoneDepartmentFilter,
     everyoneFilterExclusive,
     priorityFilter,
+    projects,
   ]);
 
   const sorted = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const prioRank = (p: TaskPriority) => PRIORITY_ORDER.indexOf(p);
-    return [...filtered].sort((a, b) => {
-      if (listTab === "completed") {
-        const ca = a.completedAt ?? a.createdAt;
-        const cb = b.completedAt ?? b.createdAt;
-        return cb.localeCompare(ca);
-      }
-      if (listTab === "canceled") {
-        const ca = a.canceledAt ?? a.createdAt;
-        const cb = b.canceledAt ?? b.createdAt;
-        return cb.localeCompare(ca);
-      }
-      const created = b.createdAt.localeCompare(a.createdAt);
-      if (created !== 0) return created;
-      if (taskHasOpenFeedback(a) !== taskHasOpenFeedback(b)) return taskHasOpenFeedback(a) ? -1 : 1;
-      const aOver = isTaskOpen(a) && a.dueDate < today;
-      const bOver = isTaskOpen(b) && b.dueDate < today;
-      if (aOver !== bOver) return aOver ? -1 : 1;
-      const dd = a.dueDate.localeCompare(b.dueDate);
-      if (dd !== 0) return dd;
-      return prioRank(a.priority) - prioRank(b.priority);
-    });
+    return [...filtered].sort((a, b) => compareTasksByUrgency(a, b, listTab));
   }, [filtered, listTab]);
 
+  const projectGroups = useMemo(() => {
+    if (taskSortMode !== "project") return [];
+    return buildProjectTaskGroups(sorted, projects).map((g) => ({
+      ...g,
+      tasks: [...g.tasks].sort((a, b) => compareTasksByUrgency(a, b, listTab)),
+    }));
+  }, [sorted, projects, taskSortMode, listTab]);
+
   const taskStats = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = orgTodayDateKey();
     const openTasks = tasks.filter((t) => isTaskOpen(t)).length;
     const overdue = tasks.filter((t) => isTaskOpen(t) && t.dueDate < today).length;
     const completed = tasks.filter((t) => isTaskCompleted(t)).length;
@@ -722,7 +895,11 @@ export function TasksTab({
   }
 
   function cancelTask(id: string) {
-    void onCancelTask(id).catch(console.error);
+    setListTab("canceled");
+    return onCancelTask(id).catch((e) => {
+      console.error(e);
+      throw e;
+    });
   }
 
   return (
@@ -738,7 +915,12 @@ export function TasksTab({
               Back
             </button>
           </div>
-          <NewTaskForm people={people} currentUserId={currentUserId} onSubmit={(p) => void addTask(p)} />
+          <NewTaskForm
+            people={people}
+            projects={projects}
+            currentUserId={currentUserId}
+            onSubmit={(p) => void addTask(p)}
+          />
         </>
       ) : (
         <>
@@ -778,7 +960,7 @@ export function TasksTab({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex rounded-lg border border-slate-200 bg-violet-100/80 p-0.5 shadow-inner">
+                <span className="segment-track">
                   {(
                     [
                       ["open", "Open"],
@@ -791,9 +973,7 @@ export function TasksTab({
                       type="button"
                       onClick={() => setListTab(tab)}
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                        listTab === tab
-                          ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                          : "text-slate-600"
+                        listTab === tab ? "segment-tab-active" : "segment-tab-inactive"
                       }`}
                     >
                       {label}
@@ -802,12 +982,13 @@ export function TasksTab({
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
+              {canSeeAllOrgData(currentUserOrgRole) ? (
+              <span className="segment-track">
                 <button
                   type="button"
                   onClick={() => setScope("my")}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                    scope === "my" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
+                    scope === "my" ? "segment-tab-active" : "segment-tab-inactive"
                   }`}
                 >
                   My tasks
@@ -816,26 +997,27 @@ export function TasksTab({
                   type="button"
                   onClick={() => setScope("everyone")}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                    scope === "everyone"
-                      ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                      : "text-slate-600"
+                    scope === "everyone" ? "segment-tab-active" : "segment-tab-inactive"
                   }`}
                 >
                   Everyone
                 </button>
               </span>
-              {scope === "everyone" && (
+              ) : (
+                <span className="text-xs font-semibold text-slate-600">Department tasks</span>
+              )}
+              {scope === "everyone" && canSeeAllOrgData(currentUserOrgRole) && (
                 <>
                   <InvolvedFilterMultiSelect
                     people={people}
                     personIds={everyoneInvolvedFilter}
-                    sectors={everyoneSectorFilter}
+                    departmentIds={everyoneDepartmentFilter}
                     onChangePeople={setEveryoneInvolvedFilter}
-                    onChangeSectors={setEveryoneSectorFilter}
+                    onChangeDepartments={setEveryoneDepartmentFilter}
                   />
                   <label
                     className="inline-flex cursor-pointer items-center gap-1 text-[10px] font-medium text-slate-500 sm:text-[11px]"
-                    title="Unchecked: match any selected person or sector. Checked: must match all selected people and a selected sector."
+                    title="Unchecked: match any selected person or department. Checked: must match all selected."
                   >
                     <input
                       type="checkbox"
@@ -858,41 +1040,95 @@ export function TasksTab({
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tasks…"
-              className="input-base min-w-0 flex-1 py-2 text-sm sm:max-w-md"
+              className="input-base min-w-0 w-full max-w-md py-2 text-sm"
             />
-            <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
+            <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
+              <label className="inline-flex shrink-0 items-center gap-2">
+                <span className="whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">Sort by</span>
+                <select
+                  value={taskSortMode}
+                  onChange={(e) => setTaskSortMode(e.target.value as TaskListSortMode)}
+                  className="input-base w-auto min-w-[8.5rem] cursor-pointer py-2 pr-8 text-sm"
+                  aria-label="Sort by"
+                >
+                  <option value="urgency">Urgency</option>
+                  <option value="project">Project</option>
+                </select>
+              </label>
+              <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
+            </div>
           </div>
 
           <ul className="space-y-3 overflow-visible">
-            {sorted.map((task) => (
-              <li
-                key={task.id}
-                ref={(el) => {
-                  taskRefs.current[task.id] = el;
-                }}
-                className="overflow-visible"
-              >
-                <TaskCard
-                  task={task}
-                  people={people}
-                  currentUserId={currentUserId}
-                  currentUserOrgRole={currentUserOrgRole}
-                  highlighted={task.id === focusTaskId}
-                  onChange={(patch, intent) => updateTask(task.id, patch, intent)}
-                  onCancelTask={() => cancelTask(task.id)}
-                  onCommentPosted={onCommentPosted}
-                  onCommentReaction={onCommentReaction}
-                  onTaskActionNotify={onTaskActionNotify}
-                  onFeedbackReply={onFeedbackReply}
-                  onBroadcastTaskEvent={onBroadcastTaskEvent}
-                />
-              </li>
-            ))}
+            {taskSortMode === "urgency"
+              ? sorted.map((task) => (
+                  <li
+                    key={task.id}
+                    ref={(el) => {
+                      taskRefs.current[task.id] = el;
+                    }}
+                    className="overflow-visible"
+                  >
+                    <TaskCard
+                      task={task}
+                      people={people}
+                      projects={projects}
+                      currentUserId={currentUserId}
+                      currentUserOrgRole={currentUserOrgRole}
+                      highlighted={task.id === focusTaskId}
+                      onChange={(patch, intent) => updateTask(task.id, patch, intent)}
+                      onCancelTask={() => cancelTask(task.id).catch(console.error)}
+                      onCommentPosted={onCommentPosted}
+                      onCommentReaction={onCommentReaction}
+                      onTaskActionNotify={onTaskActionNotify}
+                      onFeedbackReply={onFeedbackReply}
+                      onBroadcastTaskEvent={onBroadcastTaskEvent}
+                    />
+                  </li>
+                ))
+              : projectGroups.map((group, groupIndex) => (
+                  <li key={group.id} className="list-none space-y-3">
+                    <ProjectGroupHeader
+                      label={group.label}
+                      color={group.color}
+                      count={group.tasks.length}
+                      isFirst={groupIndex === 0}
+                    />
+                    <ul className="space-y-3">
+                      {group.tasks.map((task) => (
+                        <li
+                          key={task.id}
+                          ref={(el) => {
+                            taskRefs.current[task.id] = el;
+                          }}
+                          className="overflow-visible"
+                        >
+                          <TaskCard
+                            task={task}
+                            people={people}
+                            projects={projects}
+                            currentUserId={currentUserId}
+                            currentUserOrgRole={currentUserOrgRole}
+                            highlighted={task.id === focusTaskId}
+                            showProjectChip={false}
+                            onChange={(patch, intent) => updateTask(task.id, patch, intent)}
+                            onCancelTask={() => cancelTask(task.id).catch(console.error)}
+                            onCommentPosted={onCommentPosted}
+                            onCommentReaction={onCommentReaction}
+                            onTaskActionNotify={onTaskActionNotify}
+                            onFeedbackReply={onFeedbackReply}
+                            onBroadcastTaskEvent={onBroadcastTaskEvent}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
           </ul>
 
           {sorted.length === 0 && (
@@ -910,31 +1146,41 @@ export function TasksTab({
   );
 }
 
-function NewTaskForm({
+export function NewTaskForm({
   people,
+  projects,
   currentUserId,
+  defaultProjectId = "",
+  lockProject = false,
   onSubmit,
 }: {
   people: Person[];
+  projects: Project[];
   currentUserId: string;
+  defaultProjectId?: string;
+  lockProject?: boolean;
   onSubmit: (t: Omit<Task, "id" | "createdAt">) => void | Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [assigneeDepartmentIds, setAssigneeDepartmentIds] = useState<string[]>([]);
-  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(() => orgTodayDateKey());
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [sector, setSector] = useState<TaskSector>("general");
+  const [projectId, setProjectId] = useState(defaultProjectId);
 
   useEffect(() => {
     setAssigneeIds((prev) => prev.filter((id) => people.some((p) => p.id === id)));
   }, [people]);
 
+  useEffect(() => {
+    if (lockProject) setProjectId(defaultProjectId);
+  }, [defaultProjectId, lockProject]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    await onSubmit({
+    const payload: Omit<Task, "id" | "createdAt"> = {
       title: title.trim(),
       description: description.trim(),
       assigneeIds: [...new Set(assigneeIds)],
@@ -945,7 +1191,6 @@ function NewTaskForm({
       assignedById: currentUserId,
       status: "todo",
       priority,
-      sector,
       dueDate,
       originalDueDate: dueDate,
       postponeCount: 0,
@@ -953,7 +1198,10 @@ function NewTaskForm({
       updates: "",
       updatesByUser: {},
       comments: [],
-    });
+    };
+    const pid = (lockProject ? defaultProjectId : projectId).trim();
+    if (pid) payload.projectId = pid;
+    await onSubmit(payload);
   }
 
   return (
@@ -962,9 +1210,6 @@ function NewTaskForm({
       className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
     >
       <p className="text-sm font-semibold text-slate-900">New task</p>
-      <p className="mt-0.5 text-xs text-slate-500">
-        Assign to people and/or whole departments. You are recorded as who created the task.
-      </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <Field label="Title">
           <input
@@ -972,7 +1217,6 @@ function NewTaskForm({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="input-base py-2"
-            placeholder="What needs to happen"
           />
         </Field>
         <Field label="Due">
@@ -1000,20 +1244,22 @@ function NewTaskForm({
           <span className="mb-1 block text-xs font-medium text-slate-600">Priority</span>
           <PrioritySegmented value={priority} onChange={setPriority} />
         </div>
-        <Field label="Sector">
-          <select
-            value={sector}
-            onChange={(e) => setSector(e.target.value as TaskSector)}
-            className="input-base py-2"
-          >
-            {TASK_SECTORS.map((s) => (
-              <option key={s} value={s}>
-                {TASK_SECTOR_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <div className="hidden sm:block" aria-hidden />
+        {!lockProject && (
+          <Field label="Project">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="input-base py-2"
+            >
+              <option value="">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <div className="sm:col-span-3">
           <Field label="Description">
             <textarea
@@ -1021,7 +1267,6 @@ function NewTaskForm({
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="input-base min-h-[80px] resize-y py-2"
-              placeholder="Deadline context, links, what “done” means…"
             />
           </Field>
         </div>
@@ -1050,9 +1295,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function TaskCard({
   task,
   people,
+  projects,
   currentUserId,
   currentUserOrgRole,
   highlighted,
+  showProjectChip = true,
   onChange,
   onCancelTask,
   onCommentPosted,
@@ -1063,11 +1310,13 @@ function TaskCard({
 }: {
   task: Task;
   people: Person[];
+  projects: Project[];
   currentUserId: string;
   currentUserOrgRole: OrgRole;
   highlighted?: boolean;
+  showProjectChip?: boolean;
   onChange: (patch: Partial<Task>, intent?: TaskUpdateIntent) => void | Promise<void>;
-  onCancelTask: () => void;
+  onCancelTask: () => void | Promise<void>;
   onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
   onCommentReaction?: (
     task: Task,
@@ -1087,7 +1336,8 @@ function TaskCard({
     preview: string
   ) => void | Promise<void>;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = orgTodayDateKey();
+  const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
   const canceled = isTaskCanceled(task);
   const completed = isTaskCompleted(task);
   const overdue = isTaskOpen(task) && task.dueDate < today;
@@ -1098,6 +1348,7 @@ function TaskCard({
   const [workerFlow, setWorkerFlow] = useState<WorkerFlow>(null);
   const isWorker = isTaskWorker(task, currentUserId, people);
   const isAssigner = task.assignedById === currentUserId;
+  const canCancelTask = isAssigner || isWorker;
   const canReopen = currentUserOrgRole === "founder" || isTaskWorker;
   const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? "Someone";
   const hasOpenFeedback = taskHasOpenFeedback(task);
@@ -1118,7 +1369,7 @@ function TaskCard({
   return (
     <article
       className={`relative overflow-visible rounded-xl border bg-white p-4 shadow-sm sm:p-5 ${
-        highlighted ? "border-accent ring-2 ring-accent/25" : "border-slate-200"
+        highlighted ? "task-card-highlight" : "border-slate-200"
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -1131,12 +1382,14 @@ function TaskCard({
             />
           </div>
           <p className="mt-1 text-xs leading-snug text-slate-500">
-            <span
-              className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-tight sm:text-[11px] ${TASK_SECTOR_CHIP_CLASS[task.sector]}`}
-            >
-              {TASK_SECTOR_LABELS[task.sector]}
-            </span>
-            <span className="text-slate-300"> · </span>
+            {showProjectChip && project && (
+              <>
+                <span className="font-semibold" style={{ color: project.color }}>
+                  {project.name}
+                </span>
+                <span className="text-slate-300"> · </span>
+              </>
+            )}
             <span className="font-medium text-slate-700">Due {formatDue(task.dueDate)}</span>
             {canceled && (
               <span className="text-slate-600">
@@ -1144,11 +1397,11 @@ function TaskCard({
                 {task.canceledAt && ` ${formatDue(task.canceledAt.slice(0, 10))}`}
               </span>
             )}
-            {completed && task.completedAt && (
+            {completed && !canceled && task.completedAt && (
               <span className="text-emerald-800"> · Completed {formatDue(task.completedAt.slice(0, 10))}</span>
             )}
-            {overdue && <span className="text-rose-700"> · Overdue</span>}
-            {postponed && (
+            {overdue && !canceled && <span className="text-rose-700"> · Overdue</span>}
+            {postponed && !canceled && (
               <span className="text-amber-800">
                 {" · "}
                 <span className="whitespace-nowrap">
@@ -1195,7 +1448,7 @@ function TaskCard({
                 </span>
               )}
               <span
-                className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm ring-1 ring-white/80 ${PRIORITY_BADGE[task.priority].pill}`}
+                className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm priority-badge-ring ${PRIORITY_BADGE[task.priority].pill}`}
                 title={PRIORITY_TOOLTIPS[task.priority]}
                 role="img"
                 aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
@@ -1220,7 +1473,7 @@ function TaskCard({
                       }
                     })()
                   }
-                  className="shrink-0 rounded-lg border border-emerald-800/50 bg-emerald-900/20 px-2.5 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-800/35 hover:bg-emerald-900/30"
+                  className="task-action-complete"
                 >
                   Mark complete
                 </button>
@@ -1237,7 +1490,7 @@ function TaskCard({
                   Reopen
                 </button>
               )}
-              {hasFeedbackHistory && (
+              {completed && hasFeedbackHistory && (
                 <span
                   className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
                     hasOpenFeedback
@@ -1253,14 +1506,6 @@ function TaskCard({
                   Needs feedback
                 </span>
               )}
-              <span
-                className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm ring-1 ring-white/80 ${PRIORITY_BADGE[task.priority].pill}`}
-                title={PRIORITY_TOOLTIPS[task.priority]}
-                role="img"
-                aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
-              >
-                <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </span>
             </>
           )}
         </div>
@@ -1318,12 +1563,13 @@ function TaskCard({
         </div>
       )}
 
-      {(isWorker || taskUpdatesHasContent(task, people)) && (
+      {(taskUpdatesHasContent(task, people) || (isWorker && !completed && !canceled)) && (
         <TaskUpdatesSection
           task={task}
           people={people}
           currentUserId={currentUserId}
           isWorker={isWorker}
+          canEditUpdates={isWorker && !completed && !canceled}
           onChange={onChange}
         />
       )}
@@ -1357,7 +1603,7 @@ function TaskCard({
           ) : (
             <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
               <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-tight text-slate-600">
-                <span className="min-w-0">
+                <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
                   <span className="text-slate-400">For </span>
                   <AssigneeNamesForFooter
                     assigneeIds={task.assigneeIds}
@@ -1373,16 +1619,18 @@ function TaskCard({
                     </span>
                     {selfAssigned ? (
                       <span className="text-slate-500">(self assigned)</span>
+                    ) : assigner ? (
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <span className="text-slate-400">By </span>
+                        <PersonNameInline
+                          person={assigner}
+                          highlight={task.assignedById === currentUserId}
+                        />
+                      </span>
                     ) : (
                       <span className="min-w-0">
                         <span className="text-slate-400">By </span>
-                        {task.assignedById === currentUserId ? (
-                          <span className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2">
-                            {assignerName}
-                          </span>
-                        ) : (
-                          <span className="font-medium text-slate-800">{assignerName}</span>
-                        )}
+                        <span className="font-medium text-slate-800">{assignerName}</span>
                       </span>
                     )}
                   </>
@@ -1393,13 +1641,13 @@ function TaskCard({
                   <button
                     type="button"
                     onClick={() => setWorkerFlow("postpone")}
-                    className="rounded-md border border-violet-300/70 bg-violet-500/12 px-2 py-0.5 text-xs font-semibold text-violet-900 hover:bg-violet-500/22"
+                    className="task-action-postpone"
                     title="Choose a new due date"
                   >
                     Postpone
                   </button>
                 )}
-                {!canceled && (
+                {!completed && !canceled && canCancelTask && (
                   <button
                     type="button"
                     onClick={() => setCancelOpen(true)}
@@ -1428,10 +1676,16 @@ function TaskCard({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  onCancelTask();
-                  setCancelOpen(false);
-                }}
+                onClick={() =>
+                  void (async () => {
+                    try {
+                      await onCancelTask();
+                      setCancelOpen(false);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  })()
+                }
                 className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
               >
                 Yes, cancel
@@ -1439,7 +1693,7 @@ function TaskCard({
               <button
                 type="button"
                 onClick={() => setCancelOpen(false)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="btn-secondary"
               >
                 Keep
               </button>

@@ -8,6 +8,7 @@ import {
   taskUpdatesHasContent,
   taskUsesMultiAuthorUpdates,
 } from "../utils/taskUpdates";
+import { PersonAvatar } from "./PersonAvatar";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 
 function AuthorColorStyles({
@@ -34,12 +35,15 @@ export function TaskUpdatesSection({
   people,
   currentUserId,
   isWorker,
+  canEditUpdates,
   onChange,
 }: {
   task: Task;
   people: Person[];
   currentUserId: string;
   isWorker: boolean;
+  /** False when task is completed/canceled — workers see read-only updates. */
+  canEditUpdates: boolean;
   onChange: (patch: Partial<Task>) => void;
 }) {
   const workers = getTaskWorkerIds(task, people);
@@ -71,7 +75,7 @@ export function TaskUpdatesSection({
 
       <AuthorColorStyles scopeClass={scopeClass} workers={workers} enabled={showByAuthor && multi} />
 
-      {isWorker ? (
+      {canEditUpdates ? (
         <SimpleRichText
           key={task.id}
           value={content}
@@ -79,10 +83,12 @@ export function TaskUpdatesSection({
           className={scopeClasses}
           collapsible
           collapseKey={task.id}
+          taskId={task.id}
+          enableGenericFileAttach
           onChange={(updates) => onChange({ updates, updatesByUser: {} })}
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80">
           <SimpleRichTextView
             html={content}
             className={scopeClasses}
@@ -96,15 +102,16 @@ export function TaskUpdatesSection({
         <div className="mt-2 flex flex-wrap gap-1.5">
           {authorIds.map((id) => {
             const { bg, border } = authorColorForWorker(workers, id);
-            const name = people.find((p) => p.id === id)?.name ?? "Unknown";
+            const person = people.find((p) => p.id === id);
+            const name = person?.name ?? "Unknown";
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-slate-700"
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 pr-2 text-[10px] font-medium text-slate-700"
                 style={{ backgroundColor: bg, boxShadow: `inset 0 0 0 1px ${border}55` }}
               >
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: border }} aria-hidden />
                 {name}
+                <PersonAvatar person={person} name={name} size="sm" className="avatar-ring-sm shadow-none" />
               </span>
             );
           })}

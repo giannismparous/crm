@@ -1,19 +1,24 @@
 import { Timestamp } from "firebase/firestore";
 import type {
+  Appointment,
+  AppointmentStatus,
   ContactReminder,
   ContactStage,
+  PersonalReminder,
   Person,
+  Project,
   SalesContact,
   Task,
   TaskPriority,
-  TaskSector,
   TaskStatus,
 } from "../types";
 import { normalizeFeedbackRequests, taskHasOpenFeedback } from "../utils/taskFeedback";
 import { normalizePersonTaskStats } from "../utils/personTaskStats";
+import { normalizeImageAttachments } from "../utils/imageAttachments";
 import { normalizeTaskComments } from "../utils/taskComments";
 import { normalizeOrgRole } from "../auth/roles";
-import { TASK_SECTORS, normalizeDepartments } from "../types";
+import { normalizeDepartments } from "../types";
+import { normalizeProjectColor } from "../utils/projectColors";
 import {
   normalizeAssigneeDepartments,
   normalizeIdList,
@@ -37,9 +42,8 @@ function dateOnly(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : "";
 }
 
-const STATUSES: TaskStatus[] = ["todo", "in_progress", "review", "done"];
+const STATUSES: TaskStatus[] = ["todo", "in_progress", "review", "done", "canceled"];
 const PRIOS: TaskPriority[] = ["low", "medium", "high", "urgent"];
-const SECTOR_SET = new Set<string>(TASK_SECTORS);
 const STAGES: ContactStage[] = [
   "lead",
   "qualified",
@@ -65,6 +69,15 @@ export function normalizePerson(id: string, data: Record<string, unknown>): Pers
   if (typeof data.registeredAt === "string" && data.registeredAt) {
     p.registeredAt = data.registeredAt;
   }
+  if (data.profileSetupComplete === false) {
+    p.profileSetupComplete = false;
+  }
+  const accountExpiresAt = toIso(data.accountExpiresAt);
+  if (accountExpiresAt) p.accountExpiresAt = accountExpiresAt;
+  const avatarUrl = String(data.avatarUrl ?? "").trim();
+  if (avatarUrl) p.avatarUrl = avatarUrl;
+  const avatarStoragePath = String(data.avatarStoragePath ?? "").trim();
+  if (avatarStoragePath) p.avatarStoragePath = avatarStoragePath;
   p.taskStats = normalizePersonTaskStats(data.taskStats);
   return p;
 }
@@ -83,6 +96,22 @@ function readAssigneeIds(data: Record<string, unknown>): string[] {
   return [];
 }
 
+export function normalizeProject(id: string, data: Record<string, unknown>): Project {
+  const departmentIds = normalizeAssigneeDepartments(data.departmentIds);
+  const project: Project = {
+    id: typeof data.id === "string" ? data.id : id,
+    name: String(data.name ?? "").trim(),
+    description: String(data.description ?? "").trim(),
+    color: normalizeProjectColor(data.color),
+    completed: Boolean(data.completed),
+    createdAt: toIso(data.createdAt) || new Date().toISOString(),
+  };
+  if (departmentIds.length > 0) project.departmentIds = departmentIds;
+  const completedAt = toIso(data.completedAt);
+  if (completedAt) project.completedAt = completedAt;
+  return project;
+}
+
 export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   const status = STATUSES.includes(data.status as TaskStatus) ? (data.status as TaskStatus) : "todo";
   const priority = PRIOS.includes(data.priority as TaskPriority) ? (data.priority as TaskPriority) : "medium";
@@ -97,9 +126,6 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
     if (n >= 0) postponeCount = Math.min(1000, n);
   }
   if (postponeCount === 0 && due && orig && due !== orig) postponeCount = 1;
-  const sectorRaw = data.sector;
-  const sector: TaskSector =
-    typeof sectorRaw === "string" && SECTOR_SET.has(sectorRaw) ? (sectorRaw as TaskSector) : "general";
   const feedbackRequests = normalizeFeedbackRequests(data.feedbackRequests);
   const task: Task = {
     id: typeof data.id === "string" ? data.id : id,
@@ -116,7 +142,6 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
     assignedById: String(data.assignedById ?? ""),
     status,
     priority,
-    sector,
     dueDate: due,
     originalDueDate: orig,
     postponeCount,
@@ -129,6 +154,8 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   if (canceledAt) task.canceledAt = canceledAt;
   const canceledById = String(data.canceledById ?? "").trim();
   if (canceledById) task.canceledById = canceledById;
+  const projectId = String(data.projectId ?? "").trim();
+  if (projectId) task.projectId = projectId;
   task.needsFeedback =
     taskHasOpenFeedback(task) ||
     Boolean(data.needsFeedback) ||
@@ -137,13 +164,74 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
 }
 
 export function normalizeReminder(id: string, data: Record<string, unknown>): ContactReminder {
+  const attachments = normalizeImageAttachments(data.attachments);
   return {
     id,
     title: String(data.title ?? ""),
     dueAt: toIso(data.dueAt),
     notes: String(data.notes ?? ""),
     done: Boolean(data.done),
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
+}
+
+export function normalizePersonalReminder(id: string, data: Record<string, unknown>): PersonalReminder {
+  const attachments = normalizeImageAttachments(data.attachments);
+  const reminder: PersonalReminder = {
+    id: typeof data.id === "string" ? data.id : id,
+    ownerId: String(data.ownerId ?? ""),
+    title: String(data.title ?? ""),
+    dueAt: toIso(data.dueAt),
+    notes: String(data.notes ?? ""),
+    done: Boolean(data.done),
+    createdAt: toIso(data.createdAt) || new Date().toISOString(),
+    participantIds: normalizeIdList(data.participantIds),
+    participantDepartmentIds: normalizeAssigneeDepartments(data.participantDepartmentIds),
+  };
+  const contactId = String(data.contactId ?? "").trim();
+  if (contactId) reminder.contactId = contactId;
+  const taskId = String(data.taskId ?? "").trim();
+  if (taskId) reminder.taskId = taskId;
+  const appointmentId = String(data.appointmentId ?? "").trim();
+  if (appointmentId) reminder.appointmentId = appointmentId;
+  if (attachments.length > 0) reminder.attachments = attachments;
+  if (Array.isArray(data.dueNotifyFired)) {
+    const slots = [...new Set((data.dueNotifyFired as unknown[]).map((x) => String(x).trim()).filter(Boolean))];
+    if (slots.length > 0) reminder.dueNotifyFired = slots;
+  }
+  return reminder;
+}
+
+const APPOINTMENT_STATUSES: AppointmentStatus[] = ["scheduled", "canceled"];
+
+export function normalizeAppointment(id: string, data: Record<string, unknown>): Appointment {
+  const status = APPOINTMENT_STATUSES.includes(data.status as AppointmentStatus)
+    ? (data.status as AppointmentStatus)
+    : "scheduled";
+  const apt: Appointment = {
+    id: typeof data.id === "string" ? data.id : id,
+    title: String(data.title ?? ""),
+    startsAt: toIso(data.startsAt),
+    location: String(data.location ?? ""),
+    participantIds: normalizeIdList(data.participantIds),
+    participantDepartmentIds: normalizeAssigneeDepartments(data.participantDepartmentIds),
+    createdById: String(data.createdById ?? ""),
+    status,
+    createdAt: toIso(data.createdAt) || new Date().toISOString(),
+  };
+  const description = String(data.description ?? "").trim();
+  if (description) apt.description = description;
+  const meetingLink = String(data.meetingLink ?? "").trim();
+  if (meetingLink) apt.meetingLink = meetingLink;
+  const endsAt = toIso(data.endsAt);
+  if (endsAt) apt.endsAt = endsAt;
+  const canceledAt = toIso(data.canceledAt);
+  if (canceledAt) apt.canceledAt = canceledAt;
+  const attachments = normalizeImageAttachments(data.attachments);
+  if (attachments.length > 0) apt.attachments = attachments;
+  const taskId = String(data.taskId ?? "").trim();
+  if (taskId) apt.taskId = taskId;
+  return apt;
 }
 
 export function normalizeContact(

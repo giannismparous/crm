@@ -12,8 +12,23 @@ import {
 } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { normalizeOrgRole, type OrgRole } from "../auth/roles";
-import type { RegistrationSeed } from "../types";
+import {
+  normalizeDepartments,
+  normalizeSeedDepartments,
+  type CreateRegistrationSeedInput,
+  type RegistrationSeed,
+} from "../types";
+import {
+  SEED_EXPIRED_MESSAGE,
+  accountExpiresAtFromMonths,
+  clampSeedValidDays,
+  isSeedExpired,
+  normalizePartnerAccountMonths,
+  seedExpiresAtIso,
+} from "../utils/accountExpiry";
+import { validateRegistrationSeedCode } from "./authValidation";
 import { SIMASIA_AI_ORG_ID } from "./config";
+import { toIso } from "./normalizeFirestore";
 
 const ORG = SIMASIA_AI_ORG_ID;
 
@@ -26,17 +41,43 @@ export function normalizeRegistrationSeed(
   id: string,
   data: Record<string, unknown>
 ): RegistrationSeed {
+  const orgRole = normalizeOrgRole(data.orgRole);
+  const issuedAt = toIso(data.issuedAt) || new Date().toISOString();
+  const validDays = clampSeedValidDays(Number(data.validDays) || 7);
+  const expiresAt =
+    toIso(data.expiresAt) ||
+    seedExpiresAtIso(issuedAt, validDays);
+  const accountValidMonths =
+    orgRole === "partner" && data.accountValidMonths != null
+      ? normalizePartnerAccountMonths(data.accountValidMonths)
+      : undefined;
+
   return {
     id,
-    orgRole: normalizeOrgRole(data.orgRole),
+    orgRole,
+    departments:
+      orgRole === "founder"
+        ? normalizeDepartments(data.departments)
+        : normalizeSeedDepartments(
+            normalizeDepartments(data.departments, data.department),
+            { requireAtLeastOne: true }
+          ),
     issuedById: String(data.issuedById ?? ""),
     issuedByEmail: String(data.issuedByEmail ?? ""),
-    issuedAt: String(data.issuedAt ?? ""),
+    issuedAt,
+    validDays,
+    expiresAt,
+    accountValidMonths,
     used: Boolean(data.used),
     usedById: data.usedById != null ? String(data.usedById) : undefined,
     usedByEmail: data.usedByEmail != null ? String(data.usedByEmail) : undefined,
     usedAt: data.usedAt != null ? String(data.usedAt) : undefined,
   };
+}
+
+function assertSeedUsable(seed: RegistrationSeed): void {
+  if (seed.used) throw new Error("Seed already used.");
+  if (isSeedExpired(seed)) throw new Error(SEED_EXPIRED_MESSAGE);
 }
 
 function isPermissionDenied(e: unknown): boolean {
@@ -51,8 +92,7 @@ export async function assertRegistrationSeedAvailable(
   db: Firestore,
   code: string
 ): Promise<RegistrationSeed> {
-  const trimmed = code.trim().toLowerCase();
-  if (!trimmed) throw new Error("Enter a registration seed.");
+  const trimmed = validateRegistrationSeedCode(code);
 
   let snap;
   try {
@@ -66,30 +106,45 @@ export async function assertRegistrationSeedAvailable(
 
   if (!snap.exists()) throw new Error("Invalid seed.");
   const seed = normalizeRegistrationSeed(snap.id, snap.data() as Record<string, unknown>);
-  if (seed.used) throw new Error("Seed already used.");
+  assertSeedUsable(seed);
   return seed;
 }
 
 export async function createRegistrationSeed(
   db: Firestore,
   issuer: { id: string; email: string },
-  orgRole: OrgRole
+  input: CreateRegistrationSeedInput
 ): Promise<RegistrationSeed> {
+  const { orgRole, departments } = input;
+  const depts =
+    orgRole === "founder" ? [] : normalizeSeedDepartments(departments, { requireAtLeastOne: true });
+  const validDays = clampSeedValidDays(input.validDays);
+  const accountValidMonths =
+    orgRole === "partner" ? normalizePartnerAccountMonths(input.accountValidMonths) : undefined;
   const code = generateSeedCode();
   const now = new Date().toISOString();
+  const expiresAt = seedExpiresAtIso(now, validDays);
   const seed: RegistrationSeed = {
     id: code,
     orgRole,
+    departments: depts,
     issuedById: issuer.id,
     issuedByEmail: issuer.email,
     issuedAt: now,
+    validDays,
+    expiresAt,
+    accountValidMonths,
     used: false,
   };
   await setDoc(doc(db, "organizations", ORG, "registrationSeeds", code), {
     orgRole: seed.orgRole,
+    departments: seed.departments,
     issuedById: seed.issuedById,
     issuedByEmail: seed.issuedByEmail,
     issuedAt: seed.issuedAt,
+    validDays: seed.validDays,
+    expiresAt: seed.expiresAt,
+    ...(accountValidMonths != null ? { accountValidMonths } : {}),
     used: false,
   });
   return seed;
@@ -136,7 +191,22 @@ export async function consumeRegistrationSeed(
     const seedSnap = await tx.get(seedRef);
     if (!seedSnap.exists()) throw new Error("Invalid seed.");
     const seed = normalizeRegistrationSeed(seedSnap.id, seedSnap.data() as Record<string, unknown>);
-    if (seed.used) throw new Error("Seed already used.");
+    assertSeedUsable(seed);
+    if (seed.usedById && seed.usedById !== user.uid) throw new Error("Seed already used.");
+
+    const existingPerson = await tx.get(personRef);
+    if (existingPerson.exists()) {
+      const prev = existingPerson.data() as Record<string, unknown>;
+      const prevSeed = String(prev.registrationSeedId ?? "").trim();
+      if (prevSeed && prevSeed !== code) {
+        throw new Error("This account is already registered with a different seed.");
+      }
+    }
+
+    const accountExpiresAt =
+      seed.orgRole === "partner" && seed.accountValidMonths
+        ? accountExpiresAtFromMonths(now, seed.accountValidMonths)
+        : undefined;
 
     tx.update(seedRef, {
       used: true,
@@ -145,34 +215,33 @@ export async function consumeRegistrationSeed(
       usedAt: now,
     });
 
-    tx.set(
-      personRef,
-      {
-        id: user.uid,
-        authUid: user.uid,
-        email,
-        name: displayName,
-        title: "",
-        departments: ["General"],
-        orgRole: seed.orgRole,
-        registrationSeedId: code,
-        registeredAt: now,
-      },
-      { merge: true }
-    );
+    const personRow: Record<string, unknown> = {
+      id: user.uid,
+      authUid: user.uid,
+      email,
+      name: displayName,
+      title: "",
+      departments: seed.departments,
+      orgRole: seed.orgRole,
+      registrationSeedId: code,
+      registeredAt: now,
+      profileSetupComplete: false,
+    };
+    if (accountExpiresAt) personRow.accountExpiresAt = accountExpiresAt;
 
-    tx.set(
-      userRef,
-      {
-        email,
-        displayName,
-        orgId: ORG,
-        orgRole: seed.orgRole,
-        registrationSeedId: code,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
+    tx.set(personRef, personRow, { merge: true });
+
+    const userRow: Record<string, unknown> = {
+      email,
+      displayName,
+      orgId: ORG,
+      orgRole: seed.orgRole,
+      registrationSeedId: code,
+      updatedAt: now,
+    };
+    if (accountExpiresAt) userRow.accountExpiresAt = accountExpiresAt;
+
+    tx.set(userRef, userRow, { merge: true });
 
     return seed.orgRole;
   });

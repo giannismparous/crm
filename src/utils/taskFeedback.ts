@@ -1,6 +1,9 @@
 import type { Person, Task, TaskFeedbackRequest, TaskFeedbackResponse } from "../types";
+import { imageAttachmentsForFirestore, normalizeImageAttachments } from "./imageAttachments";
 import { getTaskWorkerIds } from "./taskAssignees";
 import { recipientIdsFromSelection } from "./notifyRecipients";
+import { richTextHasContent } from "./richTextImages";
+import { sanitizeTaskUpdates } from "./sanitizeRichText";
 
 export function normalizeFeedbackRequests(value: unknown): TaskFeedbackRequest[] {
   if (!Array.isArray(value)) return [];
@@ -19,11 +22,13 @@ export function normalizeFeedbackRequests(value: unknown): TaskFeedbackRequest[]
         const row = r as Record<string, unknown>;
         const personId = String(row.personId ?? "").trim();
         const body = String(row.body ?? "").trim();
-        if (!personId || !body) continue;
+        const attachments = normalizeImageAttachments(row.attachments);
+        if (!personId || (!richTextHasContent(body) && attachments.length === 0)) continue;
         responses.push({
           personId,
           body,
           createdAt: String(row.createdAt ?? new Date().toISOString()),
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
       }
     }
@@ -58,7 +63,15 @@ export function feedbackRequestsForFirestore(requests: TaskFeedbackRequest[]): R
       notifyPersonIds: r.notifyPersonIds,
       notifyDepartmentIds: r.notifyDepartmentIds,
       askedPersonIds: r.askedPersonIds,
-      responses: r.responses,
+      responses: r.responses.map((res) => {
+        const item: Record<string, unknown> = {
+          personId: res.personId,
+          body: res.body,
+          createdAt: res.createdAt,
+        };
+        if (res.attachments?.length) item.attachments = imageAttachmentsForFirestore(res.attachments);
+        return item;
+      }),
       status: r.status,
     };
     if (r.resolvedAt) row.resolvedAt = r.resolvedAt;
@@ -154,8 +167,8 @@ export function addFeedbackResponse(
   personId: string,
   body: string
 ): Pick<Task, "feedbackRequests" | "needsFeedback" | "feedbackByIds"> {
-  const trimmed = body.trim();
-  if (!trimmed) {
+  const safe = sanitizeTaskUpdates(body.trim());
+  if (!richTextHasContent(safe)) {
     return {
       feedbackRequests: task.feedbackRequests ?? [],
       needsFeedback: task.needsFeedback,
@@ -167,7 +180,11 @@ export function addFeedbackResponse(
     if (r.id !== requestId) return r;
     const responses: TaskFeedbackResponse[] = [
       ...r.responses,
-      { personId, body: trimmed, createdAt: new Date().toISOString() },
+      {
+        personId,
+        body: safe,
+        createdAt: new Date().toISOString(),
+      },
     ];
     const done = r.askedPersonIds.every((id) => responses.some((res) => res.personId === id));
     if (done) {
@@ -182,6 +199,43 @@ export function addFeedbackResponse(
     ? [...new Set(feedbackRequests.filter((r) => r.status === "open").map((r) => r.requestedById))]
     : [];
 
+  return { feedbackRequests, needsFeedback, feedbackByIds };
+}
+
+export function removeFeedbackResponseAttachment(
+  task: Task,
+  requestId: string,
+  personId: string,
+  storagePath: string
+): Pick<Task, "feedbackRequests" | "needsFeedback" | "feedbackByIds"> | null {
+  const path = storagePath.trim();
+  if (!path) return null;
+
+  let changed = false;
+  const feedbackRequests = (task.feedbackRequests ?? []).map((r) => {
+    if (r.id !== requestId) return r;
+    const responses = r.responses.map((res) => {
+      if (res.personId !== personId) return res;
+      const attachments = (res.attachments ?? []).filter((a) => a.storagePath !== path);
+      if (attachments.length === (res.attachments ?? []).length) return res;
+      changed = true;
+      if (!res.body.trim() && attachments.length === 0) return res;
+      const row: TaskFeedbackResponse = {
+        personId: res.personId,
+        body: res.body,
+        createdAt: res.createdAt,
+      };
+      if (attachments.length > 0) row.attachments = attachments;
+      return row;
+    });
+    return { ...r, responses };
+  });
+
+  if (!changed) return null;
+  const needsFeedback = feedbackRequests.some((r) => r.status === "open");
+  const feedbackByIds = needsFeedback
+    ? [...new Set(feedbackRequests.filter((r) => r.status === "open").map((r) => r.requestedById))]
+    : [];
   return { feedbackRequests, needsFeedback, feedbackByIds };
 }
 

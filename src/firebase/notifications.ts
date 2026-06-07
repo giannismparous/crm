@@ -35,6 +35,9 @@ const NOTIFICATION_KINDS = new Set<NotificationKind>([
   "task_marked_complete",
   "task_reopened",
   "comment_reaction",
+  "reminder_shared",
+  "reminder_due",
+  "member_joined",
 ]);
 
 function normalizeKind(raw: unknown): NotificationKind {
@@ -320,6 +323,138 @@ export async function createNotificationsForTaskEvent(
       authorId: actorId,
       authorName: actorName,
       bodyPreview: preview,
+      read: false,
+      createdAt,
+    });
+  }
+
+  await batch.commit();
+}
+
+/** Notify people included on a personal reminder (taskId stores reminder id). */
+export async function createNotificationsForReminderShared(
+  db: Firestore,
+  orgId: string,
+  reminderId: string,
+  reminderTitle: string,
+  actorId: string,
+  actorName: string,
+  recipientIds: string[],
+  bodyPreview = ""
+): Promise<void> {
+  const unique = [...new Set(recipientIds.filter((id) => id && id !== actorId))];
+  if (unique.length === 0) return;
+
+  const batch = writeBatch(db);
+  const col = collection(db, "organizations", orgId, "notifications");
+  const createdAt = new Date().toISOString();
+  const title = reminderTitle.trim() || "Reminder";
+  const preview = bodyPreview.trim();
+  const eventKey = `reminder_shared_${createdAt}`;
+
+  for (const recipientId of unique) {
+    const notifId = `${reminderId}_${eventKey}_${recipientId}`;
+    batch.set(doc(col, notifId), {
+      id: notifId,
+      recipientId,
+      kind: "reminder_shared",
+      mentionLabel: "",
+      taskId: reminderId,
+      taskTitle: title,
+      commentId: eventKey,
+      authorId: actorId,
+      authorName: actorName,
+      bodyPreview: preview,
+      read: false,
+      createdAt,
+    });
+  }
+
+  await batch.commit();
+}
+
+/** One doc per recipient per reminder (`{reminderId}_due_{recipientId}`); each slot overwrites as a fresh unread alert. */
+export async function upsertReminderDueNotifications(
+  db: Firestore,
+  orgId: string,
+  reminderId: string,
+  reminderTitle: string,
+  recipientIds: string[],
+  slotLabel: string,
+  slotKey: string
+): Promise<void> {
+  const unique = [...new Set(recipientIds.filter(Boolean))];
+  if (unique.length === 0) return;
+
+  const batch = writeBatch(db);
+  const col = collection(db, "organizations", orgId, "notifications");
+  const createdAt = new Date().toISOString();
+  const title = reminderTitle.trim() || "Reminder";
+  const preview = `Due in ${slotLabel}`;
+
+  for (const recipientId of unique) {
+    const notifId = `${reminderId}_due_${recipientId}`;
+    batch.set(doc(col, notifId), {
+      id: notifId,
+      recipientId,
+      kind: "reminder_due",
+      mentionLabel: slotLabel,
+      taskId: reminderId,
+      taskTitle: title,
+      commentId: `due_${slotKey}`,
+      authorId: "",
+      authorName: "Reminder",
+      bodyPreview: preview,
+      read: false,
+      createdAt,
+    });
+  }
+
+  await batch.commit();
+}
+
+function splitDisplayName(name: string): { first: string; last: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "New", last: "teammate" };
+  if (parts.length === 1) return { first: parts[0]!, last: "" };
+  return { first: parts[0]!, last: parts.slice(1).join(" ") };
+}
+
+/** Notify the whole team when someone finishes profile setup and joins. */
+export async function createNotificationsForNewMember(
+  db: Firestore,
+  orgId: string,
+  memberId: string,
+  displayName: string,
+  orgRole: string,
+  departments: string[],
+  people: Person[]
+): Promise<void> {
+  const recipients = people.filter((p) => p.authUid && p.id !== memberId).map((p) => p.id);
+  if (recipients.length === 0) return;
+
+  const { first, last } = splitDisplayName(displayName);
+  const fullName = last ? `${first} ${last}` : first;
+  const roleLabel = orgRole === "founder" ? "Founder" : "Partner";
+  const deptLabel = departments.length > 0 ? departments.join(", ") : "";
+  const batch = writeBatch(db);
+  const col = collection(db, "organizations", orgId, "notifications");
+  const createdAt = new Date().toISOString();
+  const eventKey = `joined_${createdAt}`;
+
+  for (const recipientId of recipients) {
+    const notifId = `member_joined_${memberId}_${recipientId}`;
+    batch.set(doc(col, notifId), {
+      id: notifId,
+      recipientId,
+      kind: "member_joined",
+      mentionLabel: roleLabel,
+      taskId: memberId,
+      taskTitle: fullName,
+      commentId: eventKey,
+      authorId: memberId,
+      authorName: fullName,
+      bodyPreview: deptLabel ? `${roleLabel} · ${deptLabel}` : roleLabel,
       read: false,
       createdAt,
     });

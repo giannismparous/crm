@@ -1,5 +1,4 @@
 import type { Person, Task } from "../types";
-import { departmentLabelForTaskSector } from "../types";
 import { getTaskWorkerIds } from "./taskAssignees";
 
 /** How a task_finished notification should read for this recipient. */
@@ -46,16 +45,11 @@ export function taskFinishedNotifyRecipients(
   });
 }
 
-/** Assignees / department workers + anyone whose profile includes this task’s sector. */
+/** Direct assignees and members of assigned departments. */
 export function recipientsForNewTask(task: Task, people: Person[], creatorId: string): string[] {
   const workers = getTaskWorkerIds(task, people);
-  const sectorLabel = departmentLabelForTaskSector(task.sector);
-  const sectorStakeholders = people
-    .filter((p) => p.departments.includes(sectorLabel))
-    .map((p) => p.id);
   const s = new Set<string>();
   for (const id of workers) if (id) s.add(id);
-  for (const id of sectorStakeholders) if (id) s.add(id);
   s.delete(creatorId);
   return [...s];
 }

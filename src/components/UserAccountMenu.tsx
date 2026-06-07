@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, Settings } from "lucide-react";
 import { signOutUser } from "../firebase/config";
+import type { Person } from "../types";
+import { PersonAvatar } from "./PersonAvatar";
 
 export function UserAccountMenu({
   name,
+  person,
   email,
   canOpenSettings,
   onOpenSettings,
 }: {
   name: string;
+  person?: Pick<Person, "name" | "avatarUrl">;
   email?: string | null;
   canOpenSettings: boolean;
   onOpenSettings: () => void;
@@ -30,11 +34,12 @@ export function UserAccountMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex max-w-[7rem] items-center gap-0.5 rounded-lg border border-slate-200/80 bg-white/60 px-2 py-1 hover:bg-slate-50 sm:max-w-[10rem] sm:gap-1"
+        className="flex max-w-[9rem] items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/60 px-1.5 py-1 hover:bg-slate-50 sm:max-w-[12rem] sm:gap-2 sm:px-2"
         aria-expanded={open}
         aria-haspopup="menu"
         title={email ?? name}
       >
+        <PersonAvatar person={person} name={name} size="sm" className="ring-1 ring-slate-200/80" />
         <span className="truncate text-[10px] font-semibold text-indigo-700 sm:text-xs">{name}</span>
         <ChevronDown
           className={`h-3 w-3 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}

@@ -12,12 +12,12 @@ service cloud.firestore {
     }
 
     function isFounder(orgId) {
-      return signedIn() && orgPerson(orgId).data.orgRole == 'founder';
+      return signedIn()
+        && orgPerson(orgId).data.orgRole in ['founder', 'ceo'];
     }
 
     // One-time registration seeds
     match /organizations/{orgId}/registrationSeeds/{seedId} {
-      // Register page must read seed to show "invalid" vs "already used" (codes are long random ids).
       allow get: if true;
       allow list: if isFounder(orgId);
       allow create: if isFounder(orgId);
@@ -29,9 +29,44 @@ service cloud.firestore {
             .hasOnly(['used', 'usedById', 'usedByEmail', 'usedAt']);
     }
 
-    // SimasiaAI workspace — all other subcollections
-    match /organizations/{orgId}/{document=**} {
+    match /organizations/{orgId}/people/{personId} {
       allow read, write: if signedIn();
+    }
+
+    // Partner visibility is enforced in the client; founders manage project scope.
+    match /organizations/{orgId}/tasks/{taskId} {
+      allow read, write: if signedIn();
+    }
+
+    match /organizations/{orgId}/projects/{projectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isFounder(orgId);
+    }
+
+    match /organizations/{orgId}/appointments/{appointmentId} {
+      allow read, write: if signedIn();
+    }
+
+    match /organizations/{orgId}/personalReminders/{reminderId} {
+      allow read, write: if signedIn();
+    }
+
+    match /organizations/{orgId}/contacts/{contactId} {
+      allow read, write: if isFounder(orgId);
+    }
+
+    match /organizations/{orgId}/contacts/{contactId}/reminders/{reminderId} {
+      allow read, write: if isFounder(orgId);
+    }
+
+    match /organizations/{orgId}/notifications/{notificationId} {
+      allow read, update, delete: if signedIn()
+        && resource.data.recipientId == request.auth.uid;
+      allow create: if signedIn();
+    }
+
+    match /organizations/{orgId}/{collection}/{document=**} {
+      allow read, write: if signedIn() && isFounder(orgId);
     }
 
     match /users/{userId} {

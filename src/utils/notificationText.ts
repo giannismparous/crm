@@ -25,6 +25,12 @@ export function notificationHeadline(n: AppNotification): string {
       return `${who} reopened a task`;
     case "comment_reaction":
       return n.mentionLabel === "dislike" ? `${who} disliked a comment` : `${who} liked a comment`;
+    case "reminder_shared":
+      return `${who} included you on a reminder`;
+    case "reminder_due":
+      return n.mentionLabel ? `Reminder due in ${n.mentionLabel}` : "Reminder coming up";
+    case "member_joined":
+      return `Welcome to the team, ${n.taskTitle.trim() || n.authorName || "new teammate"}!`;
     case "task_comment":
     default:
       return `${who} commented on your task`;
@@ -32,5 +38,8 @@ export function notificationHeadline(n: AppNotification): string {
 }
 
 export function notificationTaskLine(n: AppNotification): string {
+  if (n.kind === "member_joined") {
+    return n.bodyPreview.trim() || n.mentionLabel?.trim() || "New teammate";
+  }
   return n.taskTitle.trim() || "Untitled task";
 }

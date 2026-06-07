@@ -33,7 +33,7 @@ export function ConfirmPanel({
   yesEmphasis?: boolean;
 }) {
   return (
-    <div className="w-full rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-left shadow-sm">
+    <div className="confirm-panel">
       <p className="text-xs leading-relaxed text-slate-800">{message}</p>
       {children}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -51,7 +51,7 @@ export function ConfirmPanel({
         <button
           type="button"
           onClick={onNo}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          className="btn-secondary"
         >
           {noLabel ?? "No"}
         </button>
@@ -81,7 +81,7 @@ export function TaskWorkerActionButtons({
       <button
         type="button"
         onClick={onFinish}
-        className="rounded-lg border border-emerald-400/70 bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-400/40 hover:bg-emerald-500/30"
+        className="task-action-finish"
       >
         {weFinished ? "We finished" : "I finished"}
       </button>
@@ -89,7 +89,7 @@ export function TaskWorkerActionButtons({
         <button
           type="button"
           onClick={onFeedback}
-          className="rounded-lg border border-orange-200/90 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-900 ring-1 ring-orange-200/80 ring-inset hover:bg-orange-100"
+          className="task-action-feedback"
         >
           I need feedback
         </button>
@@ -151,7 +151,7 @@ export function TaskWorkerFlowPanel({
       ...feedbackExcludeIds,
     ]);
     if (recipients.length === 0) {
-      setSubmitError("Pick at least one person or sector to notify.");
+      setSubmitError("Pick at least one person or department to notify.");
       return;
     }
     try {
@@ -206,7 +206,7 @@ export function TaskWorkerFlowPanel({
       <div className="mt-2 w-full rounded-lg border border-orange-200 bg-orange-50/50 p-3">
         <p className="text-xs font-medium text-orange-950">Who should be notified?</p>
         <p className="mt-0.5 text-[11px] text-amber-900/80">
-          Pick people or sectors outside this task. Anyone already assigned is not listed.
+          Pick people or departments outside this task. Anyone already assigned is not listed.
         </p>
         <div className="mt-2">
           <NotifyRecipientPicker
@@ -239,7 +239,7 @@ export function TaskWorkerFlowPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="btn-secondary"
           >
             Cancel
           </button>

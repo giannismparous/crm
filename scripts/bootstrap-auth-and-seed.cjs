@@ -101,7 +101,6 @@ async function main() {
       assignedById: uid,
       status: "todo",
       priority: "medium",
-      sector: "general",
       dueDate: today,
       originalDueDate: today,
       postponeCount: 0,

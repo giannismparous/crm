@@ -20,7 +20,7 @@ export type Person = {
   email: string;
   /** Team / function areas — a member can belong to more than one. */
   departments: string[];
-  /** Platform access role (founder or member). */
+  /** Platform access role (founder or partner). */
   orgRole: OrgRole;
   /** Set when this row is linked to Firebase Auth (bootstrap / profile sync) */
   authUid?: string;
@@ -28,19 +28,42 @@ export type Person = {
   registrationSeedId?: string;
   registeredAt?: string;
   taskStats?: PersonTaskStats;
+  /** Firebase Storage download URL for profile photo (self-uploaded). */
+  avatarUrl?: string;
+  /** Storage object path — used to replace or delete the photo. */
+  avatarStoragePath?: string;
+  /** False after seed registration until the user completes the profile setup screen. */
+  profileSetupComplete?: boolean;
+  /** Partners only — ISO datetime when platform access ends. */
+  accountExpiresAt?: string;
 };
 
 export type RegistrationSeed = {
   id: string;
   /** Privileges granted to the user who redeems this seed. */
   orgRole: OrgRole;
+  /** Departments assigned when the seed is redeemed — set by the admin issuing the seed. */
+  departments: string[];
   issuedById: string;
   issuedByEmail: string;
   issuedAt: string;
+  /** How long the code stays valid (1–7 days). */
+  validDays: number;
+  /** ISO datetime after which the code cannot be redeemed. */
+  expiresAt: string;
+  /** Partners only — months of account access granted on redeem. */
+  accountValidMonths?: number;
   used: boolean;
   usedById?: string;
   usedByEmail?: string;
   usedAt?: string;
+};
+
+export type CreateRegistrationSeedInput = {
+  orgRole: OrgRole;
+  departments: string[];
+  validDays: number;
+  accountValidMonths?: number;
 };
 
 export function normalizeDepartments(value: unknown, legacySingle?: unknown): string[] {
@@ -74,6 +97,18 @@ export const TEAM_DEPARTMENTS = [
   "General",
 ] as const;
 
+/** Departments on a registration seed — must be known team departments; defaults to General for partners. */
+export function normalizeSeedDepartments(
+  departments: string[],
+  opts?: { requireAtLeastOne?: boolean }
+): string[] {
+  const allowed = new Set<string>(TEAM_DEPARTMENTS);
+  const list = [...new Set(departments.map((d) => d.trim()).filter((d) => allowed.has(d)))];
+  if (list.length > 0) return list;
+  if (opts?.requireAtLeastOne) return ["General"];
+  return [];
+}
+
 export type TeamDepartment = (typeof TEAM_DEPARTMENTS)[number];
 
 export const DEPARTMENT_CHIP_CLASS: Record<string, string> = {
@@ -91,54 +126,76 @@ export function departmentChipClass(department: string): string {
   return DEPARTMENT_CHIP_CLASS[department] ?? "bg-slate-400/22 text-slate-800 ring-1 ring-slate-500/35";
 }
 
-export type TabId = "tasks" | "team" | "contacts" | "calendar";
+export type TabId =
+  | "tasks"
+  | "projects"
+  | "appointments"
+  | "team"
+  | "contacts"
+  | "reminders"
+  | "calendar";
+
+export type Project = {
+  id: string;
+  name: string;
+  description: string;
+  /** Hex accent for task grouping and chips */
+  color: string;
+  /** When set, partners in these departments can see this project and all of its tasks. */
+  departmentIds?: string[];
+  completed: boolean;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type AppointmentStatus = "scheduled" | "canceled";
+
+export type Appointment = {
+  id: string;
+  title: string;
+  description?: string;
+  /** ISO datetime — used for calendar placement */
+  startsAt: string;
+  /** Optional ISO datetime */
+  endsAt?: string;
+  location: string;
+  meetingLink?: string;
+  /** People attending (may or may not include the creator) */
+  participantIds: string[];
+  /** Whole departments invited — any member is a participant */
+  participantDepartmentIds: string[];
+  createdById: string;
+  status: AppointmentStatus;
+  createdAt: string;
+  canceledAt?: string;
+  attachments?: ImageAttachment[];
+  /** Optional link to an open task */
+  taskId?: string;
+};
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "canceled";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
-
-/** Fixed list — stored on each task (e.g. sales vs product). */
-export const TASK_SECTORS = [
-  "sales",
-  "marketing",
-  "product",
-  "operations",
-  "finance",
-  "legal",
-  "general",
-] as const;
-
-export type TaskSector = (typeof TASK_SECTORS)[number];
-
-export const TASK_SECTOR_LABELS: Record<TaskSector, string> = {
-  sales: "Sales",
-  marketing: "Marketing",
-  product: "Product",
-  operations: "Operations",
-  finance: "Finance",
-  legal: "Legal",
-  general: "General",
-};
-
-/** Maps a task’s sector to team directory department labels (`Person.departments`). */
-export function departmentLabelForTaskSector(sector: TaskSector): string {
-  return TASK_SECTOR_LABELS[sector];
-}
-
-/** Translucent chip styles per sector (Tailwind). */
-export const TASK_SECTOR_CHIP_CLASS: Record<TaskSector, string> = {
-  sales: "bg-amber-400/35 text-amber-950 ring-1 ring-amber-500/40",
-  marketing: "bg-fuchsia-400/25 text-fuchsia-950 ring-1 ring-fuchsia-500/35",
-  product: "bg-violet-400/25 text-violet-950 ring-1 ring-violet-500/35",
-  operations: "bg-teal-400/28 text-teal-950 ring-1 ring-teal-500/40",
-  finance: "bg-emerald-400/25 text-emerald-950 ring-1 ring-emerald-500/35",
-  legal: "bg-slate-500/22 text-slate-900 ring-1 ring-slate-600/35",
-  general: "bg-slate-400/22 text-slate-800 ring-1 ring-slate-500/35",
-};
 
 export type CommentReactions = {
   likes: string[];
   dislikes: string[];
 };
+
+/** Media file stored in Firebase Storage; URL + path saved in Firestore. */
+export type ImageAttachment = {
+  url: string;
+  storagePath: string;
+  name?: string;
+  kind?: InlineMediaKind;
+  /** Client fingerprint (name + size + lastModified) — used to block duplicate picks. */
+  fingerprint?: string;
+};
+
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+export const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+
+export type InlineMediaKind = "image" | "video" | "audio" | "file";
 
 export type TaskComment = {
   id: string;
@@ -146,6 +203,7 @@ export type TaskComment = {
   body: string;
   createdAt: string;
   reactions?: CommentReactions;
+  attachments?: ImageAttachment[];
 };
 
 /** Firestore sync for comment like/dislike notifications. */
@@ -157,6 +215,7 @@ export type TaskFeedbackResponse = {
   personId: string;
   body: string;
   createdAt: string;
+  attachments?: ImageAttachment[];
 };
 
 export type TaskFeedbackRequest = {
@@ -183,7 +242,10 @@ export type NotificationKind =
   | "task_created"
   | "task_marked_complete"
   | "task_reopened"
-  | "comment_reaction";
+  | "comment_reaction"
+  | "reminder_shared"
+  | "reminder_due"
+  | "member_joined";
 
 /** Max notifications loaded per user (Firestore query limit). */
 export const NOTIFICATION_INBOX_LIMIT = 50;
@@ -228,8 +290,8 @@ export type Task = {
   assignedById: string;
   status: TaskStatus;
   priority: TaskPriority;
-  /** Team / function area */
-  sector: TaskSector;
+  /** Optional — at most one project per task */
+  projectId?: string;
   /** Current due date (may move vs original) */
   dueDate: string;
   /** First agreed due date — if different from dueDate, UI shows “postponed” */
@@ -261,6 +323,28 @@ export type ContactReminder = {
   dueAt: string;
   notes: string;
   done: boolean;
+  attachments?: ImageAttachment[];
+};
+
+/** Per-person reminder — may link to a contact, open task, and/or appointment. */
+export type PersonalReminder = {
+  id: string;
+  ownerId: string;
+  title: string;
+  dueAt: string;
+  notes: string;
+  done: boolean;
+  createdAt: string;
+  attachments?: ImageAttachment[];
+  contactId?: string;
+  taskId?: string;
+  appointmentId?: string;
+  /** Other people who should see this reminder */
+  participantIds: string[];
+  /** Whole departments invited — any member is a participant */
+  participantDepartmentIds: string[];
+  /** Auto due-alert slots already sent: 1d, 6h, 2h, 30m */
+  dueNotifyFired?: string[];
 };
 
 export type SalesContact = {

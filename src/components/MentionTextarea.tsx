@@ -6,8 +6,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { Person } from "../types";
+import type { ImageAttachment, Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { InlineImageAttachments } from "./InlineImageAttachments";
 
 export type MentionSuggestion =
   | { kind: "person"; id: string; label: string }
@@ -51,6 +52,15 @@ export function MentionTextarea({
   rows = 2,
   people,
   className = "",
+  imageFiles,
+  onImageFilesChange,
+  imageStorageDir,
+  imageAttachments,
+  onImageAttachmentsChange,
+  onImageUploadingChange,
+  imageDisabled,
+  imageUploading,
+  imageUploadingIndices,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -58,7 +68,18 @@ export function MentionTextarea({
   rows?: number;
   people: Person[];
   className?: string;
+  imageFiles?: File[];
+  onImageFilesChange?: (files: File[]) => void;
+  imageStorageDir?: string;
+  imageAttachments?: ImageAttachment[];
+  onImageAttachmentsChange?: (attachments: ImageAttachment[]) => void;
+  onImageUploadingChange?: (uploading: boolean) => void;
+  imageDisabled?: boolean;
+  imageUploading?: boolean;
+  imageUploadingIndices?: ReadonlySet<number>;
 }) {
+  const imagesEnabled =
+    onImageFilesChange !== undefined || onImageAttachmentsChange !== undefined;
   const ref = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<MentionSuggestion[]>([]);
@@ -143,8 +164,21 @@ export function MentionTextarea({
         onKeyUp={() => refreshSuggestions(value, ref.current?.selectionStart ?? 0)}
         placeholder={placeholder}
         rows={rows}
-        className="input-base resize-y text-sm"
+        className={`input-base resize-y text-sm ${imagesEnabled ? "pb-10" : ""}`}
       />
+      {imagesEnabled && (
+        <InlineImageAttachments
+          files={imageFiles}
+          onChange={onImageFilesChange}
+          storageDir={imageStorageDir}
+          attachments={imageAttachments}
+          onAttachmentsChange={onImageAttachmentsChange}
+          onUploadingChange={onImageUploadingChange}
+          disabled={imageDisabled}
+          uploading={imageUploading}
+          uploadingIndices={imageUploadingIndices}
+        />
+      )}
       {open && (
         <div
           className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5"

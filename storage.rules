@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Media for tasks, appointments, reminders, etc. (images, audio, video).
+// MUST publish: Firebase Console → Storage → Rules → Publish
+// Or: firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /organizations/{orgId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size > 0
+        && (
+          (request.resource.contentType.matches('video/.*')
+            && request.resource.size <= 100 * 1024 * 1024)
+          || (request.resource.size <= 20 * 1024 * 1024)
+        );
+    }
+  }
+}

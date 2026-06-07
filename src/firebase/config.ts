@@ -1,6 +1,5 @@
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import {
-  createUserWithEmailAndPassword,
   getAuth,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -9,6 +8,7 @@ import {
   type UserCredential,
 } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 /** Tenant id — Firestore path `organizations/{SIMASIA_AI_ORG_ID}` */
 export const SIMASIA_AI_ORG_ID = "SimasiaAI";
@@ -40,6 +40,7 @@ function readFirebaseConfig(): FirebaseOptions {
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
+let storage: FirebaseStorage | undefined;
 
 export function getFirebaseApp(): FirebaseApp {
   if (!app) {
@@ -62,11 +63,14 @@ export function getFirestoreDb(): Firestore {
   return db;
 }
 
-/** Email / password (enable “Email/Password” in Firebase Console → Authentication → Sign-in method) */
-export async function registerWithEmail(email: string, password: string): Promise<UserCredential> {
-  return createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
+export function getFirebaseStorage(): FirebaseStorage {
+  if (!storage) {
+    storage = getStorage(getFirebaseApp());
+  }
+  return storage;
 }
 
+/** Email / password (enable “Email/Password” in Firebase Console → Authentication → Sign-in method) */
 export async function signInWithEmail(email: string, password: string): Promise<UserCredential> {
   return signInWithEmailAndPassword(getFirebaseAuth(), email, password);
 }

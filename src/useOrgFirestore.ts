@@ -22,23 +22,46 @@ import {
   createNotificationsForComment,
   createNotificationsForCommentReaction,
   deleteNotificationsForCommentReaction,
+  createNotificationsForReminderShared,
+  createNotificationsForNewMember,
   createNotificationsForTaskEvent,
   createNotificationsForTaskFinished,
   normalizeNotification,
 } from "./firebase/notifications";
 import { getFirebaseAuth, getFirestoreDb, SIMASIA_AI_ORG_ID } from "./firebase/config";
-import { hasPrivilege, type OrgRole } from "./auth/roles";
+import { canSeeAllOrgData, hasPrivilege, type OrgRole } from "./auth/roles";
 import { ensureUserProfile } from "./firebase/ensureUserProfile";
-import { normalizeContact, normalizePerson, normalizeReminder, normalizeTask } from "./firebase/normalizeFirestore";
+import {
+  normalizeAppointment,
+  normalizeContact,
+  normalizePerson,
+  normalizePersonalReminder,
+  normalizeProject,
+  normalizeReminder,
+  normalizeTask,
+} from "./firebase/normalizeFirestore";
 import { createRegistrationSeed, subscribeRegistrationSeeds } from "./firebase/registrationSeeds";
 import { registeredPeopleFromOrg } from "./firebase/userProfiles";
+import { normalizeAssigneeDepartments } from "./utils/taskAssignees";
+import {
+  appointmentVisibleToViewer,
+  personVisibleToViewer,
+  projectVisibleToViewer,
+  reminderVisibleToViewer,
+  taskVisibleToViewer,
+} from "./utils/orgVisibility";
 import type {
   AppNotification,
+  Appointment,
   CommentReactionNotifyChange,
   ContactReminder,
+  ImageAttachment,
   NotificationKind,
+  PersonalReminder,
   Person,
   PersonTaskStats,
+  Project,
+  CreateRegistrationSeedInput,
   RegistrationSeed,
   SalesContact,
   Task,
@@ -47,10 +70,19 @@ import type {
 } from "./types";
 import { feedbackRequestsForFirestore, normalizeFeedbackRequests } from "./utils/taskFeedback";
 import { NOTIFICATION_INBOX_LIMIT } from "./types";
-import { sanitizeTaskUpdates } from "./utils/sanitizeRichText";
-import { normalizeTaskComments } from "./utils/taskComments";
+import { richTextHasContent } from "./utils/richTextImages";
+import { normalizeContactIdentity } from "./utils/contactMerge";
+import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./utils/sanitizeRichText";
+import { normalizeTaskComments, taskCommentsForFirestore } from "./utils/taskComments";
+import { imageAttachmentsForFirestore } from "./utils/imageAttachments";
 import { normalizeUpdatesByUser } from "./utils/taskUpdates";
-import { recipientsForNewTask } from "./utils/notifyRecipients";
+import { recipientIdsFromSelection, recipientsForNewTask } from "./utils/notifyRecipients";
+import {
+  isPersonalReminderRelevantToPerson,
+  personalReminderLinkFieldsForWrite,
+  resolvePersonalReminderLinks,
+} from "./utils/personalReminderLinks";
+import { tryFireReminderDueNotifications } from "./utils/reminderDueNotifications";
 import {
   computePersonStatDeltas,
   isTaskCompleted,
@@ -101,7 +133,10 @@ export function useOrgFirestore() {
   const [error, setError] = useState<string | null>(null);
   const [peopleRaw, setPeopleRaw] = useState<Person[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [contacts, setContacts] = useState<SalesContact[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [personalReminders, setPersonalReminders] = useState<PersonalReminder[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [registrationSeeds, setRegistrationSeeds] = useState<RegistrationSeed[]>([]);
 
@@ -109,6 +144,8 @@ export function useOrgFirestore() {
   const profileSync = useRef<string | null>(null);
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
+  const appointmentsRef = useRef<Appointment[]>([]);
+  appointmentsRef.current = appointments;
 
   /** Linked to Firebase Auth (`authUid`) — excludes legacy seed rows. */
   const people = useMemo(() => registeredPeopleFromOrg(peopleRaw), [peopleRaw]);
@@ -125,10 +162,13 @@ export function useOrgFirestore() {
     if (!user) {
       setPeopleRaw([]);
       setTasks([]);
+      setProjects([]);
       setContacts([]);
+      setAppointments([]);
       setNotifications([]);
       setRegistrationSeeds([]);
-      setDataLoading(false);
+      // Keep dataLoading true while auth is still resolving so the sync bar doesn't restart.
+      if (!authLoading) setDataLoading(false);
       setError(null);
       profileSync.current = null;
       return;
@@ -147,17 +187,25 @@ export function useOrgFirestore() {
         .then(() => {
           profileSync.current = user.uid;
         })
-        .catch((e) => {
+        .catch(async (e) => {
           profileSync.current = null;
-          const msg = e instanceof Error ? e.message : "Could not save your team profile";
+          const msg = e instanceof Error ? e.message : "Could not verify your team account";
           console.error("ensureUserProfile", e);
+          try {
+            const { signOutUser } = await import("./firebase/config");
+            await signOutUser();
+          } catch (signOutErr) {
+            console.error("signOut after profile failure", signOutErr);
+          }
           fail(msg);
         });
     }
 
     const peopleCol = collection(db, "organizations", ORG, "people");
     const tasksCol = collection(db, "organizations", ORG, "tasks");
-    const contactsCol = collection(db, "organizations", ORG, "contacts");
+    const projectsCol = collection(db, "organizations", ORG, "projects");
+    const appointmentsCol = collection(db, "organizations", ORG, "appointments");
+    const personalRemindersCol = collection(db, "organizations", ORG, "personalReminders");
 
     const unPeople = onSnapshot(
       peopleCol,
@@ -179,6 +227,111 @@ export function useOrgFirestore() {
       (e) => fail(e.message)
     );
 
+    const unProjects = onSnapshot(
+      projectsCol,
+      (snap) => {
+        const list = snap.docs.map((d) => normalizeProject(d.id, d.data() as Record<string, unknown>));
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setProjects(list);
+      },
+      (e) => fail(e.message)
+    );
+
+    const unAppointments = onSnapshot(
+      appointmentsCol,
+      (snap) => {
+        const list = snap.docs.map((d) =>
+          normalizeAppointment(d.id, d.data() as Record<string, unknown>)
+        );
+        list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+        setAppointments(list);
+      },
+      (e) => fail(e.message)
+    );
+
+    const unPersonalReminders = onSnapshot(
+      personalRemindersCol,
+      (snap) => {
+        const list = snap.docs.map((d) =>
+          normalizePersonalReminder(d.id, d.data() as Record<string, unknown>)
+        );
+        list.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+        setPersonalReminders(list);
+      },
+      (e) => fail(e.message)
+    );
+
+    return () => {
+      unPeople();
+      unTasks();
+      unProjects();
+      unAppointments();
+      unPersonalReminders();
+    };
+  }, [user, authLoading, db]);
+
+  const currentUserPersonId = useMemo(() => {
+    if (!user) return "";
+    const byUid = people.find((p) => p.authUid === user.uid || p.id === user.uid);
+    if (byUid) return byUid.id;
+    const byEmail = people.find((p) => p.email.toLowerCase() === user.email?.toLowerCase());
+    return byEmail?.id ?? user.uid;
+  }, [user, people]);
+
+  const currentUserOrgRole = useMemo((): OrgRole => {
+    const person = people.find((p) => p.id === currentUserPersonId);
+    return person?.orgRole ?? "partner";
+  }, [people, currentUserPersonId]);
+
+  const currentUserPerson = useMemo(
+    () => people.find((p) => p.id === currentUserPersonId),
+    [people, currentUserPersonId]
+  );
+
+  const seesAllOrgData = canSeeAllOrgData(currentUserOrgRole);
+  const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
+  const canManageProjects = hasPrivilege(currentUserOrgRole, "manageProjects");
+
+  const visiblePeople = useMemo(() => {
+    if (seesAllOrgData) return people;
+    return people.filter((p) => personVisibleToViewer(p, currentUserPerson, currentUserOrgRole));
+  }, [people, currentUserPerson, currentUserOrgRole, seesAllOrgData]);
+
+  const visibleProjects = useMemo(() => {
+    if (seesAllOrgData) return projects;
+    return projects.filter((p) => projectVisibleToViewer(p, currentUserPerson, currentUserOrgRole));
+  }, [projects, currentUserPerson, currentUserOrgRole, seesAllOrgData]);
+
+  const visibleTasks = useMemo(() => {
+    if (seesAllOrgData) return tasks;
+    return tasks.filter((t) =>
+      taskVisibleToViewer(t, currentUserPerson, currentUserPersonId, people, projects, currentUserOrgRole)
+    );
+  }, [tasks, people, projects, currentUserPerson, currentUserPersonId, currentUserOrgRole, seesAllOrgData]);
+
+  const visibleAppointments = useMemo(() => {
+    if (seesAllOrgData) return appointments;
+    return appointments.filter((a) =>
+      appointmentVisibleToViewer(a, currentUserPersonId, people, currentUserOrgRole)
+    );
+  }, [appointments, people, currentUserPersonId, currentUserOrgRole, seesAllOrgData]);
+
+  const visiblePersonalReminders = useMemo(() => {
+    if (seesAllOrgData) return personalReminders;
+    return personalReminders.filter((r) =>
+      reminderVisibleToViewer(r, currentUserPersonId, people, currentUserOrgRole)
+    );
+  }, [personalReminders, people, currentUserPersonId, currentUserOrgRole, seesAllOrgData]);
+
+  const visibleContacts = seesAllOrgData ? contacts : [];
+
+  useEffect(() => {
+    if (!user || !seesAllOrgData) {
+      setContacts([]);
+      return;
+    }
+
+    const contactsCol = collection(db, "organizations", ORG, "contacts");
     const unContacts = onSnapshot(
       contactsCol,
       async (snap) => {
@@ -198,33 +351,16 @@ export function useOrgFirestore() {
           list.sort((a, b) => a.lastName.localeCompare(b.lastName));
           setContacts(list);
         } catch (e) {
-          if (my === contactsReq.current) fail(e instanceof Error ? e.message : String(e));
+          if (my === contactsReq.current) {
+            setError(e instanceof Error ? e.message : String(e));
+          }
         }
       },
-      (e) => fail(e.message)
+      (e) => setError(e.message)
     );
 
-    return () => {
-      unPeople();
-      unTasks();
-      unContacts();
-    };
-  }, [user, db]);
-
-  const currentUserPersonId = useMemo(() => {
-    if (!user) return "";
-    const byUid = people.find((p) => p.authUid === user.uid || p.id === user.uid);
-    if (byUid) return byUid.id;
-    const byEmail = people.find((p) => p.email.toLowerCase() === user.email?.toLowerCase());
-    return byEmail?.id ?? user.uid;
-  }, [user, people]);
-
-  const currentUserOrgRole = useMemo((): OrgRole => {
-    const person = people.find((p) => p.id === currentUserPersonId);
-    return person?.orgRole ?? "member";
-  }, [people, currentUserPersonId]);
-
-  const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
+    return () => unContacts();
+  }, [user, seesAllOrgData, db]);
 
   useEffect(() => {
     if (!user || !currentUserPersonId) {
@@ -259,6 +395,39 @@ export function useOrgFirestore() {
     );
     return () => unsub();
   }, [user, currentUserPersonId, db]);
+
+  const reminderDueProcessingRef = useRef(false);
+
+  useEffect(() => {
+    if (!user || !currentUserPersonId || personalReminders.length === 0) return;
+
+    let cancelled = false;
+
+    async function runDueReminderChecks() {
+      if (reminderDueProcessingRef.current) return;
+      reminderDueProcessingRef.current = true;
+      try {
+        const relevant = personalReminders.filter((r) =>
+          isPersonalReminderRelevantToPerson(r, currentUserPersonId, people)
+        );
+        for (const reminder of relevant) {
+          if (cancelled) break;
+          await tryFireReminderDueNotifications(db, ORG, reminder, people);
+        }
+      } catch (e) {
+        console.error("reminderDueNotifications", e);
+      } finally {
+        reminderDueProcessingRef.current = false;
+      }
+    }
+
+    void runDueReminderChecks();
+    const intervalId = window.setInterval(() => void runDueReminderChecks(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [user, currentUserPersonId, personalReminders, people, db]);
 
   useEffect(() => {
     if (!user || !canAccessSettings) {
@@ -408,8 +577,9 @@ export function useOrgFirestore() {
       if (!requesterId || requesterId === currentUserPersonId) return;
       const actor = people.find((p) => p.id === currentUserPersonId);
       const actorName = actor?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const plain = taskUpdatesToPlainText(sanitizeTaskUpdates(body));
       const preview =
-        body.trim().length > 120 ? body.trim().slice(0, 120).trimEnd() + "…" : body.trim();
+        plain.length > 120 ? plain.slice(0, 120).trimEnd() + "…" : plain;
       try {
         await createNotificationsForTaskEvent(
           db,
@@ -495,7 +665,8 @@ export function useOrgFirestore() {
       forWrite.updates = sanitizeTaskUpdates(forWrite.updates);
     }
     if (Array.isArray(forWrite.comments)) {
-      forWrite.comments = normalizeTaskComments(forWrite.comments);
+      const normalized = normalizeTaskComments(forWrite.comments);
+      forWrite.comments = taskCommentsForFirestore(normalized);
     }
     if (forWrite.updatesByUser != null) {
       const byUser = normalizeUpdatesByUser(forWrite.updatesByUser);
@@ -505,6 +676,9 @@ export function useOrgFirestore() {
       } else {
         forWrite.updatesByUser = byUser;
       }
+    }
+    if (patch.projectId === "") {
+      forWrite.projectId = deleteField();
     }
     await updateDoc(
       ref,
@@ -600,16 +774,111 @@ export function useOrgFirestore() {
     [db]
   );
 
-  const addContact = useCallback(async (payload: Omit<SalesContact, "id">): Promise<string> => {
-    const ref = doc(collection(db, "organizations", ORG, "contacts"));
-    const id = ref.id;
-    const { reminders: _r, ...rest } = payload;
-    await setDoc(ref, { ...rest, id } as unknown as Record<string, unknown>);
-    return id;
-  }, [db]);
+  const createProject = useCallback(
+    async (payload: Omit<Project, "id" | "createdAt" | "completed" | "completedAt">) => {
+      if (!hasPrivilege(currentUserOrgRole, "manageProjects")) {
+        throw new Error("You do not have permission to create projects.");
+      }
+      const departmentIds = normalizeAssigneeDepartments(payload.departmentIds ?? []);
+      const ref = doc(collection(db, "organizations", ORG, "projects"));
+      const row: Project = {
+        id: ref.id,
+        name: payload.name.trim(),
+        description: payload.description.trim(),
+        color: payload.color,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        ...(departmentIds.length > 0 ? { departmentIds } : {}),
+      };
+      await setDoc(ref, scrub(row as unknown as Record<string, unknown>));
+    },
+    [db, currentUserOrgRole]
+  );
+
+  const updateProject = useCallback(
+    async (id: string, patch: Partial<Project>) => {
+      if (!hasPrivilege(currentUserOrgRole, "manageProjects")) {
+        throw new Error("You do not have permission to edit projects.");
+      }
+      const { id: _omit, createdAt: _at, ...fields } = patch;
+      const body = scrub(fields as Record<string, unknown>);
+      if (typeof body.name === "string") body.name = body.name.trim();
+      if (typeof body.description === "string") body.description = body.description.trim();
+      if (patch.departmentIds !== undefined) {
+        const departmentIds = normalizeAssigneeDepartments(patch.departmentIds);
+        if (departmentIds.length > 0) body.departmentIds = departmentIds;
+        else body.departmentIds = deleteField();
+      }
+      if (patch.completed === true && patch.completedAt === undefined) {
+        body.completedAt = new Date().toISOString();
+      }
+      if (patch.completed === false) {
+        body.completedAt = deleteField();
+      }
+      if (Object.keys(body).length > 0) {
+        await updateDoc(doc(db, "organizations", ORG, "projects", id), body as DocumentData);
+      }
+    },
+    [db, currentUserOrgRole]
+  );
+
+  const removeProject = useCallback(
+    async (id: string) => {
+      if (!hasPrivilege(currentUserOrgRole, "manageProjects")) {
+        throw new Error("You do not have permission to delete projects.");
+      }
+      const batch = writeBatch(db);
+      for (const t of tasksRef.current) {
+        if (t.projectId === id) {
+          batch.update(doc(db, "organizations", ORG, "tasks", t.id), { projectId: deleteField() });
+        }
+      }
+      batch.delete(doc(db, "organizations", ORG, "projects", id));
+      await batch.commit();
+    },
+    [db, currentUserOrgRole]
+  );
+
+  const addContact = useCallback(
+    async (payload: Omit<SalesContact, "id">, contactId?: string): Promise<string> => {
+      const identity = normalizeContactIdentity({
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        company: payload.company,
+      });
+      if (!identity) {
+        throw new Error("First name, last name, or company is required");
+      }
+      const ref = contactId
+        ? doc(db, "organizations", ORG, "contacts", contactId)
+        : doc(collection(db, "organizations", ORG, "contacts"));
+      const id = ref.id;
+      const { reminders: _r, lastContactedAt, firstName: _fn, lastName: _ln, company: _co, ...rest } = payload;
+      const generalNotes =
+        typeof rest.generalNotes === "string" ? sanitizeTaskUpdates(rest.generalNotes) : rest.generalNotes;
+      const body: Record<string, unknown> = {
+        ...rest,
+        firstName: identity.firstName,
+        lastName: identity.lastName,
+        company: identity.company,
+        generalNotes,
+        id,
+      };
+      if (lastContactedAt?.trim()) body.lastContactedAt = lastContactedAt;
+      await setDoc(ref, body);
+      return id;
+    },
+    [db]
+  );
 
   const updateContact = useCallback(async (id: string, patch: Partial<SalesContact>) => {
     const { reminders: _reminders, id: _patchId, ...fields } = patch;
+    if (typeof fields.generalNotes === "string") {
+      fields.generalNotes = sanitizeTaskUpdates(fields.generalNotes);
+    }
+    if ("lastContactedAt" in fields && !String(fields.lastContactedAt ?? "").trim()) {
+      fields.lastContactedAt = deleteField() as unknown as string;
+    }
     const ref = doc(db, "organizations", ORG, "contacts", id);
     const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);
     if (Object.keys(body).length === 0) return;
@@ -640,9 +909,20 @@ export function useOrgFirestore() {
   );
 
   const addReminder = useCallback(
-    async (contactId: string, r: Omit<ContactReminder, "id" | "done">) => {
-      const ref = doc(collection(db, "organizations", ORG, "contacts", contactId, "reminders"));
-      await setDoc(ref, { title: r.title, dueAt: r.dueAt, notes: r.notes, done: false });
+    async (contactId: string, r: Omit<ContactReminder, "id" | "done">, reminderId?: string) => {
+      const ref = reminderId
+        ? doc(db, "organizations", ORG, "contacts", contactId, "reminders", reminderId)
+        : doc(collection(db, "organizations", ORG, "contacts", contactId, "reminders"));
+      const row: Record<string, unknown> = {
+        title: r.title,
+        dueAt: r.dueAt,
+        notes: r.notes,
+        done: false,
+      };
+      if (r.attachments?.length) {
+        row.attachments = imageAttachmentsForFirestore(r.attachments);
+      }
+      await setDoc(ref, scrub(row));
       await refreshContactReminders(contactId);
     },
     [db, refreshContactReminders]
@@ -668,7 +948,14 @@ export function useOrgFirestore() {
       patchContactReminderLocal(contactId, reminderId, patch);
       const ref = doc(db, "organizations", ORG, "contacts", contactId, "reminders", reminderId);
       const { id: _omit, ...rest } = patch as Partial<ContactReminder> & { id?: string };
-      const body = scrub(rest as unknown as Record<string, unknown>);
+      const forWrite = { ...rest } as Record<string, unknown>;
+      if (Array.isArray(forWrite.attachments)) {
+        forWrite.attachments =
+          forWrite.attachments.length > 0
+            ? imageAttachmentsForFirestore(forWrite.attachments as ImageAttachment[])
+            : deleteField();
+      }
+      const body = scrub(forWrite as unknown as Record<string, unknown>);
       if (Object.keys(body).length > 0) {
         await updateDoc(ref, body as DocumentData);
       }
@@ -697,7 +984,7 @@ export function useOrgFirestore() {
   );
 
   const issueRegistrationSeed = useCallback(
-    async (orgRole: OrgRole) => {
+    async (input: CreateRegistrationSeedInput) => {
       if (!hasPrivilege(currentUserOrgRole, "issueRegistrationSeeds")) {
         throw new Error("You do not have permission to create registration seeds.");
       }
@@ -705,45 +992,354 @@ export function useOrgFirestore() {
       return createRegistrationSeed(db, {
         id: currentUserPersonId,
         email: issuer?.email ?? user?.email ?? "",
-      }, orgRole);
+      }, input);
     },
     [db, currentUserOrgRole, currentUserPersonId, people, user?.email]
   );
 
-  const updatePerson = useCallback(async (id: string, patch: Partial<Person>) => {
-    const {
-      id: _omit,
-      authUid: _auth,
-      orgRole: _orgRole,
-      registrationSeedId: _seed,
-      registeredAt: _at,
-      taskStats: _stats,
-      ...fields
-    } = patch;
-    const ref = doc(db, "organizations", ORG, "people", id);
-    const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);
-    if (Array.isArray(fields.departments)) {
-      body.departments = [...new Set(fields.departments.map((d) => d.trim()).filter(Boolean))];
-      body.department = deleteField();
-    }
-    if (Object.keys(body).length > 0) {
+  const completeProfileSetup = useCallback(
+    async (patch: { name: string; title: string }) => {
+      if (!currentUserPersonId) throw new Error("Not signed in.");
+      const name = patch.name.trim();
+      if (!name) throw new Error("Enter your display name.");
+      const person = peopleRaw.find((p) => p.id === currentUserPersonId);
+      const ref = doc(db, "organizations", ORG, "people", currentUserPersonId);
+      await updateDoc(ref, {
+        id: currentUserPersonId,
+        name,
+        title: patch.title.trim(),
+        profileSetupComplete: true,
+      });
+      await updateDoc(doc(db, "users", currentUserPersonId), {
+        displayName: name,
+        updatedAt: new Date().toISOString(),
+      });
+      try {
+        await createNotificationsForNewMember(
+          db,
+          ORG,
+          currentUserPersonId,
+          name,
+          person?.orgRole ?? "partner",
+          person?.departments ?? [],
+          registeredPeopleFromOrg(peopleRaw)
+        );
+      } catch (e) {
+        console.error("createNotificationsForNewMember", e);
+      }
+    },
+    [db, currentUserPersonId, peopleRaw]
+  );
+
+  const createAppointment = useCallback(
+    async (payload: Omit<Appointment, "id" | "createdAt" | "status">, appointmentId?: string) => {
+      const ref = appointmentId
+        ? doc(db, "organizations", ORG, "appointments", appointmentId)
+        : doc(collection(db, "organizations", ORG, "appointments"));
+      const id = ref.id;
+      const participantIds = [...new Set((payload.participantIds ?? []).filter(Boolean))];
+      const participantDepartmentIds = [
+        ...new Set((payload.participantDepartmentIds ?? []).filter(Boolean)),
+      ];
+      const { description: rawDescription, ...payloadRest } = payload;
+      const description =
+        typeof rawDescription === "string" ? sanitizeTaskUpdates(rawDescription) : undefined;
+      const row: Appointment = {
+        ...payloadRest,
+        participantIds,
+        participantDepartmentIds,
+        id,
+        status: "scheduled",
+        createdAt: new Date().toISOString(),
+        ...(description && richTextHasContent(description) ? { description } : {}),
+      };
+      const forWrite = stripUndefinedDeep({
+        ...(row as unknown as Record<string, unknown>),
+        ...(row.attachments?.length
+          ? { attachments: imageAttachmentsForFirestore(row.attachments) }
+          : {}),
+      }) as Record<string, unknown>;
+      await setDoc(ref, scrub(forWrite) as Record<string, unknown>);
+      return id;
+    },
+    [db]
+  );
+
+  const updateAppointment = useCallback(
+    async (id: string, patch: Partial<Appointment>) => {
+      const ref = doc(db, "organizations", ORG, "appointments", id);
+      const { id: _omitId, ...rest } = patch as Partial<Appointment> & { id?: string };
+      const forWrite = { ...rest } as Record<string, unknown>;
+      if (Array.isArray(forWrite.participantIds)) {
+        forWrite.participantIds = [...new Set((forWrite.participantIds as string[]).filter(Boolean))];
+      }
+      if (Array.isArray(forWrite.participantDepartmentIds)) {
+        forWrite.participantDepartmentIds = [
+          ...new Set((forWrite.participantDepartmentIds as string[]).filter(Boolean)),
+        ];
+      }
+      if ("description" in forWrite) {
+        const safe = sanitizeTaskUpdates(String(forWrite.description ?? ""));
+        if (richTextHasContent(safe)) forWrite.description = safe;
+        else forWrite.description = deleteField();
+      }
+      if ("meetingLink" in forWrite && !String(forWrite.meetingLink ?? "").trim()) {
+        forWrite.meetingLink = deleteField();
+      }
+      if ("endsAt" in forWrite && !String(forWrite.endsAt ?? "").trim()) {
+        forWrite.endsAt = deleteField();
+      }
+      if ("taskId" in forWrite && !String(forWrite.taskId ?? "").trim()) {
+        forWrite.taskId = deleteField();
+      }
+      if (Array.isArray(forWrite.attachments)) {
+        forWrite.attachments =
+          forWrite.attachments.length > 0
+            ? imageAttachmentsForFirestore(forWrite.attachments as ImageAttachment[])
+            : deleteField();
+      }
+      const body = scrub(stripUndefinedDeep(forWrite) as Record<string, unknown>) as Record<string, unknown>;
+      if (Object.keys(body).length === 0) return;
       await updateDoc(ref, body as DocumentData);
-    }
-  }, [db]);
+
+      if ("taskId" in patch) {
+        const linked = personalReminders.filter((r) => r.appointmentId === id);
+        if (linked.length > 0) {
+          const taskId = String(patch.taskId ?? "").trim();
+          await Promise.all(
+            linked.map((r) => {
+              const prRef = doc(db, "organizations", ORG, "personalReminders", r.id);
+              return updateDoc(
+                prRef,
+                taskId ? { taskId } : ({ taskId: deleteField() } as DocumentData)
+              );
+            })
+          );
+        }
+      }
+    },
+    [db, personalReminders]
+  );
+
+  const addPersonalReminder = useCallback(
+    async (
+      payload: Omit<PersonalReminder, "id" | "createdAt" | "done">,
+      reminderId?: string
+    ): Promise<string> => {
+      const ref = reminderId
+        ? doc(db, "organizations", ORG, "personalReminders", reminderId)
+        : doc(collection(db, "organizations", ORG, "personalReminders"));
+      const id = ref.id;
+      const linked = resolvePersonalReminderLinks(payload, appointmentsRef.current);
+      const participantIds = [...new Set((linked.participantIds ?? payload.participantIds ?? []).filter(Boolean))];
+      const participantDepartmentIds = [
+        ...new Set((linked.participantDepartmentIds ?? payload.participantDepartmentIds ?? []).filter(Boolean)),
+      ];
+      const row: Record<string, unknown> = {
+        id,
+        ownerId: linked.ownerId ?? payload.ownerId,
+        title: linked.title ?? payload.title,
+        dueAt: linked.dueAt ?? payload.dueAt,
+        notes: linked.notes ?? payload.notes,
+        done: false,
+        createdAt: new Date().toISOString(),
+        participantIds,
+        participantDepartmentIds,
+      };
+      for (const [k, v] of Object.entries(personalReminderLinkFieldsForWrite(linked))) {
+        if (v) row[k] = v;
+      }
+      if (payload.attachments?.length) {
+        row.attachments = imageAttachmentsForFirestore(payload.attachments);
+      }
+      await setDoc(ref, scrub(row));
+      const ownerId = String(linked.ownerId ?? payload.ownerId);
+      const notifyIds = recipientIdsFromSelection(
+        people,
+        participantIds,
+        participantDepartmentIds,
+        [ownerId]
+      );
+      if (notifyIds.length > 0) {
+        const actor = people.find((p) => p.id === ownerId);
+        try {
+          await createNotificationsForReminderShared(
+            db,
+            ORG,
+            id,
+            String(linked.title ?? payload.title),
+            ownerId,
+            actor?.name?.trim() || actor?.email?.trim() || "Someone",
+            notifyIds,
+            String(linked.notes ?? payload.notes ?? "")
+          );
+        } catch (e) {
+          console.error("notifyReminderShared", e);
+        }
+      }
+      return id;
+    },
+    [db, people]
+  );
+
+  const updatePersonalReminder = useCallback(
+    async (id: string, patch: Partial<PersonalReminder>) => {
+      const existing = personalReminders.find((r) => r.id === id);
+      const merged = existing ? { ...existing, ...patch } : patch;
+      const linked = resolvePersonalReminderLinks(merged, appointmentsRef.current);
+      const ref = doc(db, "organizations", ORG, "personalReminders", id);
+      const { id: _omit, createdAt: _ca, ownerId: _oid, ...rest } = linked as PersonalReminder;
+      const forWrite = { ...rest } as Record<string, unknown>;
+      Object.assign(forWrite, personalReminderLinkFieldsForWrite(linked));
+      if (Array.isArray(forWrite.participantIds)) {
+        forWrite.participantIds = [...new Set((forWrite.participantIds as string[]).filter(Boolean))];
+      }
+      if (Array.isArray(forWrite.participantDepartmentIds)) {
+        forWrite.participantDepartmentIds = [
+          ...new Set((forWrite.participantDepartmentIds as string[]).filter(Boolean)),
+        ];
+      }
+      if (Array.isArray(forWrite.attachments)) {
+        forWrite.attachments =
+          forWrite.attachments.length > 0
+            ? imageAttachmentsForFirestore(forWrite.attachments as ImageAttachment[])
+            : deleteField();
+      }
+      if (existing && patch.dueAt !== undefined) {
+        const nextDue = String(linked.dueAt ?? patch.dueAt).trim();
+        if (nextDue && nextDue !== existing.dueAt) {
+          forWrite.dueNotifyFired = [];
+        }
+      }
+      const body = scrub(stripUndefinedDeep(forWrite) as Record<string, unknown>);
+      if (Object.keys(body).length === 0) return;
+      setPersonalReminders((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...linked, id } as PersonalReminder : r))
+      );
+      await updateDoc(ref, body as DocumentData);
+
+      if (existing) {
+        const ownerId = existing.ownerId;
+        const prevIds = new Set(
+          recipientIdsFromSelection(
+            people,
+            existing.participantIds,
+            existing.participantDepartmentIds,
+            [ownerId]
+          )
+        );
+        const nextIds = recipientIdsFromSelection(
+          people,
+          (linked.participantIds as string[] | undefined) ?? existing.participantIds,
+          (linked.participantDepartmentIds as string[] | undefined) ?? existing.participantDepartmentIds,
+          [ownerId]
+        );
+        const added = nextIds.filter((rid) => !prevIds.has(rid));
+        if (added.length > 0) {
+          const actor = people.find((p) => p.id === currentUserPersonId);
+          try {
+            await createNotificationsForReminderShared(
+              db,
+              ORG,
+              id,
+              String(linked.title ?? existing.title),
+              currentUserPersonId,
+              actor?.name?.trim() || actor?.email?.trim() || "Someone",
+              added,
+              String(linked.notes ?? existing.notes ?? "")
+            );
+          } catch (e) {
+            console.error("notifyReminderShared", e);
+          }
+        }
+      }
+    },
+    [db, personalReminders, people, currentUserPersonId]
+  );
+
+  const removePersonalReminder = useCallback(
+    async (id: string) => {
+      await deleteDoc(doc(db, "organizations", ORG, "personalReminders", id));
+    },
+    [db]
+  );
+
+  const cancelAppointment = useCallback(
+    async (id: string) => {
+      await updateAppointment(id, {
+        status: "canceled",
+        canceledAt: new Date().toISOString(),
+      });
+    },
+    [updateAppointment]
+  );
+
+  const removeAppointment = useCallback(
+    async (id: string) => {
+      await deleteDoc(doc(db, "organizations", ORG, "appointments", id));
+    },
+    [db]
+  );
+
+  const updatePerson = useCallback(
+    async (id: string, patch: Partial<Person>) => {
+      const touchesAvatar =
+        patch.avatarUrl !== undefined || patch.avatarStoragePath !== undefined;
+      if (touchesAvatar && id !== currentUserPersonId) {
+        throw new Error("Only you can change your profile photo.");
+      }
+
+      const {
+        id: _omit,
+        authUid: _auth,
+        orgRole: _orgRole,
+        registrationSeedId: _seed,
+        registeredAt: _at,
+        taskStats: _stats,
+        profileSetupComplete: _setup,
+        ...fields
+      } = patch;
+
+      if (
+        fields.departments !== undefined &&
+        id === currentUserPersonId &&
+        !hasPrivilege(currentUserOrgRole, "manageOrgRoles")
+      ) {
+        delete fields.departments;
+      }
+      const ref = doc(db, "organizations", ORG, "people", id);
+      const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);
+      if (Array.isArray(fields.departments)) {
+        body.departments = [...new Set(fields.departments.map((d) => d.trim()).filter(Boolean))];
+        body.department = deleteField();
+      }
+      if (fields.avatarUrl === "") body.avatarUrl = deleteField();
+      if (fields.avatarStoragePath === "") body.avatarStoragePath = deleteField();
+      if (Object.keys(body).length > 0) {
+        await updateDoc(ref, body as DocumentData);
+      }
+    },
+    [db, currentUserPersonId, currentUserOrgRole]
+  );
 
   return {
     user,
     authLoading,
     dataLoading,
     error,
-    people,
-    tasks,
-    contacts,
+    people: visiblePeople,
+    tasks: visibleTasks,
+    projects: visibleProjects,
+    contacts: visibleContacts,
+    appointments: visibleAppointments,
+    personalReminders: visiblePersonalReminders,
     notifications,
     registrationSeeds,
     currentUserPersonId,
     currentUserOrgRole,
     canAccessSettings,
+    canManageProjects,
+    seesAllOrgData,
     markNotificationRead,
     markAllNotificationsRead,
     notifyEveryoneAboutTask,
@@ -755,14 +1351,25 @@ export function useOrgFirestore() {
     createTask,
     cancelTask,
     removeTask,
+    createProject,
+    updateProject,
+    removeProject,
     addContact,
     updateContact,
     removeContact,
     addReminder,
     updateReminder,
     removeReminder,
+    createAppointment,
+    updateAppointment,
+    cancelAppointment,
+    removeAppointment,
+    addPersonalReminder,
+    updatePersonalReminder,
+    removePersonalReminder,
     updatePerson,
     updatePersonOrgRole,
     issueRegistrationSeed,
+    completeProfileSetup,
   };
 }

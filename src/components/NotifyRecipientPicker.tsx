@@ -74,7 +74,7 @@ export function NotifyRecipientPicker({
     if (personIds.length === 1) bits.push(pool.find((p) => p.id === personIds[0])?.name ?? "1 person");
     else if (personIds.length > 1) bits.push(`${personIds.length} people`);
     if (departmentIds.length === 1) bits.push(departmentIds[0]!);
-    else if (departmentIds.length > 1) bits.push(`${departmentIds.length} sectors`);
+    else if (departmentIds.length > 1) bits.push(`${departmentIds.length} departments`);
     return bits.join(", ");
   }, [personIds, departmentIds, pool]);
 
@@ -100,7 +100,7 @@ export function NotifyRecipientPicker({
         >
           <input
             type="search"
-            placeholder="Search people or sectors…"
+            placeholder="Search people or departments…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"

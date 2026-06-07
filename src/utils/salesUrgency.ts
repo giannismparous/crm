@@ -1,4 +1,13 @@
 import type { SalesContact } from "../types";
+import { orgDateKey, orgTodayDateKey } from "./orgTimezone";
+
+/** True when the reminder due calendar day is before today in Athens (ignored when done). */
+export function isReminderOverdue(dueAt: string, done = false): boolean {
+  if (done) return false;
+  const dueKey = orgDateKey(dueAt);
+  if (!dueKey) return false;
+  return dueKey < orgTodayDateKey();
+}
 
 /** Earliest open reminder due time, or null if none */
 export function nextOpenReminderMs(c: SalesContact): number | null {

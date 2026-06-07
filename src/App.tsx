@@ -1,18 +1,27 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TabId } from "./types";
+import { AppBrand } from "./components/AppBrand";
 import { TabNav } from "./components/TabNav";
 import { TasksTab } from "./components/TasksTab";
+import { AppointmentsTab } from "./components/AppointmentsTab";
 import { ContactsTab } from "./components/ContactsTab";
 import { AuthScreen } from "./components/AuthScreen";
+import { ProfileSetupScreen } from "./components/ProfileSetupScreen";
 import { CalendarTab } from "./components/CalendarTab";
+import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
+import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
 import { SettingsModal } from "./components/SettingsPanel";
 import { UserAccountMenu } from "./components/UserAccountMenu";
+import { useNotificationAlerts } from "./hooks/useNotificationAlerts";
 import { useOrgFirestore } from "./useOrgFirestore";
 import type { AppNotification } from "./types";
+import { SyncingProgressBar } from "./components/SyncingProgressBar";
+import { needsProfileSetup } from "./utils/profileSetup";
+import { useUserAppearance } from "./hooks/useAppearance";
 
-export default function App() {
+function App() {
   const {
     user,
     authLoading,
@@ -20,18 +29,30 @@ export default function App() {
     error,
     people,
     tasks,
+    projects,
     contacts,
+    appointments,
+    personalReminders,
     currentUserPersonId,
     currentUserOrgRole,
     updateTask,
     createTask,
     cancelTask,
+    createProject,
+    updateProject,
+    removeProject,
     addContact,
     updateContact,
     removeContact,
     addReminder,
     updateReminder,
     removeReminder,
+    addPersonalReminder,
+    updatePersonalReminder,
+    removePersonalReminder,
+    createAppointment,
+    updateAppointment,
+    cancelAppointment,
     updatePerson,
     notifications,
     markNotificationRead,
@@ -43,16 +64,27 @@ export default function App() {
     notifyEveryoneAboutTask,
     registrationSeeds,
     canAccessSettings,
+    canManageProjects,
+    seesAllOrgData,
     issueRegistrationSeed,
-    updatePersonOrgRole,
+    completeProfileSetup,
   } = useOrgFirestore();
 
   const [tab, setTab] = useState<TabId>("tasks");
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
+  const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  useEffect(() => {
+    if (!seesAllOrgData && tab === "contacts") setTab("tasks");
+  }, [seesAllOrgData, tab]);
+
   function openNotification(n: AppNotification) {
+    if (n.kind === "reminder_shared" || n.kind === "reminder_due") {
+      setTab("reminders");
+      return;
+    }
     setTab("tasks");
     setFocusTaskId(n.taskId);
   }
@@ -67,49 +99,72 @@ export default function App() {
     setFocusContactId(contactId);
   }
 
+  function openAppointmentFromCalendar(appointmentId: string) {
+    setTab("appointments");
+    setFocusAppointmentId(appointmentId);
+  }
+
   const currentUserId = currentUserPersonId || people[0]?.id || "";
 
+  useUserAppearance(currentUserPersonId);
+
+  const currentUserPerson = useMemo(
+    () => people.find((p) => p.id === currentUserPersonId),
+    [people, currentUserPersonId]
+  );
+
+  useNotificationAlerts(notifications, Boolean(user && currentUserPersonId));
+
   const currentUserName = useMemo(() => {
-    const person = people.find((p) => p.id === currentUserPersonId);
-    if (person?.name.trim()) return person.name.trim();
+    if (currentUserPerson?.name.trim()) return currentUserPerson.name.trim();
     if (user?.displayName?.trim()) return user.displayName.trim();
     if (user?.email) return user.email.split("@")[0] ?? user.email;
     return "Signed in";
-  }, [people, currentUserPersonId, user]);
+  }, [currentUserPerson, user]);
 
-  const layoutMax = tab === "calendar" ? "max-w-7xl" : "max-w-6xl";
-
-  if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>
-    );
+  if (!authLoading && !user) {
+    return <AuthScreen />;
   }
 
-  if (!user) {
-    return <AuthScreen />;
+  const syncing = authLoading || Boolean(user && dataLoading);
+  const showProfileSetup = Boolean(user && currentUserPerson && needsProfileSetup(currentUserPerson));
+
+  if (showProfileSetup && currentUserPerson) {
+    return (
+      <>
+        <SyncingProgressBar active={syncing} />
+        <ProfileSetupScreen
+          person={currentUserPerson}
+          onUpdatePerson={updatePerson}
+          onComplete={completeProfileSetup}
+        />
+      </>
+    );
   }
 
   return (
     <div className="min-h-screen pb-12">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-slate-200/90 bg-white/90 backdrop-blur-md">
-        <div className={`mx-auto flex h-11 items-center justify-between gap-2 px-3 sm:h-12 sm:gap-4 sm:px-6 lg:px-8 ${layoutMax}`}>
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <span className="shrink-0 font-display text-sm font-semibold tracking-tight text-slate-900 sm:text-base">
-              Team CRM
-            </span>
-            <TabNav active={tab} onChange={setTab} />
+      <SyncingProgressBar active={syncing} />
+      <header className="app-header">
+        <div className="relative mx-auto flex h-11 max-w-7xl items-center justify-between gap-2 px-3 sm:h-12 sm:gap-4 sm:px-6 lg:px-8">
+          <span className="relative z-10 shrink-0">
+            <AppBrand />
+          </span>
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="pointer-events-auto">
+              <TabNav active={tab} onChange={setTab} seesAllOrgData={seesAllOrgData} />
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {dataLoading && (
-              <span className="hidden text-[10px] text-slate-400 sm:inline" aria-live="polite">
-                Syncing…
-              </span>
-            )}
-            {error && (
-              <span className="max-w-[140px] truncate text-[10px] text-rose-600 sm:max-w-xs" title={error}>
-                {error}
-              </span>
-            )}
+          <div className="relative z-10 flex shrink-0 items-center gap-2 sm:gap-3">
+            <span className="hidden min-w-[3.25rem] text-right text-[10px] text-slate-400 sm:inline" aria-live="polite">
+              {syncing ? "Syncing…" : ""}
+            </span>
+            <span
+              className="max-w-[140px] truncate text-right text-[10px] text-rose-600 sm:max-w-[8rem]"
+              title={error ?? undefined}
+            >
+              {error ?? ""}
+            </span>
             <NotificationsBell
               notifications={notifications}
               onSelect={openNotification}
@@ -118,6 +173,7 @@ export default function App() {
             />
             <UserAccountMenu
               name={currentUserName}
+              person={currentUserPerson}
               email={user?.email}
               canOpenSettings={canAccessSettings}
               onOpenSettings={() => setSettingsOpen(true)}
@@ -126,10 +182,11 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`mx-auto px-4 pb-8 pt-[calc(2.75rem+1rem)] sm:px-6 sm:pt-[calc(3rem+1.25rem)] lg:px-8 ${layoutMax}`}>
-        {tab === "tasks" ? (
+      <main className="mx-auto max-w-7xl px-4 pb-8 pt-[calc(2.75rem+1rem)] sm:px-6 sm:pt-[calc(3rem+1.25rem)] lg:px-8">
+        {authLoading ? null : tab === "tasks" ? (
           <TasksTab
             people={people}
+            projects={projects}
             tasks={tasks}
             onAddTask={createTask}
             onUpdateTask={updateTask}
@@ -144,8 +201,39 @@ export default function App() {
             focusTaskId={focusTaskId}
             onFocusTaskHandled={() => setFocusTaskId(null)}
           />
+        ) : tab === "projects" ? (
+          <ProjectsTab
+            projects={projects}
+            tasks={tasks}
+            people={people}
+            currentUserId={currentUserId}
+            canManageProjects={canManageProjects}
+            onCreateProject={createProject}
+            onUpdateProject={updateProject}
+            onRemoveProject={removeProject}
+            onAddTask={createTask}
+            onOpenTask={openTaskFromCalendar}
+          />
+        ) : tab === "appointments" ? (
+          <AppointmentsTab
+            appointments={appointments}
+            tasks={tasks}
+            people={people}
+            currentUserId={currentUserId}
+            seesAllOrgData={seesAllOrgData}
+            onCreateAppointment={createAppointment}
+            onUpdateAppointment={updateAppointment}
+            onCancelAppointment={cancelAppointment}
+            focusAppointmentId={focusAppointmentId}
+            onFocusAppointmentHandled={() => setFocusAppointmentId(null)}
+          />
         ) : tab === "team" ? (
-          <TeamTab people={people} currentUserId={currentUserId} onUpdatePerson={updatePerson} />
+          <TeamTab
+            people={people}
+            currentUserId={currentUserId}
+            currentUserOrgRole={currentUserOrgRole}
+            onUpdatePerson={updatePerson}
+          />
         ) : tab === "contacts" ? (
           <ContactsTab
             contacts={contacts}
@@ -158,15 +246,34 @@ export default function App() {
             focusContactId={focusContactId}
             onFocusContactHandled={() => setFocusContactId(null)}
           />
+        ) : tab === "reminders" ? (
+          <PersonalRemindersTab
+            reminders={personalReminders}
+            people={people}
+            contacts={contacts}
+            tasks={tasks}
+            appointments={appointments}
+            currentUserId={currentUserId}
+            onAddReminder={addPersonalReminder}
+            onUpdateReminder={updatePersonalReminder}
+            onRemoveReminder={removePersonalReminder}
+            onOpenContact={openContactFromCalendar}
+            onOpenTask={openTaskFromCalendar}
+            onOpenAppointment={openAppointmentFromCalendar}
+          />
         ) : (
           <CalendarTab
+            appointments={appointments}
             tasks={tasks}
-            contacts={contacts}
+            projects={projects}
+            personalReminders={personalReminders}
             people={people}
             currentUserId={currentUserId}
+            seesAllOrgData={seesAllOrgData}
+            onOpenAppointment={openAppointmentFromCalendar}
             onOpenTask={openTaskFromCalendar}
-            onOpenContact={openContactFromCalendar}
-            onUpdateReminder={updateReminder}
+            onUpdatePersonalReminder={updatePersonalReminder}
+            onOpenPersonalReminder={() => setTab("reminders")}
           />
         )}
       </main>
@@ -177,11 +284,12 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           people={people}
           seeds={registrationSeeds}
-          currentUserId={currentUserId}
+          currentUserId={currentUserPersonId}
           onCreateSeed={issueRegistrationSeed}
-          onUpdateOrgRole={updatePersonOrgRole}
         />
       )}
     </div>
   );
 }
+
+export default App;

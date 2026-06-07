@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Person, PersonTaskStats } from "../types";
+import { PersonAvatar } from "./PersonAvatar";
+import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
 import { EMPTY_PERSON_TASK_STATS, personStatsLabel } from "../utils/personTaskStats";
+import { hasPrivilege, type OrgRole } from "../auth/roles";
+import { OrgRoleWithInfo } from "./OrgRoleWithInfo";
 import {
   TEAM_DEPARTMENTS,
   departmentChipClass,
+  personDepartmentsLabel,
   personSortKey,
 } from "../types";
 
@@ -28,10 +33,12 @@ function personInDepartment(p: Person, deptFilter: string): boolean {
 export function TeamTab({
   people,
   currentUserId,
+  currentUserOrgRole,
   onUpdatePerson,
 }: {
   people: Person[];
   currentUserId: string;
+  currentUserOrgRole: OrgRole;
   onUpdatePerson: (id: string, patch: Partial<Person>) => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState("");
@@ -63,10 +70,6 @@ export function TeamTab({
     () => sortedList.find((p) => p.id === selectedId) ?? sortedList[0],
     [sortedList, selectedId]
   );
-
-  function updatePerson(id: string, patch: Partial<Person>) {
-    void onUpdatePerson(id, patch).catch(console.error);
-  }
 
   const byDepartment = useMemo(() => {
     const counts = new Map<string, number>(DEPARTMENT_LIST.map((d) => [d, 0]));
@@ -100,7 +103,7 @@ export function TeamTab({
             className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset transition ${
               !deptFilter
                 ? "bg-indigo-50 text-indigo-900 ring-indigo-200"
-                : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
             }`}
           >
             All ({people.length})
@@ -113,7 +116,7 @@ export function TeamTab({
               className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset transition ${
                 deptFilter === dept
                   ? departmentChipClass(dept)
-                  : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                  : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
               }`}
             >
               {dept} ({count})
@@ -137,17 +140,23 @@ export function TeamTab({
                       : "border-slate-200 bg-white hover:border-slate-300"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 truncate text-sm font-semibold text-slate-900">
-                      {p.name}
-                      {isYou && (
-                        <span className="ml-1 text-[10px] font-medium text-indigo-600">(you)</span>
-                      )}
-                    </p>
+                  <div className="flex items-start gap-2.5">
+                    <PersonAvatar person={p} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="truncate text-sm font-semibold text-slate-900">
+                          {p.name}
+                          {isYou && (
+                            <span className="ml-1 text-[10px] font-medium text-indigo-600">(you)</span>
+                          )}
+                        </span>
+                        <OrgRoleWithInfo role={p.orgRole} size="xs" />
+                      </p>
+                      <DepartmentChips departments={depts} max={2} size="xs" />
+                      <p className="mt-1 truncate text-xs text-slate-500">{p.title || "—"}</p>
+                      <p className="truncate text-[10px] text-slate-400">{p.email}</p>
+                    </div>
                   </div>
-                  <DepartmentChips departments={depts} max={2} size="xs" />
-                  <p className="mt-1 truncate text-xs text-slate-500">{p.title || "—"}</p>
-                  <p className="truncate text-[10px] text-slate-400">{p.email}</p>
                 </button>
               </li>
             );
@@ -167,7 +176,8 @@ export function TeamTab({
         <PersonDetail
           person={selected}
           isYou={selected.id === currentUserId}
-          onChange={(patch) => updatePerson(selected.id, patch)}
+          canEditDepartments={hasPrivilege(currentUserOrgRole, "manageOrgRoles")}
+          onChange={(patch) => void onUpdatePerson(selected.id, patch).catch(console.error)}
         />
       ) : (
         <div className="glass-strong flex min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500">
@@ -305,7 +315,6 @@ function DepartmentMultiSelect({
           </div>
         )}
       </div>
-      {selected.length > 0 && <DepartmentChips departments={selected} max={8} size="sm" />}
     </div>
   );
 }
@@ -313,25 +322,36 @@ function DepartmentMultiSelect({
 function PersonDetail({
   person,
   isYou,
+  canEditDepartments,
   onChange,
 }: {
   person: Person;
   isYou: boolean;
-  onChange: (patch: Partial<Person>) => void;
+  canEditDepartments: boolean;
+  onChange: (patch: Partial<Person>) => void | Promise<void>;
 }) {
-  const depts = allowedDepartments(person.departments);
-
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
-        <div className="min-w-0">
-          <h3 className="font-display text-xl font-semibold text-slate-900">
-            {person.name}
-            {isYou && <span className="ml-2 text-sm font-medium text-indigo-600">(you)</span>}
-          </h3>
-          <p className="text-sm text-slate-600">{person.email}</p>
+    <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="flex items-center gap-6 border-b border-slate-100 pb-6 sm:gap-8">
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-1 sm:gap-1.5">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h3 className="font-display text-3xl font-semibold leading-none text-slate-900 sm:text-4xl lg:text-5xl">
+              {person.name}
+              {isYou && (
+                <span className="ml-2 text-xl font-medium text-indigo-600 sm:text-2xl lg:text-3xl">(you)</span>
+              )}
+            </h3>
+            <OrgRoleWithInfo role={person.orgRole} size="md" />
+          </div>
+          <p className="text-xl leading-tight text-slate-600 sm:text-2xl lg:text-3xl">{person.email}</p>
         </div>
-        <DepartmentChips departments={depts} max={6} size="sm" />
+        <ProfilePhotoAvatar
+          person={person}
+          onChange={onChange}
+          editable={isYou}
+          size="2xl"
+          className="shadow-sm"
+        />
       </header>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -349,11 +369,27 @@ function PersonDetail({
         <Labeled label="Email">
           <input type="email" value={person.email} readOnly className="input-base bg-slate-50 text-slate-600" />
         </Labeled>
-        <Labeled label="Departments">
-          <DepartmentMultiSelect
-            value={person.departments}
-            onChange={(departments) => onChange({ departments })}
-          />
+        <Labeled label="Role">
+          <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50/80 px-3">
+            <OrgRoleWithInfo role={person.orgRole} size="sm" />
+            <span className="ml-2 cursor-default text-xs text-slate-500">Set when invited — cannot be changed</span>
+          </div>
+        </Labeled>
+        <Labeled label="Departments" className="sm:col-span-2">
+          {canEditDepartments ? (
+            <DepartmentMultiSelect
+              value={person.departments}
+              onChange={(departments) => onChange({ departments })}
+            />
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              {person.departments.length > 0 ? (
+                <DepartmentChips departments={person.departments} />
+              ) : (
+                <p className="text-sm text-slate-600">{personDepartmentsLabel(person.departments)}</p>
+              )}
+            </div>
+          )}
         </Labeled>
       </div>
 

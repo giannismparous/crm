@@ -24,6 +24,31 @@ export function getTaskWorkerIds(task: Task, people: Person[]): string[] {
   return [...ids];
 }
 
+/** Unique people for avatar stack: direct assignees, then dept members not already listed. */
+export function assigneeAvatarPeople(
+  assigneeIds: string[],
+  assigneeDepartmentIds: string[],
+  people: Person[]
+): Person[] {
+  const seen = new Set<string>();
+  const out: Person[] = [];
+  for (const id of assigneeIds) {
+    if (seen.has(id)) continue;
+    const person = people.find((p) => p.id === id);
+    if (!person) continue;
+    seen.add(id);
+    out.push(person);
+  }
+  for (const dept of assigneeDepartmentIds) {
+    for (const person of people) {
+      if (!person.departments.includes(dept) || seen.has(person.id)) continue;
+      seen.add(person.id);
+      out.push(person);
+    }
+  }
+  return out;
+}
+
 /** True when the task is shared by more than one worker (multiple assignees and/or a dept with 2+ members). */
 export function taskHasMultipleWorkers(task: Task, people: Person[]): boolean {
   return getTaskWorkerIds(task, people).length > 1;

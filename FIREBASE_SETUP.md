@@ -16,7 +16,7 @@ All paths below are relative to the **`crm`** folder unless noted.
    - `VITE_FIREBASE_API_KEY`
    - `VITE_FIREBASE_AUTH_DOMAIN` (usually `PROJECT_ID.firebaseapp.com`)
    - `VITE_FIREBASE_PROJECT_ID`
-   - `VITE_FIREBASE_STORAGE_BUCKET` (often `PROJECT_ID.appspot.com`)
+   - `VITE_FIREBASE_STORAGE_BUCKET` (Console shows `PROJECT_ID.firebasestorage.app` or legacy `PROJECT_ID.appspot.com` — use the exact bucket string from Project settings)
    - `VITE_FIREBASE_MESSAGING_SENDER_ID`
    - `VITE_FIREBASE_APP_ID`
 
@@ -49,8 +49,10 @@ Edit **`.firebaserc`** and replace `YOUR_FIREBASE_PROJECT_ID` with your real **P
 Deploy rules:
 
 ```bash
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules,storage
 ```
+
+Or paste **`storage.rules`** in Console → **Storage** → **Rules** → **Publish** (required for image uploads).
 
 Rules live in **`firestore.rules`**. They require a **signed-in user** for `organizations/...` and `users/{uid}`.
 

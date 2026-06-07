@@ -130,7 +130,7 @@ export function statDeltaForNewTask(assignedById: string): Map<string, Partial<P
 export function personStatsLabel(field: keyof PersonTaskStats): string {
   const labels: Record<keyof PersonTaskStats, string> = {
     tasksCompleted: "Tasks completed",
-    tasksFinishedMarked: "Marked finished (assignee)",
+    tasksFinishedMarked: "Marked finished",
     feedbackRequested: "Feedback requested",
     feedbackGiven: "Feedback given",
     tasksAssigned: "Tasks assigned",
