@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Calendar, ChevronDown, LogOut, Settings } from "lucide-react";
+import { ChevronDown, LogOut, Settings } from "lucide-react";
 import { signOutUser } from "../firebase/config";
 import type { Person } from "../types";
 import { PersonAvatar } from "./PersonAvatar";
@@ -8,16 +8,12 @@ export function UserAccountMenu({
   name,
   person,
   email,
-  canOpenSettings,
   onOpenSettings,
-  onOpenGoogleCalendar,
 }: {
   name: string;
   person?: Pick<Person, "name" | "avatarUrl">;
   email?: string | null;
-  canOpenSettings: boolean;
   onOpenSettings: () => void;
-  onOpenGoogleCalendar: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -62,27 +58,13 @@ export function UserAccountMenu({
             role="menuitem"
             onClick={() => {
               setOpen(false);
-              onOpenGoogleCalendar();
+              onOpenSettings();
             }}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
           >
-            <Calendar className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-            Google Calendar
+            <Settings className="h-3.5 w-3.5 text-slate-500" aria-hidden />
+            Settings
           </button>
-          {canOpenSettings && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onOpenSettings();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
-            >
-              <Settings className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-              Settings
-            </button>
-          )}
           <button
             type="button"
             role="menuitem"

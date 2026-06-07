@@ -12,7 +12,6 @@ import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
 import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
-import { GoogleCalendarModal } from "./components/GoogleCalendarModal";
 import { SettingsModal } from "./components/SettingsPanel";
 import { UserAccountMenu } from "./components/UserAccountMenu";
 import { useNotificationAlerts } from "./hooks/useNotificationAlerts";
@@ -84,7 +83,6 @@ function App() {
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
   const [focusReminderId, setFocusReminderId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [googleCalendarOpen, setGoogleCalendarOpen] = useState(false);
   const [googleCalendarOauthMessage, setGoogleCalendarOauthMessage] = useState<{
     text: string;
     error: boolean;
@@ -113,7 +111,7 @@ function App() {
         text: "Google Calendar connected. Events sync to your SimasiaAI CRM calendar.",
         error: false,
       });
-      setGoogleCalendarOpen(true);
+      setSettingsOpen(true);
       params.delete("googleCalendar");
     } else if (status === "error") {
       const detail = params.get("message")?.trim();
@@ -121,7 +119,7 @@ function App() {
         text: detail || "Google Calendar connection failed.",
         error: true,
       });
-      setGoogleCalendarOpen(true);
+      setSettingsOpen(true);
       params.delete("googleCalendar");
       params.delete("message");
     }
@@ -253,9 +251,7 @@ function App() {
               name={currentUserName}
               person={currentUserPerson}
               email={user?.email}
-              canOpenSettings={canAccessSettings}
               onOpenSettings={() => setSettingsOpen(true)}
-              onOpenGoogleCalendar={() => setGoogleCalendarOpen(true)}
             />
           </div>
         </div>
@@ -359,24 +355,18 @@ function App() {
         )}
       </main>
 
-      {canAccessSettings && (
-        <SettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          people={people}
-          seeds={registrationSeeds}
-          currentUserId={currentUserPersonId}
-          onCreateSeed={issueRegistrationSeed}
-        />
-      )}
-
-      <GoogleCalendarModal
-        open={googleCalendarOpen}
+      <SettingsModal
+        open={settingsOpen}
         onClose={() => {
-          setGoogleCalendarOpen(false);
+          setSettingsOpen(false);
           setGoogleCalendarOauthMessage(null);
         }}
-        oauthMessage={googleCalendarOauthMessage}
+        people={people}
+        seeds={registrationSeeds}
+        currentUserId={currentUserPersonId}
+        onCreateSeed={issueRegistrationSeed}
+        canManageSeeds={canAccessSettings}
+        googleCalendarOauthMessage={googleCalendarOauthMessage}
       />
     </div>
   );

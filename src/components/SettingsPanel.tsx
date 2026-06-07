@@ -8,6 +8,7 @@ import { PARTNER_ACCOUNT_MONTH_OPTIONS, SEED_VALID_DAYS_MAX, isSeedExpired } fro
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import { formatInOrgTime } from "../utils/orgTimezone";
 import { useAppearance } from "../hooks/useAppearance";
+import { GoogleCalendarIntegration } from "./GoogleCalendarModal";
 
 const SEED_VALID_DAYS = SEED_VALID_DAYS_MAX;
 
@@ -173,22 +174,6 @@ function SeedDepartmentPicker({
   );
 }
 
-function GoogleCalendarIcon({ className = "h-5 w-5" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden>
-      <rect x="3" y="4" width="18" height="17" rx="2" fill="#fff" />
-      <rect x="3" y="4" width="18" height="5" fill="#1A73E8" />
-      <rect x="7" y="2" width="2" height="4" rx="1" fill="#1A73E8" />
-      <rect x="15" y="2" width="2" height="4" rx="1" fill="#1A73E8" />
-      <rect x="6" y="11" width="3" height="3" rx="0.5" fill="#34A853" />
-      <rect x="10.5" y="11" width="3" height="3" rx="0.5" fill="#FBBC04" />
-      <rect x="15" y="11" width="3" height="3" rx="0.5" fill="#EA4335" />
-      <rect x="6" y="15.5" width="3" height="3" rx="0.5" fill="#4285F4" />
-      <rect x="10.5" y="15.5" width="3" height="3" rx="0.5" fill="#34A853" />
-    </svg>
-  );
-}
-
 function GmailIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden>
@@ -208,6 +193,8 @@ export function SettingsModal({
   seeds,
   currentUserId,
   onCreateSeed,
+  canManageSeeds,
+  googleCalendarOauthMessage,
 }: {
   open: boolean;
   onClose: () => void;
@@ -215,6 +202,8 @@ export function SettingsModal({
   seeds: RegistrationSeed[];
   currentUserId: string;
   onCreateSeed: (input: CreateRegistrationSeedInput) => Promise<RegistrationSeed>;
+  canManageSeeds: boolean;
+  googleCalendarOauthMessage?: { text: string; error: boolean } | null;
 }) {
   const { theme, fontScale, setTheme, setFontScale, fontScaleMin, fontScaleMax } = useAppearance(currentUserId);
   const [seedRole, setSeedRole] = useState<OrgRole>("partner");
@@ -303,7 +292,8 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="max-h-[min(70vh,32rem)] space-y-6 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
+        <div className="max-h-[min(75vh,36rem)] space-y-6 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
+          {canManageSeeds && (
           <SettingsSection
             title="Partner codes"
             titleInfo="Issue a one-time code and give it to new partners. Each code is valid for 7 days."
@@ -409,6 +399,7 @@ export function SettingsModal({
               </div>
             )}
           </SettingsSection>
+          )}
 
           <SettingsSection title="Appearance">
             <div className="space-y-4">
@@ -467,14 +458,8 @@ export function SettingsModal({
 
           <SettingsSection title="Integrations">
             <div className="space-y-2">
-              <div className="settings-card flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
-                  <GoogleCalendarIcon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800">Google Calendar</p>
-                  <p className="text-[10px] text-slate-500">Each user connects from the account menu (top right).</p>
-                </div>
+              <div className="settings-card rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4">
+                <GoogleCalendarIntegration active={open} oauthMessage={googleCalendarOauthMessage} />
               </div>
               <div className="pointer-events-none space-y-2 opacity-50">
                 <div className="settings-card flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
