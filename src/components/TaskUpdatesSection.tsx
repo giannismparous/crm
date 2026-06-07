@@ -8,7 +8,7 @@ import {
   taskUpdatesHasContent,
   taskUsesMultiAuthorUpdates,
 } from "../utils/taskUpdates";
-import { PersonAvatar } from "./PersonAvatar";
+import { PERSON_AVATAR_INLINE_SIZE, PersonAvatar } from "./PersonAvatar";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 
 function AuthorColorStyles({
@@ -111,7 +111,12 @@ export function TaskUpdatesSection({
                 style={{ backgroundColor: bg, boxShadow: `inset 0 0 0 1px ${border}55` }}
               >
                 {name}
-                <PersonAvatar person={person} name={name} size="sm" className="avatar-ring-sm shadow-none" />
+                <PersonAvatar
+                  person={person}
+                  name={name}
+                  size={PERSON_AVATAR_INLINE_SIZE}
+                  className="avatar-ring-sm shadow-none"
+                />
               </span>
             );
           })}

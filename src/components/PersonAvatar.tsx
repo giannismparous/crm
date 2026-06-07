@@ -13,6 +13,9 @@ export const PERSON_AVATAR_SIZE_CLASS = {
   "2xl": "h-36 w-36 text-3xl",
 } as const;
 
+/** Assignee / author avatars in task cards, comments, appointments footers, etc. */
+export const PERSON_AVATAR_INLINE_SIZE: keyof typeof PERSON_AVATAR_SIZE_CLASS = "sm";
+
 export function PersonAvatar({
   person,
   name,
@@ -109,7 +112,7 @@ const STACK_OVERLAP: Record<keyof typeof PERSON_AVATAR_SIZE_CLASS, string> = {
 /** Overlapping avatars — e.g. task assignees at the end of a label row. */
 export function PersonAvatarStack({
   people,
-  size = "sm",
+  size = PERSON_AVATAR_INLINE_SIZE,
   className = "",
 }: {
   people: Pick<Person, "id" | "name" | "avatarUrl">[];

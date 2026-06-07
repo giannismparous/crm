@@ -15,7 +15,7 @@ import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTask
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
-import { PersonAvatarStack, PersonNameInline } from "./PersonAvatar";
+import { PERSON_AVATAR_INLINE_SIZE, PersonAvatarStack, PersonNameInline } from "./PersonAvatar";
 import { TaskCommentsSection } from "./TaskCommentsSection";
 import { TaskUpdatesSection } from "./TaskUpdatesSection";
 import {
@@ -430,7 +430,7 @@ function AssigneeNamesForFooter({
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
       <span className="inline-flex flex-wrap items-center gap-y-1">{parts}</span>
-      <PersonAvatarStack people={avatarPeople} size="xs" />
+      <PersonAvatarStack people={avatarPeople} size={PERSON_AVATAR_INLINE_SIZE} />
     </span>
   );
 }

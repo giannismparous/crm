@@ -1,14 +1,39 @@
-/** All calendar dates and displayed times use Athens (EET/EEST). */
-export const ORG_TIMEZONE = "Europe/Athens";
+import {
+  loadTimezoneSettings,
+  ORG_TIMEZONE,
+  resolveEffectiveTimezone,
+  type TimezoneSettings,
+} from "./userTimezone";
+
+export { ORG_TIMEZONE };
 
 const ORG_LOCALE = "en-GB";
+
+let activeTimezone = ORG_TIMEZONE;
+
+export function getActiveTimezone(): string {
+  return activeTimezone;
+}
+
+export function applyTimezoneSettings(settings: TimezoneSettings): void {
+  activeTimezone = resolveEffectiveTimezone(settings);
+}
+
+export function initTimezone(userId?: string): string {
+  const settings = loadTimezoneSettings(userId);
+  applyTimezoneSettings(settings);
+  return activeTimezone;
+}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
 function orgParts(d: Date, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatPart[] {
-  return new Intl.DateTimeFormat(ORG_LOCALE, { timeZone: ORG_TIMEZONE, ...options }).formatToParts(d);
+  return new Intl.DateTimeFormat(ORG_LOCALE, {
+    timeZone: getActiveTimezone(),
+    ...options,
+  }).formatToParts(d);
 }
 
 function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
@@ -32,7 +57,17 @@ export function formatInOrgTime(
 ): string {
   const date = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(ORG_LOCALE, { timeZone: ORG_TIMEZONE, ...options });
+  return date.toLocaleString(ORG_LOCALE, { timeZone: getActiveTimezone(), ...options });
+}
+
+export function formatInTimezone(
+  d: Date | string | number,
+  timeZone: string,
+  options: Intl.DateTimeFormatOptions
+): string {
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(ORG_LOCALE, { timeZone, ...options });
 }
 
 export function toDatetimeLocalValue(iso: string): string {
@@ -80,7 +115,7 @@ function cmpWall(a: WallTime, b: WallTime): number {
   return a.minute - b.minute;
 }
 
-/** Parse a datetime-local value (Athens wall time) to UTC ISO. */
+/** Parse a datetime-local value (active timezone wall time) to UTC ISO. */
 export function datetimeLocalToIso(local: string): string {
   const trimmed = local.trim();
   if (!trimmed) return "";
@@ -115,7 +150,10 @@ export function datetimeLocalToIso(local: string): string {
 export function orgWeekday(year: number, monthIndex: number, day: number): number {
   const iso = datetimeLocalToIso(`${year}-${pad2(monthIndex + 1)}-${pad2(day)}T12:00`);
   const d = new Date(iso);
-  const wd = new Intl.DateTimeFormat(ORG_LOCALE, { timeZone: ORG_TIMEZONE, weekday: "short" }).format(d);
+  const wd = new Intl.DateTimeFormat(ORG_LOCALE, {
+    timeZone: getActiveTimezone(),
+    weekday: "short",
+  }).format(d);
   const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return map[wd] ?? 0;
 }

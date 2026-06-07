@@ -20,6 +20,7 @@ import type { AppNotification } from "./types";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { needsProfileSetup } from "./utils/profileSetup";
 import { useUserAppearance } from "./hooks/useAppearance";
+import { useTimezone } from "./hooks/useTimezone";
 import { useScrollRestoration } from "./hooks/useScrollRestoration";
 import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
 import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./utils/crmUrlState";
@@ -178,6 +179,7 @@ function App() {
   const currentUserId = currentUserPersonId || people[0]?.id || "";
 
   useUserAppearance(currentUserPersonId);
+  const timezone = useTimezone(currentUserPersonId || "guest");
 
   const currentUserPerson = useMemo(
     () => people.find((p) => p.id === currentUserPersonId),
@@ -257,7 +259,10 @@ function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 pb-8 pt-[calc(2.75rem+1rem)] sm:px-6 sm:pt-[calc(3rem+1.25rem)] lg:px-8">
+      <main
+        key={timezone.effectiveTimezone}
+        className="mx-auto max-w-7xl px-4 pb-8 pt-[calc(2.75rem+1rem)] sm:px-6 sm:pt-[calc(3rem+1.25rem)] lg:px-8"
+      >
         {authLoading ? null : tab === "tasks" ? (
           <TasksTab
             people={people}
@@ -367,6 +372,7 @@ function App() {
         onCreateSeed={issueRegistrationSeed}
         canManageSeeds={canAccessSettings}
         googleCalendarOauthMessage={googleCalendarOauthMessage}
+        timezone={timezone}
       />
     </div>
   );

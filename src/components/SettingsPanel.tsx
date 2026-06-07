@@ -8,7 +8,9 @@ import { PARTNER_ACCOUNT_MONTH_OPTIONS, SEED_VALID_DAYS_MAX, isSeedExpired } fro
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import { formatInOrgTime } from "../utils/orgTimezone";
 import { useAppearance } from "../hooks/useAppearance";
+import type { useTimezone } from "../hooks/useTimezone";
 import { GoogleCalendarIntegration } from "./GoogleCalendarModal";
+import { TimezoneSettingsField } from "./TimezoneSettingsField";
 
 const SEED_VALID_DAYS = SEED_VALID_DAYS_MAX;
 
@@ -195,6 +197,7 @@ export function SettingsModal({
   onCreateSeed,
   canManageSeeds,
   googleCalendarOauthMessage,
+  timezone,
 }: {
   open: boolean;
   onClose: () => void;
@@ -204,6 +207,7 @@ export function SettingsModal({
   onCreateSeed: (input: CreateRegistrationSeedInput) => Promise<RegistrationSeed>;
   canManageSeeds: boolean;
   googleCalendarOauthMessage?: { text: string; error: boolean } | null;
+  timezone: ReturnType<typeof useTimezone>;
 }) {
   const { theme, fontScale, setTheme, setFontScale, fontScaleMin, fontScaleMax } = useAppearance(currentUserId);
   const [seedRole, setSeedRole] = useState<OrgRole>("partner");
@@ -453,6 +457,8 @@ export function SettingsModal({
                 />
                 <p className="mt-1 text-[10px] text-slate-500 settings-muted">Drag to enlarge text across the app.</p>
               </div>
+
+              <TimezoneSettingsField timezone={timezone} />
             </div>
           </SettingsSection>
 
