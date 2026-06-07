@@ -291,7 +291,8 @@ export const syncGoogleCalendarItem = onCall(
 export const onPersonDepartmentsCalendarSync = onDocumentUpdated(
   {
     document: "organizations/SimasiaAI/people/{personId}",
-    region: "us-central1",
+    /** Close to Firestore multi-region (eur3). */
+    region: "europe-west1",
     secrets: [googleClientSecret],
   },
   async (event) => {
