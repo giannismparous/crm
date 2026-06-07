@@ -16,6 +16,106 @@ service cloud.firestore {
         && orgPerson(orgId).data.orgRole in ['founder', 'ceo'];
     }
 
+    function viewerDepts(orgId) {
+      return orgPerson(orgId).data.get('departments', []);
+    }
+
+    function projectDeptOverlap(orgId, projectId) {
+      let p = get(/databases/$(database)/documents/organizations/$(orgId)/projects/$(projectId)).data;
+      return p.get('departmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function taskPartnerCanRead(orgId) {
+      let t = resource.data;
+      return t.assigneeIds.hasAny([request.auth.uid])
+        || t.get('assigneeDepartmentIds', []).hasAny(viewerDepts(orgId))
+        || (t.keys().hasAll(['projectId'])
+            && t.projectId is string
+            && t.projectId != ''
+            && projectDeptOverlap(orgId, t.projectId));
+    }
+
+    function taskPartnerCanCreate(orgId) {
+      let t = request.resource.data;
+      return t.assigneeIds.hasAny([request.auth.uid])
+        || t.get('assigneeDepartmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function appointmentPartnerCanRead(orgId) {
+      let a = resource.data;
+      return a.createdById == request.auth.uid
+        || a.participantIds.hasAny([request.auth.uid])
+        || a.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function appointmentPartnerCanCreate(orgId) {
+      let a = request.resource.data;
+      return a.createdById == request.auth.uid
+        || a.participantIds.hasAny([request.auth.uid])
+        || a.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function reminderPartnerCanRead(orgId) {
+      let r = resource.data;
+      return r.ownerId == request.auth.uid
+        || r.participantIds.hasAny([request.auth.uid])
+        || r.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function reminderPartnerCanCreate(orgId) {
+      let r = request.resource.data;
+      return r.ownerId == request.auth.uid
+        || r.participantIds.hasAny([request.auth.uid])
+        || r.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function registrationSeedRef(orgId, seedId) {
+      return /databases/$(database)/documents/organizations/$(orgId)/registrationSeeds/$(seedId);
+    }
+
+    function founderBootstrapEmail() {
+      return 'giannismparous@gmail.com';
+    }
+
+    function isFounderBootstrapUser() {
+      return signedIn()
+        && request.auth.token.email == founderBootstrapEmail();
+    }
+
+    function registrationPersonCreate(orgId, personId) {
+      let seedId = request.resource.data.registrationSeedId;
+      let seed = get(registrationSeedRef(orgId, seedId));
+      return personId == request.auth.uid
+        && request.resource.data.id == request.auth.uid
+        && request.resource.data.authUid == request.auth.uid
+        && seed.data.orgRole == request.resource.data.orgRole
+        && (seed.data.used == false || seed.data.usedById == request.auth.uid);
+    }
+
+    function founderPersonCreate(personId) {
+      return personId == request.auth.uid
+        && isFounderBootstrapUser()
+        && request.resource.data.orgRole == 'founder';
+    }
+
+    function personSelfUpdateOk() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['orgRole', 'registrationSeedId', 'authUid', 'registeredAt', 'accountExpiresAt', 'departments']);
+    }
+
+    function userOrgId() {
+      return resource.data.get('orgId', '');
+    }
+
+    function founderManagingUserRole() {
+      return isFounder(userOrgId())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orgRole', 'updatedAt']);
+    }
+
+    function userSelfUpdateOk() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['orgRole']);
+    }
+
     // One-time registration seeds
     match /organizations/{orgId}/registrationSeeds/{seedId} {
       allow get: if true;
@@ -30,25 +130,51 @@ service cloud.firestore {
     }
 
     match /organizations/{orgId}/people/{personId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn()
+        && (
+          isFounder(orgId)
+          || personId == request.auth.uid
+          || resource.data.get('departments', []).hasAny(viewerDepts(orgId))
+        );
+      allow create: if signedIn()
+        && personId == request.auth.uid
+        && (registrationPersonCreate(orgId, personId) || founderPersonCreate(personId));
+      allow update: if signedIn()
+        && (
+          isFounder(orgId)
+          || (personId == request.auth.uid && personSelfUpdateOk())
+        );
+      allow delete: if isFounder(orgId);
     }
 
-    // Partner visibility is enforced in the client; founders manage project scope.
     match /organizations/{orgId}/tasks/{taskId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn() && (isFounder(orgId) || taskPartnerCanRead(orgId));
+      allow create: if signedIn() && (isFounder(orgId) || taskPartnerCanCreate(orgId));
+      allow update: if signedIn() && (isFounder(orgId) || taskPartnerCanRead(orgId));
+      allow delete: if isFounder(orgId);
     }
 
     match /organizations/{orgId}/projects/{projectId} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (
+          isFounder(orgId)
+          || resource.data.get('departmentIds', []).hasAny(viewerDepts(orgId))
+        );
       allow create, update, delete: if isFounder(orgId);
     }
 
     match /organizations/{orgId}/appointments/{appointmentId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn() && (isFounder(orgId) || appointmentPartnerCanRead(orgId));
+      allow create: if signedIn() && (isFounder(orgId) || appointmentPartnerCanCreate(orgId));
+      allow update: if signedIn() && (isFounder(orgId) || appointmentPartnerCanRead(orgId));
+      allow delete: if isFounder(orgId);
     }
 
     match /organizations/{orgId}/personalReminders/{reminderId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn() && (isFounder(orgId) || reminderPartnerCanRead(orgId));
+      allow create: if signedIn() && (isFounder(orgId) || reminderPartnerCanCreate(orgId));
+      allow update: if signedIn() && (isFounder(orgId) || reminderPartnerCanRead(orgId));
+      allow delete: if signedIn() && (isFounder(orgId) || reminderPartnerCanRead(orgId));
     }
 
     match /organizations/{orgId}/contacts/{contactId} {
@@ -71,9 +197,27 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn();
-      allow write: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn()
+        && userId == request.auth.uid
+        && (
+          (
+            request.resource.data.keys().hasAll(['registrationSeedId', 'orgRole', 'orgId'])
+            && get(registrationSeedRef(request.resource.data.orgId, request.resource.data.registrationSeedId)).data.orgRole
+                == request.resource.data.orgRole
+          )
+          || (
+            isFounderBootstrapUser()
+            && request.resource.data.orgRole == 'founder'
+            && request.resource.data.get('orgId', '') != ''
+          )
+        );
+      allow update: if signedIn()
+        && (
+          (userId == request.auth.uid && (isFounder(userOrgId()) || userSelfUpdateOk()))
+          || founderManagingUserRole()
+        );
+      allow delete: if isFounder(userOrgId());
 
-      // Google Calendar tokens — Cloud Functions only (Admin SDK bypasses rules).
       match /integrations/{docId} {
         allow read, write: if false;
         match /events/{eventId} {

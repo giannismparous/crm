@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TabId } from "./types";
 import { AppBrand } from "./components/AppBrand";
 import { TabNav } from "./components/TabNav";
@@ -21,7 +21,9 @@ import type { AppNotification } from "./types";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { needsProfileSetup } from "./utils/profileSetup";
 import { useUserAppearance } from "./hooks/useAppearance";
+import { useScrollRestoration } from "./hooks/useScrollRestoration";
 import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
+import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./utils/crmUrlState";
 
 function App() {
   const {
@@ -72,7 +74,11 @@ function App() {
     completeProfileSetup,
   } = useOrgFirestore();
 
-  const [tab, setTab] = useState<TabId>("tasks");
+  const [tab, setTabState] = useState<TabId>(() => readTabFromLocation());
+  const setTab = useCallback((next: TabId) => {
+    setTabState(next);
+    writeTabToLocation(next, { clearFocus: true });
+  }, []);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
@@ -86,7 +92,17 @@ function App() {
 
   useEffect(() => {
     if (!seesAllOrgData && tab === "contacts") setTab("tasks");
-  }, [seesAllOrgData, tab]);
+  }, [seesAllOrgData, tab, setTab]);
+
+  useEffect(() => {
+    writeTabToLocation(tab);
+  }, [tab]);
+
+  useEffect(() => {
+    const onPopState = () => setTabState(readTabFromLocation());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -112,19 +128,24 @@ function App() {
 
     const deepLink = parseCrmDeepLink(params.toString());
     if (hasCrmDeepLink(deepLink)) {
-      if (deepLink.tab) setTab(deepLink.tab);
-      else if (deepLink.taskId) setTab("tasks");
-      else if (deepLink.appointmentId) setTab("appointments");
-      else if (deepLink.reminderId) setTab("reminders");
+      if (deepLink.taskId) {
+        setTabState("tasks");
+        setFocusTaskId(deepLink.taskId);
+      } else if (deepLink.appointmentId) {
+        setTabState("appointments");
+        setFocusAppointmentId(deepLink.appointmentId);
+      } else if (deepLink.reminderId) {
+        setTabState("reminders");
+        setFocusReminderId(deepLink.reminderId);
+      } else if (deepLink.tab) {
+        setTabState(deepLink.tab);
+      }
 
-      if (deepLink.taskId) setFocusTaskId(deepLink.taskId);
-      if (deepLink.appointmentId) setFocusAppointmentId(deepLink.appointmentId);
-      if (deepLink.reminderId) setFocusReminderId(deepLink.reminderId);
-
-      params.delete("tab");
-      params.delete("task");
-      params.delete("appointment");
-      params.delete("reminder");
+      stripCrmItemParams(params);
+      if (deepLink.taskId) params.set("tab", "tasks");
+      else if (deepLink.appointmentId) params.set("tab", "appointments");
+      else if (deepLink.reminderId) params.set("tab", "reminders");
+      else if (deepLink.tab) params.set("tab", deepLink.tab);
     }
 
     const next = params.toString();
@@ -174,12 +195,17 @@ function App() {
     return "Signed in";
   }, [currentUserPerson, user]);
 
+  const syncing = authLoading || Boolean(user && dataLoading);
+  const showProfileSetup = Boolean(user && currentUserPerson && needsProfileSetup(currentUserPerson));
+
+  useScrollRestoration(
+    tab,
+    Boolean(user && !authLoading && !dataLoading && !showProfileSetup)
+  );
+
   if (!authLoading && !user) {
     return <AuthScreen />;
   }
-
-  const syncing = authLoading || Boolean(user && dataLoading);
-  const showProfileSetup = Boolean(user && currentUserPerson && needsProfileSetup(currentUserPerson));
 
   if (showProfileSetup && currentUserPerson) {
     return (

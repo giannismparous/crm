@@ -2,6 +2,8 @@ import { createUserWithEmailAndPassword, deleteUser, type UserCredential } from 
 import { formatAuthError } from "./authErrors";
 import { validateRegistrationCredentials } from "./authValidation";
 import { getFirebaseAuth, getFirestoreDb, signOutUser } from "./config";
+import { ensureUserProfile } from "./ensureUserProfile";
+import { markUserProfileSynchronized } from "./profileSync";
 import { assertRegistrationSeedAvailable, consumeRegistrationSeed } from "./registrationSeeds";
 
 let registrationInFlight = false;
@@ -30,6 +32,8 @@ export async function registerWithSeed(
     const cred = await createUserWithEmailAndPassword(auth, creds.email, creds.password);
     try {
       await consumeRegistrationSeed(db, cred.user, creds.seedCode);
+      await ensureUserProfile(cred.user);
+      markUserProfileSynchronized(cred.user.uid);
     } catch (setupErr) {
       try {
         await deleteUser(cred.user);

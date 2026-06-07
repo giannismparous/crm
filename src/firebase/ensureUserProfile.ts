@@ -8,6 +8,7 @@ import {
 } from "../auth/roles";
 import { normalizeDepartments } from "../types";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "./config";
+import { normalizeRegistrationSeed } from "./registrationSeeds";
 import { verifyUserOrgAccess } from "./userAccess";
 
 const ORG = SIMASIA_AI_ORG_ID;
@@ -15,15 +16,26 @@ const ORG = SIMASIA_AI_ORG_ID;
 /** Legacy demo ids from old seed data — never auto-provision or show as team members. */
 export const LEGACY_SEED_PERSON_IDS = new Set(["p1", "p2", "p3", "p4"]);
 
-function resolveOrgRoleForEnsure(
+async function resolveOrgRoleForEnsure(
   prev: Record<string, unknown>,
   emailLower: string
-): OrgRole | undefined {
+): Promise<OrgRole | undefined> {
   if (emailLower === FOUNDER_BOOTSTRAP_EMAIL) return "founder";
+
+  const seedId = String(prev.registrationSeedId ?? "").trim();
+  if (seedId) {
+    const db = getFirestoreDb();
+    const seedSnap = await getDoc(doc(db, "organizations", ORG, "registrationSeeds", seedId));
+    if (seedSnap.exists()) {
+      const seed = normalizeRegistrationSeed(seedSnap.id, seedSnap.data() as Record<string, unknown>);
+      return seed.orgRole;
+    }
+  }
+
   if (prev.orgRole != null && String(prev.orgRole).trim() !== "") {
     return normalizeOrgRole(prev.orgRole);
   }
-  if (prev.registrationSeedId) return normalizeOrgRole(prev.orgRole);
+
   return undefined;
 }
 
@@ -51,9 +63,14 @@ export async function ensureUserProfile(user: User): Promise<void> {
     );
   }
 
+  const orgRole = await resolveOrgRoleForEnsure(prev, emailLower);
   const departments = normalizeDepartments(prev.departments, prev.department);
-  const defaultDepts = departments.length > 0 ? departments : ["General"];
-  const orgRole = resolveOrgRoleForEnsure(prev, emailLower);
+  const defaultDepts =
+    orgRole === "founder"
+      ? departments
+      : departments.length > 0
+        ? departments
+        : ["General"];
 
   const name =
     String(prev.name ?? "").trim() ||

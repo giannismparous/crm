@@ -115,7 +115,8 @@ export async function createRegistrationSeed(
   issuer: { id: string; email: string },
   input: CreateRegistrationSeedInput
 ): Promise<RegistrationSeed> {
-  const { orgRole, departments } = input;
+  const orgRole = normalizeOrgRole(input.orgRole);
+  const { departments } = input;
   const depts =
     orgRole === "founder" ? [] : normalizeSeedDepartments(departments, { requireAtLeastOne: true });
   const validDays = clampSeedValidDays(input.validDays);
@@ -228,7 +229,11 @@ export async function consumeRegistrationSeed(
     };
     if (accountExpiresAt) personRow.accountExpiresAt = accountExpiresAt;
 
-    tx.set(personRef, personRow, { merge: true });
+    if (existingPerson.exists()) {
+      tx.set(personRef, personRow, { merge: true });
+    } else {
+      tx.set(personRef, personRow);
+    }
 
     const userRow: Record<string, unknown> = {
       email,
@@ -240,7 +245,11 @@ export async function consumeRegistrationSeed(
     };
     if (accountExpiresAt) userRow.accountExpiresAt = accountExpiresAt;
 
-    tx.set(userRef, userRow, { merge: true });
+    if (existingPerson.exists()) {
+      tx.set(userRef, userRow, { merge: true });
+    } else {
+      tx.set(userRef, userRow);
+    }
 
     return seed.orgRole;
   });

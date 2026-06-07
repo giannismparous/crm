@@ -32,6 +32,7 @@ import { getFirebaseAuth, getFirestoreDb, SIMASIA_AI_ORG_ID } from "./firebase/c
 import { syncCrmItemToGoogleCalendar } from "./firebase/googleCalendar";
 import { canSeeAllOrgData, hasPrivilege, type OrgRole } from "./auth/roles";
 import { ensureUserProfile } from "./firebase/ensureUserProfile";
+import { consumeUserProfileSynchronized } from "./firebase/profileSync";
 import {
   normalizeAppointment,
   normalizeContact,
@@ -184,6 +185,9 @@ export function useOrgFirestore() {
     };
 
     if (profileSync.current !== user.uid) {
+      if (consumeUserProfileSynchronized(user.uid)) {
+        profileSync.current = user.uid;
+      } else {
       void ensureUserProfile(user)
         .then(() => {
           profileSync.current = user.uid;
@@ -200,6 +204,7 @@ export function useOrgFirestore() {
           }
           fail(msg);
         });
+      }
     }
 
     const peopleCol = collection(db, "organizations", ORG, "people");
@@ -982,8 +987,8 @@ export function useOrgFirestore() {
       if (!hasPrivilege(currentUserOrgRole, "manageOrgRoles")) {
         throw new Error("You do not have permission to change roles.");
       }
-      const ref = doc(db, "organizations", ORG, "people", personId);
-      await updateDoc(ref, { orgRole, id: personId });
+      await updateDoc(doc(db, "organizations", ORG, "people", personId), { orgRole, id: personId });
+      await updateDoc(doc(db, "users", personId), { orgRole, updatedAt: new Date().toISOString() });
     },
     [db, currentUserOrgRole]
   );
