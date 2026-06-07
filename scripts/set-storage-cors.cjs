@@ -3,29 +3,14 @@
  * getBytes / re-cropping profile photos from the web app on localhost).
  *
  * Run: npm run storage:cors
- * Requires: FIREBASE_SERVICE_ACCOUNT_PATH or serviceAccount.json in project root
+ * Requires: FIREBASE_SERVICE_ACCOUNT_PATH or service-account.json in project root
  */
 
 const { readFileSync, existsSync } = require("node:fs");
 const { resolve } = require("node:path");
 const { initializeApp, cert, getApps } = require("firebase-admin/app");
 const { getStorage } = require("firebase-admin/storage");
-
-const CRM_ROOT = resolve(__dirname, "..");
-
-function loadServiceAccount() {
-  const fromEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
-  const candidates = [
-    fromEnv ? resolve(fromEnv) : null,
-    resolve(CRM_ROOT, "serviceAccount.json"),
-  ].filter(Boolean);
-  for (const path of candidates) {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8"));
-  }
-  throw new Error(
-    "Missing Admin SDK credentials. Set FIREBASE_SERVICE_ACCOUNT_PATH in .env or add serviceAccount.json to the project root."
-  );
-}
+const { loadServiceAccount, CRM_ROOT } = require("./load-service-account.cjs");
 
 function loadBucketName() {
   const fromEnv = process.env.VITE_FIREBASE_STORAGE_BUCKET?.trim();

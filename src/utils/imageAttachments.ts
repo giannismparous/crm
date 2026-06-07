@@ -3,6 +3,35 @@ import { getFirebaseAuth, getFirebaseStorage, SIMASIA_AI_ORG_ID } from "../fireb
 import type { ImageAttachment, InlineMediaKind } from "../types";
 import { MAX_AUDIO_BYTES, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../types";
 
+const ORG_STORAGE_PREFIX = `organizations/${SIMASIA_AI_ORG_ID}/`;
+
+/** Reject path traversal and paths outside this org's Storage tree. */
+export function sanitizeStorageDir(dir: string): string {
+  const cleaned = dir
+    .replace(/\\/g, "/")
+    .replace(/\.\./g, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim();
+  if (!cleaned || !/^[a-zA-Z0-9][a-zA-Z0-9_\-/]*$/.test(cleaned)) {
+    throw new Error("Invalid storage path.");
+  }
+  return cleaned;
+}
+
+export function isOrgStoragePath(path: string): boolean {
+  const normalized = path.trim().replace(/\\/g, "/");
+  return normalized.startsWith(ORG_STORAGE_PREFIX) && !normalized.includes("..");
+}
+
+function assertOrgStoragePath(path: string): string {
+  const normalized = path.trim().replace(/\\/g, "/");
+  if (!isOrgStoragePath(normalized)) {
+    throw new Error("Invalid storage path.");
+  }
+  return normalized;
+}
+
 export function normalizeImageAttachments(value: unknown): ImageAttachment[] {
   if (!Array.isArray(value)) return [];
   const out: ImageAttachment[] = [];
@@ -11,7 +40,7 @@ export function normalizeImageAttachments(value: unknown): ImageAttachment[] {
     const o = raw as Record<string, unknown>;
     const url = String(o.url ?? "").trim();
     const storagePath = String(o.storagePath ?? "").trim();
-    if (!url || !storagePath) continue;
+    if (!url || !storagePath || !isOrgStoragePath(storagePath)) continue;
     const name = String(o.name ?? "").trim();
     const kindRaw = String(o.kind ?? "").trim();
     const kind =
@@ -185,7 +214,7 @@ async function uploadOneImage(
   index: number
 ): Promise<ImageAttachment> {
   const storage = getFirebaseStorage();
-  const base = `organizations/${SIMASIA_AI_ORG_ID}/${storageDir.replace(/^\/+/, "")}`;
+  const base = `${ORG_STORAGE_PREFIX}${sanitizeStorageDir(storageDir)}`;
   const id = `${Date.now()}_${index}_${Math.random().toString(36).slice(2, 9)}`;
   const storagePath = `${base}/${id}.${extForFile(file)}`;
   const storageRef = ref(storage, storagePath);
@@ -337,6 +366,7 @@ export async function uploadImageFilesProgressive(
 export async function deleteImageFromStorage(storagePath: string): Promise<void> {
   const path = storagePath.trim();
   if (!path) return;
+  assertOrgStoragePath(path);
 
   const auth = getFirebaseAuth();
   await auth.authStateReady();

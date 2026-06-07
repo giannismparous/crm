@@ -1,4 +1,11 @@
+import { isOrgStoragePath } from "./imageAttachments";
 import { RICH_TEXT_HIGHLIGHT_COLOR } from "./richTextHighlight";
+
+function safeStoragePathAttr(raw: string): string {
+  const path = raw.trim();
+  if (!path || !isOrgStoragePath(path)) return "";
+  return ` data-storage-path="${path.replace(/"/g, "&quot;")}"`;
+}
 
 /** Allowed inline HTML for task updates — bold, underline, highlight, author spans. */
 const AUTHOR_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -80,9 +87,7 @@ export function sanitizeTaskUpdates(html: string): string {
       if (!/^https:\/\//i.test(src)) return "";
       const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
       const alt = (el.getAttribute("alt") ?? "Image").replace(/"/g, "&quot;");
-      const pathAttr = storagePath
-        ? ` data-storage-path="${storagePath.replace(/"/g, "&quot;")}"`
-        : "";
+      const pathAttr = safeStoragePathAttr(storagePath);
       const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
       const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
       const widthAttr = sanitizeImgWidthPx(el);
@@ -92,9 +97,7 @@ export function sanitizeTaskUpdates(html: string): string {
       const src = el.getAttribute("src")?.trim() ?? "";
       if (!/^https:\/\//i.test(src)) return "";
       const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
-      const pathAttr = storagePath
-        ? ` data-storage-path="${storagePath.replace(/"/g, "&quot;")}"`
-        : "";
+      const pathAttr = safeStoragePathAttr(storagePath);
       const widthAttr = sanitizeImgWidthPx(el);
       const name = (el.getAttribute("data-name") ?? "").replace(/"/g, "&quot;");
       const nameAttr = name ? ` data-name="${name}"` : "";
@@ -119,9 +122,7 @@ export function sanitizeTaskUpdates(html: string): string {
       if (!/^https:\/\//i.test(href)) return "";
       if (!el.classList.contains("task-inline-file")) return inner;
       const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
-      const pathAttr = storagePath
-        ? ` data-storage-path="${storagePath.replace(/"/g, "&quot;")}"`
-        : "";
+      const pathAttr = safeStoragePathAttr(storagePath);
       const name = (el.getAttribute("data-name") ?? el.textContent ?? "File").replace(/"/g, "&quot;");
       const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
       const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";

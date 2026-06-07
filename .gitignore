@@ -15,10 +15,16 @@ dist-ssr
 *.local
 .env
 .env.*
+.env.local
+.env.*.local
 env
 !.env.example
 service-account.json
+serviceAccount.json
 *-firebase-adminsdk-*.json
+**/firebase-adminsdk*.json
+credentials.json
+**/credentials.json
 
 # Editor
 .vscode/*

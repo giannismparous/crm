@@ -3,15 +3,14 @@
  * Keep data in sync with src/data/seed.ts (same ids and fields).
  *
  * Run: npm run seed:firestore
- * Requires: serviceAccount.json in crm/ or FIREBASE_SERVICE_ACCOUNT_PATH
+ * Requires: service-account.json in crm/ or FIREBASE_SERVICE_ACCOUNT_PATH
  */
 
-const { readFileSync, existsSync } = require("node:fs");
 const { resolve, dirname } = require("node:path");
+const { loadServiceAccount, CRM_ROOT } = require("./load-service-account.cjs");
 const { initializeApp, cert, getApps } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 
-const CRM_ROOT = resolve(__dirname, "..");
 const ORG_ID = "SimasiaAI";
 
 function d(days) {
@@ -280,18 +279,7 @@ const seedContacts = [
 ];
 
 function loadCredential() {
-  const explicit = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  const defaultPath = resolve(CRM_ROOT, "serviceAccount.json");
-  const path = explicit || defaultPath;
-  if (!existsSync(path)) {
-    console.error(
-      "Missing service account JSON.\n" +
-        "  Option A: place file at crm/serviceAccount.json\n" +
-        "  Option B: set FIREBASE_SERVICE_ACCOUNT_PATH to the JSON file path"
-    );
-    process.exit(1);
-  }
-  return JSON.parse(readFileSync(path, "utf-8"));
+  return loadServiceAccount();
 }
 
 function initAdmin() {

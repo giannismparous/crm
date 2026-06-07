@@ -13,7 +13,7 @@ export function OrgRoleWithInfo({
 }) {
   const iconSize = size === "md" ? "h-4 w-4" : size === "sm" ? "h-3.5 w-3.5" : "h-3 w-3";
   return (
-    <span className="inline-flex cursor-pointer select-none items-center gap-1">
+    <span className={`inline-flex select-none items-center gap-1 ${showInfo ? "cursor-pointer" : ""}`}>
       <OrgRoleBadge role={role} size={size} />
       {showInfo && (
         <span className="group/info relative inline-flex cursor-pointer">

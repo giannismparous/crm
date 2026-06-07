@@ -1,6 +1,6 @@
 import { getBytes, ref } from "firebase/storage";
 import { getFirebaseAuth, getFirebaseStorage } from "../firebase/config";
-import { deleteImageFromStorage, uploadSingleImageFile } from "./imageAttachments";
+import { deleteImageFromStorage, isOrgStoragePath, uploadSingleImageFile } from "./imageAttachments";
 
 const AVATAR_GRADIENTS = [
   "from-rose-400 to-orange-400",
@@ -86,7 +86,7 @@ export async function deletePersonAvatar(storagePath: string | undefined): Promi
 /** Load avatar bytes via Firebase SDK (avoids CORS issues when re-cropping). */
 export async function fetchPersonAvatarBlob(storagePath: string): Promise<Blob> {
   const path = storagePath.trim();
-  if (!path) throw new Error("missing path");
+  if (!path || !isOrgStoragePath(path)) throw new Error("Invalid storage path.");
   const auth = getFirebaseAuth();
   await auth.authStateReady();
   if (!auth.currentUser) throw new Error("not signed in");

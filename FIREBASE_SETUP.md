@@ -61,7 +61,7 @@ Rules live in **`firestore.rules`**. They require a **signed-in user** for `orga
 The seed script uses **Admin SDK** and bypasses security rules. Use a **private key** only on your machine or CI, never in the client.
 
 1. Console → **Project settings** → **Service accounts** → **Generate new private key**.
-2. Save the JSON file as **`crm/serviceAccount.json`** (gitignored), **or** set:
+2. Save the JSON file as **`crm/service-account.json`** (gitignored), **or** set:
 
    ```bash
    set FIREBASE_SERVICE_ACCOUNT_PATH=C:\path\to\your-key.json
@@ -87,7 +87,7 @@ $env:BOOTSTRAP_DISPLAY_NAME="Your Name"
 npm run bootstrap:user
 ```
 
-This runs **`scripts/seed-firestore.cjs`** with **`node --env-file=.env`**, so variables from **`crm/.env`** are loaded (including **`FIREBASE_SERVICE_ACCOUNT_PATH`** if you put the path there instead of using `serviceAccount.json` in the project folder).
+This runs **`scripts/seed-firestore.cjs`** with **`node --env-file=.env`**, so variables from **`crm/.env`** are loaded (including **`FIREBASE_SERVICE_ACCOUNT_PATH`** if you put the path there instead of using `service-account.json` in the project folder).
 
 If `npm install` leaves broken `grpc` / `internal-channel` errors (Windows file locks), close editors/terminals using the project, delete **`crm/node_modules`**, then run **`npm install`** again.
 

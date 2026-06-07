@@ -1,6 +1,6 @@
 import type { ImageAttachment } from "../types";
 import type { LightboxImage } from "../components/ImageLightbox";
-import { mediaFileFingerprint } from "./imageAttachments";
+import { isOrgStoragePath, mediaFileFingerprint } from "./imageAttachments";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./sanitizeRichText";
 
 const IMG_SELECTOR = "img.task-inline-image";
@@ -284,7 +284,7 @@ export function storagePathsInUpdatesHtml(html: string): string[] {
   const paths: string[] = [];
   for (const el of inlineMediaElements(doc)) {
     const p = el.getAttribute("data-storage-path")?.trim();
-    if (p) paths.push(p);
+    if (p && isOrgStoragePath(p)) paths.push(p);
   }
   return paths;
 }

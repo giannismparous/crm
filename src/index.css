@@ -747,6 +747,18 @@ html[data-theme="dark"] .rich-text-toolbar-btn:hover {
   background-color: rgb(var(--dm-raised));
   color: rgb(var(--dm-text));
 }
+.org-role-label--founder {
+  color: rgb(146 64 14 / 0.92);
+}
+.org-role-label--partner {
+  color: rgb(71 85 105);
+}
+html[data-theme="dark"] .org-role-label--founder {
+  color: rgb(251 191 36 / 0.88);
+}
+html[data-theme="dark"] .org-role-label--partner {
+  color: rgb(var(--dm-text-muted));
+}
 html[data-theme="dark"] .text-emerald-800 {
   @apply text-emerald-300;
 }

@@ -143,14 +143,12 @@ export function TeamTab({
                   <div className="flex items-start gap-2.5">
                     <PersonAvatar person={p} size="md" />
                     <div className="min-w-0 flex-1">
-                      <p className="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <span className="truncate text-sm font-semibold text-slate-900">
-                          {p.name}
-                          {isYou && (
-                            <span className="ml-1 text-[10px] font-medium text-indigo-600">(you)</span>
-                          )}
-                        </span>
-                        <OrgRoleWithInfo role={p.orgRole} size="xs" />
+                      <OrgRoleWithInfo role={p.orgRole} size="xs" showInfo={false} />
+                      <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                        {p.name}
+                        {isYou && (
+                          <span className="ml-1 text-[10px] font-medium text-indigo-600">(you)</span>
+                        )}
                       </p>
                       <DepartmentChips departments={depts} max={2} size="xs" />
                       <p className="mt-1 truncate text-xs text-slate-500">{p.title || "—"}</p>
@@ -334,15 +332,13 @@ function PersonDetail({
     <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
       <header className="flex items-center gap-6 border-b border-slate-100 pb-6 sm:gap-8">
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-1 sm:gap-1.5">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <h3 className="font-display text-3xl font-semibold leading-none text-slate-900 sm:text-4xl lg:text-5xl">
-              {person.name}
-              {isYou && (
-                <span className="ml-2 text-xl font-medium text-indigo-600 sm:text-2xl lg:text-3xl">(you)</span>
-              )}
-            </h3>
-            <OrgRoleWithInfo role={person.orgRole} size="md" />
-          </div>
+          <OrgRoleWithInfo role={person.orgRole} size="md" showInfo={false} />
+          <h3 className="font-display text-3xl font-semibold leading-none text-slate-900 sm:text-4xl lg:text-5xl">
+            {person.name}
+            {isYou && (
+              <span className="ml-2 text-xl font-medium text-indigo-600 sm:text-2xl lg:text-3xl">(you)</span>
+            )}
+          </h3>
           <p className="text-xl leading-tight text-slate-600 sm:text-2xl lg:text-3xl">{person.email}</p>
         </div>
         <ProfilePhotoAvatar
@@ -368,12 +364,6 @@ function PersonDetail({
         </Labeled>
         <Labeled label="Email">
           <input type="email" value={person.email} readOnly className="input-base bg-slate-50 text-slate-600" />
-        </Labeled>
-        <Labeled label="Role">
-          <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50/80 px-3">
-            <OrgRoleWithInfo role={person.orgRole} size="sm" />
-            <span className="ml-2 cursor-default text-xs text-slate-500">Set when invited — cannot be changed</span>
-          </div>
         </Labeled>
         <Labeled label="Departments" className="sm:col-span-2">
           {canEditDepartments ? (

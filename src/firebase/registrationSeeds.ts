@@ -177,8 +177,7 @@ export async function consumeRegistrationSeed(
   user: User,
   seedCode: string
 ): Promise<OrgRole> {
-  const code = seedCode.trim().toLowerCase();
-  if (!code) throw new Error("Registration seed is required.");
+  const code = validateRegistrationSeedCode(seedCode);
 
   const seedRef = doc(db, "organizations", ORG, "registrationSeeds", code);
   const personRef = doc(db, "organizations", ORG, "people", user.uid);
