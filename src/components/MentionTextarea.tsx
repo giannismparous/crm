@@ -8,11 +8,13 @@ import {
 } from "react";
 import type { ImageAttachment, Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import type { UpdateMentionOption } from "../utils/mentions";
 import { InlineImageAttachments } from "./InlineImageAttachments";
 
 export type MentionSuggestion =
   | { kind: "person"; id: string; label: string }
-  | { kind: "department"; id: string; label: string };
+  | { kind: "department"; id: string; label: string }
+  | { kind: "update"; id: string; label: string; preview?: string };
 
 function getMentionState(text: string, cursor: number) {
   const before = text.slice(0, cursor);
@@ -23,23 +25,42 @@ function getMentionState(text: string, cursor: number) {
   return { query, atIndex };
 }
 
-function buildSuggestions(query: string, people: Person[]): MentionSuggestion[] {
+function buildSuggestions(
+  query: string,
+  people: Person[],
+  updateMentions: UpdateMentionOption[],
+  updatePreviews: Record<string, string>,
+  excludePersonId?: string,
+  departmentOptions?: string[]
+): MentionSuggestion[] {
   const q = query.toLowerCase();
+  const hiddenPersonId = excludePersonId?.trim();
+  const departments = departmentOptions ?? TEAM_DEPARTMENTS;
+
+  const updateHits: MentionSuggestion[] = updateMentions
+    .filter((u) => !q || u.label.toLowerCase().includes(q))
+    .slice(0, 6)
+    .map((u) => ({
+      kind: "update" as const,
+      id: u.id,
+      label: u.label,
+      preview: updatePreviews[u.id],
+    }));
+
   const peopleHits: MentionSuggestion[] = people
-    .filter((p) => !q || p.name.toLowerCase().includes(q))
+    .filter((p) => p.id !== hiddenPersonId && (!q || p.name.toLowerCase().includes(q)))
     .slice(0, 8)
     .map((p) => ({ kind: "person" as const, id: p.id, label: p.name }));
 
-  const deptHits: MentionSuggestion[] = TEAM_DEPARTMENTS.filter(
-    (d) => !q || d.toLowerCase().includes(q)
-  )
+  const deptHits: MentionSuggestion[] = departments
+    .filter((d) => !q || d.toLowerCase().includes(q))
     .slice(0, 6)
     .map((d) => ({ kind: "department" as const, id: d, label: d }));
 
-  return [...peopleHits, ...deptHits].slice(0, 12);
+  return [...updateHits, ...peopleHits, ...deptHits].slice(0, 14);
 }
 
-/** Plain-text @mentions: `@Jane Doe` or `@Sales` (department). */
+/** Plain-text @mentions: `@Jane Doe`, `@Sales`, or `@Update #1`. */
 export function insertMention(text: string, atIndex: number, queryLen: number, label: string) {
   const token = `@${label} `;
   return text.slice(0, atIndex) + token + text.slice(atIndex + 1 + queryLen);
@@ -51,6 +72,10 @@ export function MentionTextarea({
   placeholder,
   rows = 2,
   people,
+  excludePersonId,
+  departmentOptions,
+  updateMentions = [],
+  updatePreviews = {},
   className = "",
   imageFiles,
   onImageFilesChange,
@@ -67,6 +92,12 @@ export function MentionTextarea({
   placeholder?: string;
   rows?: number;
   people: Person[];
+  /** Logged-in user — hidden from @ suggestions (you can't notify yourself). */
+  excludePersonId?: string;
+  /** When set, only these departments appear in @ suggestions (e.g. task assignee depts). */
+  departmentOptions?: string[];
+  updateMentions?: UpdateMentionOption[];
+  updatePreviews?: Record<string, string>;
   className?: string;
   imageFiles?: File[];
   onImageFilesChange?: (files: File[]) => void;
@@ -95,12 +126,19 @@ export function MentionTextarea({
         return;
       }
       mentionRef.current = ctx;
-      const list = buildSuggestions(ctx.query, people);
+      const list = buildSuggestions(
+        ctx.query,
+        people,
+        updateMentions,
+        updatePreviews,
+        excludePersonId,
+        departmentOptions
+      );
       setItems(list);
       setHighlight(0);
       setOpen(list.length > 0);
     },
-    [people]
+    [people, excludePersonId, departmentOptions, updateMentions, updatePreviews]
   );
 
   function applySuggestion(item: MentionSuggestion) {
@@ -150,6 +188,7 @@ export function MentionTextarea({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
+  const updateItems = items.filter((i) => i.kind === "update");
   const peopleItems = items.filter((i) => i.kind === "person");
   const deptItems = items.filter((i) => i.kind === "department");
 
@@ -184,9 +223,38 @@ export function MentionTextarea({
           className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5"
           role="listbox"
         >
-          {peopleItems.length > 0 && (
+          {updateItems.length > 0 && (
             <>
               <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Updates
+              </p>
+              {updateItems.map((item) => {
+                const idx = items.indexOf(item);
+                return (
+                  <button
+                    key={`u-${item.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={idx === highlight}
+                    className={`flex w-full flex-col px-2 py-1.5 text-left text-sm ${
+                      idx === highlight ? "bg-accent/10 text-slate-900" : "text-slate-800 hover:bg-slate-50"
+                    }`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applySuggestion(item)}
+                    onMouseEnter={() => setHighlight(idx)}
+                  >
+                    <span className="font-medium text-accent">@{item.label}</span>
+                    {"preview" in item && item.preview && (
+                      <span className="truncate text-[11px] text-slate-500">{item.preview}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
+          {peopleItems.length > 0 && (
+            <>
+              <p className="mt-0.5 border-t border-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 People
               </p>
               {peopleItems.map((item) => {
@@ -246,9 +314,22 @@ export function MentionTextarea({
   );
 }
 
+type RenderMentionOptions = {
+  updateMentions?: UpdateMentionOption[];
+  onUpdateMentionClick?: (updateId: string) => void;
+};
+
 /** Renders comment text with @mentions highlighted. */
-export function renderTextWithMentions(body: string, people: Person[]) {
-  const names = [...people.map((p) => p.name), ...TEAM_DEPARTMENTS].sort((a, b) => b.length - a.length);
+export function renderTextWithMentions(body: string, people: Person[], options: RenderMentionOptions = {}) {
+  const updateMentions = options.updateMentions ?? [];
+  const names = [
+    ...updateMentions.map((u) => u.label),
+    ...people.map((p) => p.name),
+    ...TEAM_DEPARTMENTS,
+  ].sort((a, b) => b.length - a.length);
+
+  const updateByLabel = new Map(updateMentions.map((u) => [u.label, u.id]));
+
   const out: ReactNode[] = [];
   let i = 0;
   let key = 0;
@@ -262,11 +343,25 @@ export function renderTextWithMentions(body: string, people: Person[]) {
         }
       }
       if (matched) {
-        out.push(
-          <span key={key++} className="font-medium text-accent">
-            @{matched}
-          </span>
-        );
+        const updateId = updateByLabel.get(matched);
+        if (updateId && options.onUpdateMentionClick) {
+          out.push(
+            <button
+              key={key++}
+              type="button"
+              onClick={() => options.onUpdateMentionClick?.(updateId)}
+              className="font-medium text-accent underline decoration-accent/40 underline-offset-2 hover:text-accent-dim"
+            >
+              @{matched}
+            </button>
+          );
+        } else {
+          out.push(
+            <span key={key++} className={`font-medium ${updateId ? "text-accent" : "text-accent"}`}>
+              @{matched}
+            </span>
+          );
+        }
         i += 1 + matched.length;
         continue;
       }

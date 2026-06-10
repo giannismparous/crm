@@ -7,6 +7,8 @@ export function notificationHeadline(n: AppNotification): string {
       return `${who} tagged you by name`;
     case "mention_department":
       return `${who} tagged your department (${n.mentionLabel || "team"})`;
+    case "mention_update":
+      return `${who} referenced ${n.mentionLabel || "an update"} in a comment`;
     case "task_feedback":
       return `${who} requested feedback`;
     case "task_feedback_reply":

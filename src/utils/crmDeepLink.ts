@@ -5,6 +5,7 @@ export interface CrmDeepLink {
   taskId?: string;
   appointmentId?: string;
   reminderId?: string;
+  contactId?: string;
 }
 
 const TAB_IDS: TabId[] = [
@@ -27,9 +28,10 @@ export function parseCrmDeepLink(search: string): CrmDeepLink {
     taskId: params.get("task")?.trim() || undefined,
     appointmentId: params.get("appointment")?.trim() || undefined,
     reminderId: params.get("reminder")?.trim() || undefined,
+    contactId: params.get("contact")?.trim() || undefined,
   };
 }
 
 export function hasCrmDeepLink(link: CrmDeepLink): boolean {
-  return Boolean(link.tab || link.taskId || link.appointmentId || link.reminderId);
+  return Boolean(link.tab || link.taskId || link.appointmentId || link.reminderId || link.contactId);
 }

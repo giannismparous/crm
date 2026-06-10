@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
+import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
+import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import { ChevronDown } from "lucide-react";
 import type { ContactReminder, ContactStage, ImageAttachment, SalesContact } from "../types";
 import { newContactDocId, newContactReminderDocId } from "../firebase/firestoreIds";
@@ -83,6 +86,17 @@ function emptyNewContactDraft(): NewContactDraft {
   };
 }
 
+const CONTACTS_NEW_DRAFT_KEY = "contacts:new";
+
+function isNewContactDraftEmpty(draft: NewContactDraft): boolean {
+  return isShallowDraftEmpty(draft as unknown as Record<string, unknown>);
+}
+
+const CONTACTS_VIEW_DEFAULTS = {
+  query: "",
+  selectedId: "",
+};
+
 export function ContactsTab({
   contacts,
   onAddContact,
@@ -108,12 +122,24 @@ export function ContactsTab({
   focusContactId?: string | null;
   onFocusContactHandled?: () => void;
 }) {
-  const [selectedId, setSelectedId] = useState("");
-  const [query, setQuery] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [newContactDraft, setNewContactDraft] = useState(emptyNewContactDraft);
+  const saved = useMemo(() => readPersistedTabState("contacts", CONTACTS_VIEW_DEFAULTS), []);
+  const savedNewForm = useMemo(() => readFormDraft<NewContactDraft>(CONTACTS_NEW_DRAFT_KEY), []);
+  const [selectedId, setSelectedId] = useState(() => saved.selectedId);
+  const [query, setQuery] = useState(() => saved.query);
+  const [showForm, setShowForm] = useState(() => Boolean(savedNewForm?.open));
+  const [newContactDraft, setNewContactDraft] = useState(() =>
+    savedNewForm?.data ? { ...savedNewForm.data } : emptyNewContactDraft()
+  );
   const [newContactDraftId, setNewContactDraftId] = useState(newContactDocId);
   const contactRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  usePersistedTabState("contacts", { query, selectedId });
+
+  usePersistedFormDraft(
+    CONTACTS_NEW_DRAFT_KEY,
+    { open: showForm, data: newContactDraft },
+    { isEmpty: isNewContactDraftEmpty }
+  );
 
   const filteredList = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -170,6 +196,7 @@ export function ContactsTab({
 
   async function addContact(payload: Omit<SalesContact, "id">) {
     const id = await onAddContact(payload, newContactDraftId);
+    clearFormDraft(CONTACTS_NEW_DRAFT_KEY);
     setSelectedId(id);
     setShowForm(false);
     setNewContactDraft(emptyNewContactDraft());
@@ -179,6 +206,7 @@ export function ContactsTab({
   function discardNewContactDraft() {
     const paths = storagePathsInUpdatesHtml(newContactDraft.generalNotes);
     if (paths.length > 0) void deleteImagesFromStorage(paths);
+    clearFormDraft(CONTACTS_NEW_DRAFT_KEY);
     setNewContactDraft(emptyNewContactDraft());
     setNewContactDraftId(newContactDocId());
   }
@@ -205,6 +233,7 @@ export function ContactsTab({
     for (const deleteId of deleteIds) {
       await onRemoveContact(deleteId);
     }
+    clearFormDraft(CONTACTS_NEW_DRAFT_KEY);
     setSelectedId(id);
     setShowForm(false);
     setNewContactDraft(emptyNewContactDraft());

@@ -4,6 +4,7 @@ import type { CrmAppointment, CrmPersonalReminder, CrmProject, CrmTask } from ".
 
 export interface CrmPerson {
   id: string;
+  authUid?: string;
   orgRole?: string;
   departments?: string[];
 }
@@ -39,6 +40,7 @@ export async function loadOrgContext(db: Firestore): Promise<OrgContext> {
     const data = doc.data();
     people.set(doc.id, {
       id: doc.id,
+      authUid: String(data.authUid ?? doc.id).trim() || doc.id,
       orgRole: String(data.orgRole ?? "partner"),
       departments: normalizeDepts(data.departments),
     });
@@ -62,6 +64,15 @@ function projectVisibleToPartner(project: CrmProject, person: CrmPerson): boolea
   return departmentsOverlap(depts, person.departments ?? []);
 }
 
+function personForAuthUid(ctx: OrgContext, uid: string): CrmPerson | undefined {
+  const direct = ctx.people.get(uid);
+  if (direct) return direct;
+  for (const person of ctx.people.values()) {
+    if (person.authUid === uid) return person;
+  }
+  return undefined;
+}
+
 function taskVisibleToUser(
   ctx: OrgContext,
   uid: string,
@@ -70,7 +81,10 @@ function taskVisibleToUser(
 ): boolean {
   if (isFounder(person.orgRole)) return true;
 
-  if ((task.assigneeIds ?? []).includes(uid)) return true;
+  if (task.assignedById === uid || task.assignedById === person.id) return true;
+  if ((task.assigneeIds ?? []).includes(uid) || (task.assigneeIds ?? []).includes(person.id)) {
+    return true;
+  }
 
   const taskDepts = normalizeDepts(task.assigneeDepartmentIds);
   if (departmentsOverlap(taskDepts, person.departments ?? [])) return true;
@@ -91,8 +105,13 @@ function appointmentVisibleToUser(
 ): boolean {
   if (isFounder(person.orgRole)) return true;
 
-  if (apt.createdById === uid) return true;
-  if ((apt.participantIds ?? []).includes(uid)) return true;
+  if (apt.createdById === uid || apt.createdById === person.id) return true;
+  if (
+    (apt.participantIds ?? []).includes(uid) ||
+    (apt.participantIds ?? []).includes(person.id)
+  ) {
+    return true;
+  }
 
   const inviteDepts = normalizeDepts(apt.participantDepartmentIds);
   if (inviteDepts.length === 0) return false;
@@ -106,8 +125,13 @@ function reminderVisibleToUser(
 ): boolean {
   if (isFounder(person.orgRole)) return true;
 
-  if (rem.ownerId === uid) return true;
-  if ((rem.participantIds ?? []).includes(uid)) return true;
+  if (rem.ownerId === uid || rem.ownerId === person.id) return true;
+  if (
+    (rem.participantIds ?? []).includes(uid) ||
+    (rem.participantIds ?? []).includes(person.id)
+  ) {
+    return true;
+  }
 
   const inviteDepts = normalizeDepts(rem.participantDepartmentIds);
   if (inviteDepts.length === 0) return false;
@@ -121,7 +145,7 @@ export function itemVisibleToUser(
   crmType: CrmType,
   item: CrmTask | CrmAppointment | CrmPersonalReminder
 ): boolean {
-  const person = ctx.people.get(uid);
+  const person = personForAuthUid(ctx, uid);
   if (!person) return false;
 
   if (crmType === "task") return taskVisibleToUser(ctx, uid, item as CrmTask, person);

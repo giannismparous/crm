@@ -24,6 +24,7 @@ import { useTimezone } from "./hooks/useTimezone";
 import { useScrollRestoration } from "./hooks/useScrollRestoration";
 import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
 import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./utils/crmUrlState";
+import { PersonNavProvider } from "./contexts/PersonNavContext";
 
 function App() {
   const {
@@ -33,6 +34,7 @@ function App() {
     error,
     people,
     tasks,
+    allTasks,
     projects,
     contacts,
     appointments,
@@ -83,6 +85,7 @@ function App() {
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
   const [focusReminderId, setFocusReminderId] = useState<string | null>(null);
+  const [focusPersonId, setFocusPersonId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [googleCalendarOauthMessage, setGoogleCalendarOauthMessage] = useState<{
     text: string;
@@ -136,6 +139,9 @@ function App() {
       } else if (deepLink.reminderId) {
         setTabState("reminders");
         setFocusReminderId(deepLink.reminderId);
+      } else if (deepLink.contactId) {
+        setTabState("contacts");
+        setFocusContactId(deepLink.contactId);
       } else if (deepLink.tab) {
         setTabState(deepLink.tab);
       }
@@ -144,6 +150,7 @@ function App() {
       if (deepLink.taskId) params.set("tab", "tasks");
       else if (deepLink.appointmentId) params.set("tab", "appointments");
       else if (deepLink.reminderId) params.set("tab", "reminders");
+      else if (deepLink.contactId) params.set("tab", "contacts");
       else if (deepLink.tab) params.set("tab", deepLink.tab);
     }
 
@@ -175,6 +182,16 @@ function App() {
     setTab("appointments");
     setFocusAppointmentId(appointmentId);
   }
+
+  const openTeamMember = useCallback(
+    (personId: string) => {
+      const id = personId.trim();
+      if (!id) return;
+      setFocusPersonId(id);
+      setTab("team");
+    },
+    [setTab]
+  );
 
   const currentUserId = currentUserPersonId || people[0]?.id || "";
 
@@ -221,6 +238,7 @@ function App() {
   }
 
   return (
+    <PersonNavProvider onOpenTeamMember={openTeamMember}>
     <div className="min-h-screen pb-12">
       <SyncingProgressBar active={syncing} />
       <header className="app-header">
@@ -297,13 +315,17 @@ function App() {
         ) : tab === "appointments" ? (
           <AppointmentsTab
             appointments={appointments}
-            tasks={tasks}
+            allTasks={allTasks}
+            projects={projects}
             people={people}
             currentUserId={currentUserId}
             seesAllOrgData={seesAllOrgData}
             onCreateAppointment={createAppointment}
             onUpdateAppointment={updateAppointment}
             onCancelAppointment={cancelAppointment}
+            onCreateTask={createTask}
+            onUpdateTask={updateTask}
+            onOpenTask={openTaskFromCalendar}
             focusAppointmentId={focusAppointmentId}
             onFocusAppointmentHandled={() => setFocusAppointmentId(null)}
           />
@@ -313,6 +335,8 @@ function App() {
             currentUserId={currentUserId}
             currentUserOrgRole={currentUserOrgRole}
             onUpdatePerson={updatePerson}
+            focusPersonId={focusPersonId}
+            onFocusPersonHandled={() => setFocusPersonId(null)}
           />
         ) : tab === "contacts" ? (
           <ContactsTab
@@ -375,6 +399,7 @@ function App() {
         timezone={timezone}
       />
     </div>
+    </PersonNavProvider>
   );
 }
 

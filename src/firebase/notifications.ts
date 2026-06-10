@@ -4,11 +4,13 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import type { Person, Task, TaskComment } from "../types";
+import type { Person, Project, Task, TaskComment } from "../types";
+import { personMentionableOnTask } from "../utils/orgVisibility";
 import type { AppNotification, NotificationKind } from "../types";
 import { getTaskWorkerIds } from "../utils/taskAssignees";
 import { parseMentionsFromText } from "../utils/mentions";
 import { taskFinishedNotifyRecipients } from "../utils/notifyRecipients";
+import { taskUpdateEntries, updateMentionLabels } from "../utils/taskUpdateEntries";
 
 const PREVIEW_LEN = 160;
 
@@ -27,6 +29,7 @@ const NOTIFICATION_KINDS = new Set<NotificationKind>([
   "task_comment",
   "mention_person",
   "mention_department",
+  "mention_update",
   "task_feedback",
   "task_feedback_reply",
   "task_finished",
@@ -80,7 +83,8 @@ export function normalizeNotification(id: string, data: Record<string, unknown>)
 function resolveRecipients(
   task: Task,
   comment: TaskComment,
-  people: Person[]
+  people: Person[],
+  projects: Project[] = []
 ): Map<string, RecipientMeta> {
   const authorId = comment.authorId;
   const workers = new Set(getTaskWorkerIds(task, people));
@@ -92,10 +96,29 @@ function resolveRecipients(
     }
   }
 
-  for (const mention of parseMentionsFromText(comment.body, people)) {
+  for (const mention of parseMentionsFromText(comment.body, people, updateMentionLabels(task, people))) {
+    if (mention.kind === "update") {
+      const entry = taskUpdateEntries(task, people).find((e) => e.id === mention.id);
+      const updateAuthor = entry?.authorId ? people.find((p) => p.id === entry.authorId) : undefined;
+      if (
+        entry?.authorId &&
+        entry.authorId !== authorId &&
+        !recipients.has(entry.authorId) &&
+        updateAuthor &&
+        personMentionableOnTask(task, updateAuthor, people, projects)
+      ) {
+        recipients.set(entry.authorId, { kind: "mention_update", mentionLabel: mention.label });
+      }
+      continue;
+    }
     if (mention.kind === "person") {
       if (mention.id === authorId) continue;
-      if (!recipients.has(mention.id)) {
+      const person = people.find((p) => p.id === mention.id);
+      if (
+        person &&
+        !recipients.has(mention.id) &&
+        personMentionableOnTask(task, person, people, projects)
+      ) {
         recipients.set(mention.id, { kind: "mention_person" });
       }
       continue;
@@ -103,6 +126,7 @@ function resolveRecipients(
     for (const p of people) {
       if (!p.departments.includes(mention.label) || p.id === authorId) continue;
       if (recipients.has(p.id)) continue;
+      if (!personMentionableOnTask(task, p, people, projects)) continue;
       recipients.set(p.id, { kind: "mention_department", mentionLabel: mention.label });
     }
   }
@@ -116,11 +140,12 @@ export async function createNotificationsForComment(
   orgId: string,
   task: Task,
   comment: TaskComment,
-  people: Person[]
+  people: Person[],
+  projects: Project[] = []
 ): Promise<void> {
   const author = people.find((p) => p.id === comment.authorId);
   const authorName = author?.name ?? "Someone";
-  const recipients = resolveRecipients(task, comment, people);
+  const recipients = resolveRecipients(task, comment, people, projects);
   if (recipients.size === 0) return;
 
   const batch = writeBatch(db);

@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
+import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
+import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import type { Appointment, ImageAttachment, PersonalReminder, Person, SalesContact, Task } from "../types";
 import { deleteImagesFromStorage } from "../utils/imageAttachments";
 import { ParticipantMultiSelect } from "./ParticipantMultiSelect";
@@ -23,6 +26,17 @@ import { InlineImageAttachments } from "./InlineImageAttachments";
 import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
 
 type ReminderListTab = "open" | "done";
+
+const REMINDERS_DRAFT_KEY = "reminders:form";
+
+function isReminderDraftEmpty(draft: Draft): boolean {
+  return isShallowDraftEmpty(draft as unknown as Record<string, unknown>);
+}
+
+const REMINDERS_VIEW_DEFAULTS = {
+  listTab: "open" as ReminderListTab,
+  selectedId: "",
+};
 
 type Draft = {
   title: string;
@@ -99,20 +113,37 @@ export function PersonalRemindersTab({
   focusReminderId?: string | null;
   onFocusReminderHandled?: () => void;
 }) {
-  const [selectedId, setSelectedId] = useState("");
+  const saved = useMemo(() => readPersistedTabState("reminders", REMINDERS_VIEW_DEFAULTS), []);
+  const savedForm = useMemo(() => readFormDraft<Draft>(REMINDERS_DRAFT_KEY), []);
+  const [selectedId, setSelectedId] = useState(() =>
+    savedForm?.editId && (savedForm.editing || savedForm.open) ? savedForm.editId : saved.selectedId
+  );
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [showForm, setShowForm] = useState(false);
-  const [draft, setDraft] = useState(emptyDraft);
+  const [showForm, setShowForm] = useState(() => Boolean(savedForm?.open));
+  const [draft, setDraft] = useState(() => (savedForm?.data ? { ...savedForm.data } : emptyDraft()));
   const [draftId, setDraftId] = useState(() => newPersonalReminderDocId());
   const [draftAttachments, setDraftAttachments] = useState<ImageAttachment[]>([]);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => Boolean(savedForm?.editing));
   const [draftUploading, setDraftUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [listTab, setListTab] = useState<ReminderListTab>("open");
+  const [listTab, setListTab] = useState<ReminderListTab>(() => saved.listTab);
   const [reopenOpen, setReopenOpen] = useState(false);
   const draftAttachmentsRef = useRef<ImageAttachment[]>([]);
   const draftSubmittedRef = useRef(false);
   draftAttachmentsRef.current = draftAttachments;
+
+  usePersistedTabState("reminders", { listTab, selectedId });
+
+  usePersistedFormDraft(
+    REMINDERS_DRAFT_KEY,
+    {
+      open: showForm,
+      editing,
+      editId: editing ? selectedId : undefined,
+      data: draft,
+    },
+    { isEmpty: isReminderDraftEmpty }
+  );
 
   useEffect(() => {
     if (!showForm) return;
@@ -274,6 +305,7 @@ export function PersonalRemindersTab({
         draftId
       );
       draftSubmittedRef.current = true;
+      clearFormDraft(REMINDERS_DRAFT_KEY);
       setShowForm(false);
       setSelectedId(id);
       setDraft(emptyDraft());
@@ -301,6 +333,7 @@ export function PersonalRemindersTab({
         participantIds: draft.participantIds,
         participantDepartmentIds: draft.participantDepartmentIds,
       });
+      clearFormDraft(REMINDERS_DRAFT_KEY);
       setEditing(false);
     } catch (err) {
       console.error(err);

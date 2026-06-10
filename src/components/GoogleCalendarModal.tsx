@@ -95,7 +95,10 @@ export function GoogleCalendarIntegration({
     try {
       const count = await syncGoogleCalendarNow();
       await refresh();
-      setMessage({ text: `Synced ${count} item${count === 1 ? "" : "s"} to Google Calendar.`, error: false });
+      setMessage({
+        text: `Synced ${count} upcoming item${count === 1 ? "" : "s"} to Google Calendar. Past and completed items were removed.`,
+        error: false,
+      });
     } catch (err) {
       setMessage({
         text: err instanceof Error ? err.message : "Sync failed.",
@@ -157,11 +160,13 @@ export function GoogleCalendarIntegration({
             {connected && status?.googleEmail ? (
               <>
                 Linked as <span className="font-medium text-slate-700">{status.googleEmail}</span>. One-way sync to
-                your <strong>SimasiaAI CRM</strong> calendar.
+                your <strong>SimasiaAI CRM</strong> calendar — upcoming items from today onward, updated automatically
+                when you change tasks, meetings, or reminders in the CRM.
               </>
             ) : (
               <>
-                Connect to sync tasks, meetings, and reminders to a separate <strong>SimasiaAI CRM</strong> calendar.
+                Connect to sync tasks, meetings, and reminders from today onward to a separate{" "}
+                <strong>SimasiaAI CRM</strong> calendar.
               </>
             )}
           </p>

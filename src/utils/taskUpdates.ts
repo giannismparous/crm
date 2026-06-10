@@ -1,6 +1,29 @@
 import type { Person, Task } from "../types";
 import { getTaskWorkerIds } from "./taskAssignees";
-import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./sanitizeRichText";
+import { sanitizeTaskUpdates } from "./sanitizeRichText";
+import {
+  appendTaskUpdate,
+  mergedTaskUpdatesPlainText,
+  taskUpdateEntries,
+  taskUpdatesHasContent,
+  updateContributorIds,
+  updateContributors,
+  updateMentionLabel,
+  updateMentionLabels,
+  updatePreviewPlain,
+} from "./taskUpdateEntries";
+
+export {
+  appendTaskUpdate,
+  mergedTaskUpdatesPlainText,
+  taskUpdateEntries,
+  taskUpdatesHasContent,
+  updateContributorIds,
+  updateContributors,
+  updateMentionLabel,
+  updateMentionLabels,
+  updatePreviewPlain,
+};
 
 export function taskUsesMultiAuthorUpdates(task: Task, people: Person[]): boolean {
   return getTaskWorkerIds(task, people).length >= 2;
@@ -18,27 +41,13 @@ export function normalizeUpdatesByUser(value: unknown): Record<string, string> {
   return out;
 }
 
-function mergedFromByUser(task: Task, people: Person[]): string {
-  const byUser = normalizeUpdatesByUser(task.updatesByUser);
-  const workers = getTaskWorkerIds(task, people);
-  return workers
-    .map((id) => byUser[id]?.trim())
-    .filter(Boolean)
-    .map((html) => sanitizeTaskUpdates(html))
+/** Legacy helper — concatenated HTML of all update entries. */
+export function taskUpdatesContent(task: Task, people: Person[]): string {
+  return taskUpdateEntries(task, people)
+    .map((e) => e.body)
     .join("<br><br>");
 }
 
-/** Single shared updates body (migrates legacy per-user map into one string). */
-export function taskUpdatesContent(task: Task, people: Person[]): string {
-  const direct = sanitizeTaskUpdates(task.updates);
-  if (direct) return direct;
-  return mergedFromByUser(task, people);
-}
-
-export function taskUpdatesHasContent(task: Task, people: Person[]): boolean {
-  return taskUpdatesContent(task, people).trim().length > 0;
-}
-
-export function mergedTaskUpdatesPlainText(task: Task, people: Person[]): string {
-  return taskUpdatesToPlainText(taskUpdatesContent(task, people));
+export function taskDescriptionContent(task: Task): string {
+  return sanitizeTaskUpdates(task.description ?? "");
 }

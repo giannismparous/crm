@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import type { Person, PersonTaskStats } from "../types";
 import { PersonAvatar } from "./PersonAvatar";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
@@ -30,20 +31,33 @@ function personInDepartment(p: Person, deptFilter: string): boolean {
   return valid.includes(deptFilter);
 }
 
+const TEAM_VIEW_DEFAULTS = {
+  query: "",
+  deptFilter: "",
+  selectedId: "",
+};
+
 export function TeamTab({
   people,
   currentUserId,
   currentUserOrgRole,
   onUpdatePerson,
+  focusPersonId,
+  onFocusPersonHandled,
 }: {
   people: Person[];
   currentUserId: string;
   currentUserOrgRole: OrgRole;
   onUpdatePerson: (id: string, patch: Partial<Person>) => Promise<void>;
+  focusPersonId?: string | null;
+  onFocusPersonHandled?: () => void;
 }) {
-  const [selectedId, setSelectedId] = useState("");
-  const [query, setQuery] = useState("");
-  const [deptFilter, setDeptFilter] = useState<string>("");
+  const saved = useMemo(() => readPersistedTabState("team", TEAM_VIEW_DEFAULTS), []);
+  const [selectedId, setSelectedId] = useState(() => saved.selectedId);
+  const [query, setQuery] = useState(() => saved.query);
+  const [deptFilter, setDeptFilter] = useState<string>(() => saved.deptFilter);
+
+  usePersistedTabState("team", { query, deptFilter, selectedId });
 
   const sortedList = useMemo(() => {
     return [...people]
@@ -65,6 +79,17 @@ export function TeamTab({
       setSelectedId(sortedList[0]!.id);
     }
   }, [sortedList, selectedId]);
+
+  useEffect(() => {
+    const id = focusPersonId?.trim();
+    if (!id) return;
+    if (people.some((p) => p.id === id)) {
+      setSelectedId(id);
+      setQuery("");
+      setDeptFilter("");
+    }
+    onFocusPersonHandled?.();
+  }, [focusPersonId, people, onFocusPersonHandled]);
 
   const selected = useMemo(
     () => sortedList.find((p) => p.id === selectedId) ?? sortedList[0],
@@ -174,6 +199,7 @@ export function TeamTab({
         <PersonDetail
           person={selected}
           isYou={selected.id === currentUserId}
+          canEditDetails={selected.id === currentUserId || currentUserOrgRole === "founder"}
           canEditDepartments={hasPrivilege(currentUserOrgRole, "manageOrgRoles")}
           onChange={(patch) => void onUpdatePerson(selected.id, patch).catch(console.error)}
         />
@@ -320,11 +346,13 @@ function DepartmentMultiSelect({
 function PersonDetail({
   person,
   isYou,
+  canEditDetails,
   canEditDepartments,
   onChange,
 }: {
   person: Person;
   isYou: boolean;
+  canEditDetails: boolean;
   canEditDepartments: boolean;
   onChange: (patch: Partial<Person>) => void | Promise<void>;
 }) {
@@ -352,14 +380,20 @@ function PersonDetail({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Labeled label="Display name">
-          <input value={person.name} onChange={(e) => onChange({ name: e.target.value })} className="input-base" />
+          <input
+            value={person.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            readOnly={!canEditDetails}
+            className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}
+          />
         </Labeled>
         <Labeled label="Title">
           <input
             value={person.title}
             onChange={(e) => onChange({ title: e.target.value })}
             placeholder="e.g. Sales Lead"
-            className="input-base"
+            readOnly={!canEditDetails}
+            className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}
           />
         </Labeled>
         <Labeled label="Email">

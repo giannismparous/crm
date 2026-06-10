@@ -76,6 +76,7 @@ import { richTextHasContent } from "./utils/richTextImages";
 import { normalizeContactIdentity } from "./utils/contactMerge";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./utils/sanitizeRichText";
 import { normalizeTaskComments, taskCommentsForFirestore } from "./utils/taskComments";
+import { normalizeTaskUpdateEntries, taskUpdateEntriesForFirestore } from "./utils/taskUpdateEntries";
 import { imageAttachmentsForFirestore } from "./utils/imageAttachments";
 import { normalizeUpdatesByUser } from "./utils/taskUpdates";
 import { recipientIdsFromSelection, recipientsForNewTask } from "./utils/notifyRecipients";
@@ -493,14 +494,14 @@ export function useOrgFirestore() {
   const notifyTaskComment = useCallback(
     async (task: Task, comment: TaskComment) => {
       try {
-        await createNotificationsForComment(db, ORG, task, comment, people);
+        await createNotificationsForComment(db, ORG, task, comment, people, projects);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Could not send notifications";
         console.error("notifyTaskComment", e);
         setError(msg);
       }
     },
-    [db, people]
+    [db, people, projects]
   );
 
   const notifyCommentReaction = useCallback(
@@ -633,7 +634,7 @@ export function useOrgFirestore() {
     async (
       id: string,
       patch: Partial<Task>,
-      options?: { intent?: TaskUpdateIntent; actorId?: string }
+      options?: { intent?: TaskUpdateIntent; actorId?: string; skipCalendarSync?: boolean }
     ) => {
     const before = tasksRef.current.find((t) => t.id === id);
     const ref = doc(db, "organizations", ORG, "tasks", id);
@@ -670,9 +671,21 @@ export function useOrgFirestore() {
     if (typeof forWrite.updates === "string") {
       forWrite.updates = sanitizeTaskUpdates(forWrite.updates);
     }
+    if (typeof forWrite.description === "string") {
+      forWrite.description = sanitizeTaskUpdates(forWrite.description);
+    }
     if (Array.isArray(forWrite.comments)) {
       const normalized = normalizeTaskComments(forWrite.comments);
       forWrite.comments = taskCommentsForFirestore(normalized);
+    }
+    if (Array.isArray(forWrite.updateEntries)) {
+      const normalized = normalizeTaskUpdateEntries(forWrite.updateEntries);
+      forWrite.updateEntries = taskUpdateEntriesForFirestore(normalized);
+    }
+    if (forWrite.updateEntries != null && Array.isArray(forWrite.updateEntries) && forWrite.updateEntries.length > 0) {
+      forWrite.updates = "";
+      delete forWrite.updatesByUser;
+      forWrite.updatesByUser = deleteField();
     }
     if (forWrite.updatesByUser != null) {
       const byUser = normalizeUpdatesByUser(forWrite.updatesByUser);
@@ -685,6 +698,9 @@ export function useOrgFirestore() {
     }
     if (patch.projectId === "") {
       forWrite.projectId = deleteField();
+    }
+    if (patch.appointmentId === "") {
+      forWrite.appointmentId = deleteField();
     }
     await updateDoc(
       ref,
@@ -701,7 +717,19 @@ export function useOrgFirestore() {
       }
     }
 
-    void syncCrmItemToGoogleCalendar("task", id);
+    if (!options?.skipCalendarSync) {
+      void syncCrmItemToGoogleCalendar("task", id);
+      const aptIds = new Set<string>();
+      const prevApt = before?.appointmentId?.trim();
+      const nextApt = (patch.appointmentId !== undefined
+        ? String(patch.appointmentId ?? "").trim()
+        : before?.appointmentId?.trim()) ?? "";
+      if (prevApt) aptIds.add(prevApt);
+      if (nextApt) aptIds.add(nextApt);
+      for (const aptId of aptIds) {
+        void syncCrmItemToGoogleCalendar("appointment", aptId);
+      }
+    }
   },
     [db, people, applyPersonStatDeltas]
   );
@@ -719,7 +747,10 @@ export function useOrgFirestore() {
   );
 
   const createTask = useCallback(
-    async (payload: Omit<Task, "id" | "createdAt">) => {
+    async (
+      payload: Omit<Task, "id" | "createdAt">,
+      options?: { skipCalendarSync?: boolean }
+    ): Promise<string> => {
       const ref = doc(collection(db, "organizations", ORG, "tasks"));
       const id = ref.id;
       const assigneeIds = [...new Set((payload.assigneeIds ?? []).filter(Boolean))];
@@ -731,8 +762,10 @@ export function useOrgFirestore() {
         finishedByIds: payload.finishedByIds ?? [],
         feedbackByIds: payload.feedbackByIds ?? [],
         feedbackRequests: payload.feedbackRequests ?? [],
+        description: sanitizeTaskUpdates(payload.description ?? ""),
         updates: sanitizeTaskUpdates(payload.updates ?? ""),
         updatesByUser: normalizeUpdatesByUser(payload.updatesByUser),
+        updateEntries: normalizeTaskUpdateEntries(payload.updateEntries ?? []),
         comments: normalizeTaskComments(payload.comments),
         id,
         createdAt: new Date().toISOString(),
@@ -771,15 +804,23 @@ export function useOrgFirestore() {
       }
 
       await applyPersonStatDeltas(statDeltaForNewTask(creatorId));
-      void syncCrmItemToGoogleCalendar("task", id);
+      if (!options?.skipCalendarSync) {
+        void syncCrmItemToGoogleCalendar("task", id);
+        const aptId = String(payload.appointmentId ?? "").trim();
+        if (aptId) void syncCrmItemToGoogleCalendar("appointment", aptId);
+      }
+      return id;
     },
     [db, people, applyPersonStatDeltas]
   );
 
   const removeTask = useCallback(
     async (id: string) => {
+      const before = tasksRef.current.find((t) => t.id === id);
       await deleteDoc(doc(db, "organizations", ORG, "tasks", id));
       void syncCrmItemToGoogleCalendar("task", id, "delete");
+      const aptId = before?.appointmentId?.trim();
+      if (aptId) void syncCrmItemToGoogleCalendar("appointment", aptId);
     },
     [db]
   );
@@ -1042,7 +1083,11 @@ export function useOrgFirestore() {
   );
 
   const createAppointment = useCallback(
-    async (payload: Omit<Appointment, "id" | "createdAt" | "status">, appointmentId?: string) => {
+    async (
+      payload: Omit<Appointment, "id" | "createdAt" | "status">,
+      appointmentId?: string,
+      options?: { skipCalendarSync?: boolean }
+    ) => {
       const ref = appointmentId
         ? doc(db, "organizations", ORG, "appointments", appointmentId)
         : doc(collection(db, "organizations", ORG, "appointments"));
@@ -1051,6 +1096,7 @@ export function useOrgFirestore() {
       const participantDepartmentIds = [
         ...new Set((payload.participantDepartmentIds ?? []).filter(Boolean)),
       ];
+      const linkedTaskIds = [...new Set((payload.linkedTaskIds ?? []).filter(Boolean))];
       const { description: rawDescription, ...payloadRest } = payload;
       const description =
         typeof rawDescription === "string" ? sanitizeTaskUpdates(rawDescription) : undefined;
@@ -1058,6 +1104,7 @@ export function useOrgFirestore() {
         ...payloadRest,
         participantIds,
         participantDepartmentIds,
+        ...(linkedTaskIds.length > 0 ? { linkedTaskIds } : {}),
         id,
         status: "scheduled",
         createdAt: new Date().toISOString(),
@@ -1070,14 +1117,20 @@ export function useOrgFirestore() {
           : {}),
       }) as Record<string, unknown>;
       await setDoc(ref, scrub(forWrite) as Record<string, unknown>);
-      void syncCrmItemToGoogleCalendar("appointment", id);
+      if (!options?.skipCalendarSync) {
+        void syncCrmItemToGoogleCalendar("appointment", id);
+      }
       return id;
     },
     [db]
   );
 
   const updateAppointment = useCallback(
-    async (id: string, patch: Partial<Appointment>) => {
+    async (
+      id: string,
+      patch: Partial<Appointment>,
+      options?: { skipCalendarSync?: boolean }
+    ) => {
       const ref = doc(db, "organizations", ORG, "appointments", id);
       const { id: _omitId, ...rest } = patch as Partial<Appointment> & { id?: string };
       const forWrite = { ...rest } as Record<string, unknown>;
@@ -1103,6 +1156,28 @@ export function useOrgFirestore() {
       if ("taskId" in forWrite && !String(forWrite.taskId ?? "").trim()) {
         forWrite.taskId = deleteField();
       }
+      if ("prepNotes" in forWrite && !String(forWrite.prepNotes ?? "").trim()) {
+        forWrite.prepNotes = deleteField();
+      }
+      if (Array.isArray(forWrite.reviewItems)) {
+        const items = [
+          ...new Set((forWrite.reviewItems as string[]).map((x) => String(x).trim()).filter(Boolean)),
+        ];
+        if (items.length === 0) {
+          forWrite.reviewItems = deleteField();
+        } else {
+          forWrite.reviewItems = items;
+          forWrite.prepNotes = deleteField();
+        }
+      }
+      if (Array.isArray(forWrite.linkedTaskIds)) {
+        const ids = [...new Set((forWrite.linkedTaskIds as string[]).filter(Boolean))];
+        if (ids.length === 0) {
+          forWrite.linkedTaskIds = deleteField();
+        } else {
+          forWrite.linkedTaskIds = ids;
+        }
+      }
       if (Array.isArray(forWrite.attachments)) {
         forWrite.attachments =
           forWrite.attachments.length > 0
@@ -1112,7 +1187,9 @@ export function useOrgFirestore() {
       const body = scrub(stripUndefinedDeep(forWrite) as Record<string, unknown>) as Record<string, unknown>;
       if (Object.keys(body).length === 0) return;
       await updateDoc(ref, body as DocumentData);
-      void syncCrmItemToGoogleCalendar("appointment", id);
+      if (!options?.skipCalendarSync) {
+        void syncCrmItemToGoogleCalendar("appointment", id);
+      }
 
       if ("taskId" in patch) {
         const linked = personalReminders.filter((r) => r.appointmentId === id);
@@ -1316,11 +1393,16 @@ export function useOrgFirestore() {
         ...fields
       } = patch;
 
-      if (
-        fields.departments !== undefined &&
-        id === currentUserPersonId &&
-        !hasPrivilege(currentUserOrgRole, "manageOrgRoles")
-      ) {
+      const editingOther = id !== currentUserPersonId;
+      const isFounder = hasPrivilege(currentUserOrgRole, "manageOrgRoles");
+
+      if (editingOther && !isFounder) {
+        delete fields.name;
+        delete fields.title;
+        delete fields.departments;
+      }
+
+      if (fields.departments !== undefined && !isFounder) {
         delete fields.departments;
       }
       const ref = doc(db, "organizations", ORG, "people", id);
@@ -1345,6 +1427,7 @@ export function useOrgFirestore() {
     error,
     people: visiblePeople,
     tasks: visibleTasks,
+    allTasks: tasks,
     projects: visibleProjects,
     contacts: visibleContacts,
     appointments: visibleAppointments,

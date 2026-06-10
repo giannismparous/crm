@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import type {
   Appointment,
   PersonalReminder,
@@ -279,16 +280,41 @@ export function CalendarTab({
   ) => void | Promise<void>;
   onOpenPersonalReminder: () => void;
 }) {
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return { y: d.getFullYear(), m: d.getMonth() };
+  const CALENDAR_VIEW_DEFAULTS = useMemo(
+    () => ({
+      scope: "my" as TaskListScope,
+      showAppointments: true,
+      showTasks: true,
+      showReminders: true,
+      priorityFilter: [] as TaskPriority[],
+      cursorY: new Date().getFullYear(),
+      cursorM: new Date().getMonth(),
+      selectedKey: orgTodayDateKey(),
+    }),
+    []
+  );
+  const saved = useMemo(
+    () => readPersistedTabState("calendar", CALENDAR_VIEW_DEFAULTS),
+    [CALENDAR_VIEW_DEFAULTS]
+  );
+  const [cursor, setCursor] = useState(() => ({ y: saved.cursorY, m: saved.cursorM }));
+  const [scope, setScope] = useState<TaskListScope>(() => saved.scope);
+  const [showAppointments, setShowAppointments] = useState(() => saved.showAppointments);
+  const [showTasks, setShowTasks] = useState(() => saved.showTasks);
+  const [showReminders, setShowReminders] = useState(() => saved.showReminders);
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(() => saved.priorityFilter);
+  const [selectedKey, setSelectedKey] = useState(() => saved.selectedKey);
+
+  usePersistedTabState("calendar", {
+    scope,
+    showAppointments,
+    showTasks,
+    showReminders,
+    priorityFilter,
+    cursorY: cursor.y,
+    cursorM: cursor.m,
+    selectedKey,
   });
-  const [scope, setScope] = useState<TaskListScope>("my");
-  const [showAppointments, setShowAppointments] = useState(true);
-  const [showTasks, setShowTasks] = useState(true);
-  const [showReminders, setShowReminders] = useState(true);
-  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
-  const [selectedKey, setSelectedKey] = useState(() => orgTodayDateKey());
 
   const byDay = useMemo(
     () =>

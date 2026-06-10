@@ -12,11 +12,14 @@ import {
   googleClientId,
   googleClientSecret,
   googleRedirectUri,
+  geminiApiKey,
   integrationRef,
 } from "./config";
 import { ensureSimasiaCalendar } from "./calendarSetup";
 import { createOAuthClient, getAuthedCalendarClient, loadIntegration, saveIntegration } from "./tokens";
-import { fullSyncForUser, syncItemForAllUsers } from "./sync";
+import { fullSyncForUser, refreshAllConnectedGoogleCalendarsOnce, syncItemForAllUsers } from "./sync";
+import { loadOrgContext } from "./visibility";
+import { generateUpdateTitleWithGemini, type GenerateUpdateTitleInput } from "./generateUpdateTitle";
 
 initializeApp();
 const db = getFirestore();
@@ -50,6 +53,7 @@ function publicIntegrationView(data: Record<string, unknown> | undefined) {
 }
 
 const fnOpts = { region: "us-central1" as const, secrets: [googleClientSecret] };
+const geminiFnOpts = { region: "us-central1" as const, secrets: [geminiApiKey] };
 
 export const getGoogleCalendarStatus = onCall(
   fnOpts,
@@ -153,7 +157,7 @@ export const googleCalendarOAuthCallback = onRequest(
 
       try {
         await ensureSimasiaCalendar(db, uid);
-        await fullSyncForUser(db, uid);
+        await fullSyncForUser(db, uid, { fromTodayOnly: true });
       } catch (syncErr) {
         const msg = syncErr instanceof Error ? syncErr.message : "Initial sync failed.";
         await saveIntegration(db, uid, { lastError: msg });
@@ -246,7 +250,7 @@ export const syncGoogleCalendarForUser = onCall(
   async (request) => {
     const uid = requireAuthUid(request.auth);
     try {
-      const count = await fullSyncForUser(db, uid);
+      const count = await fullSyncForUser(db, uid, { fromTodayOnly: true });
       return { ok: true, synced: count };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Sync failed.";
@@ -287,6 +291,55 @@ export const syncGoogleCalendarItem = onCall(
   }
 );
 
+/** One-time (idempotent) refresh of all existing Google Calendar events for connected users. */
+export const migrateGoogleCalendarDescriptionsOnce = onCall(
+  fnOpts,
+  async (request) => {
+    const uid = requireAuthUid(request.auth);
+    const ctx = await loadOrgContext(db);
+    const person = [...ctx.people.values()].find((p) => p.authUid === uid);
+    const role = person?.orgRole ?? "";
+    if (role !== "founder" && role !== "ceo") {
+      throw new HttpsError("permission-denied", "Only founders can run this migration.");
+    }
+
+    const force = Boolean((request.data as { force?: boolean } | undefined)?.force);
+    try {
+      const result = await refreshAllConnectedGoogleCalendarsOnce(db, { force });
+      return { ok: true, ...result };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Migration failed.";
+      throw new HttpsError("internal", msg);
+    }
+  }
+);
+
+export const generateTaskUpdateTitle = onCall(geminiFnOpts, async (request) => {
+  requireAuthUid(request.auth);
+  const data = (request.data ?? {}) as GenerateUpdateTitleInput;
+  const newUpdateBody = String(data.newUpdateBody ?? "").trim();
+  if (!newUpdateBody) {
+    throw new HttpsError("invalid-argument", "newUpdateBody is required.");
+  }
+
+  const title = await generateUpdateTitleWithGemini({
+    taskTitle: String(data.taskTitle ?? ""),
+    projectName: String(data.projectName ?? ""),
+    taskDescription: String(data.taskDescription ?? ""),
+    previousUpdates: Array.isArray(data.previousUpdates)
+      ? data.previousUpdates.slice(0, 20).map((row) => ({
+          title: String(row?.title ?? ""),
+          body: String(row?.body ?? ""),
+        }))
+      : [],
+    newUpdateBody,
+    titleLanguage: data.titleLanguage === "greek" ? "greek" : "english",
+    isGreeklish: Boolean(data.isGreeklish),
+  });
+
+  return { title };
+});
+
 /** Re-sync calendar when a person's departments change (partner visibility). */
 export const onPersonDepartmentsCalendarSync = onDocumentUpdated(
   {
@@ -304,9 +357,10 @@ export const onPersonDepartmentsCalendarSync = onDocumentUpdated(
     const deptAfter = JSON.stringify(after.departments ?? []);
     if (deptBefore === deptAfter) return;
 
-    const uid = event.params.personId;
+    const uid = String(after.authUid ?? event.params.personId).trim();
+    if (!uid) return;
     try {
-      await fullSyncForUser(db, uid);
+      await fullSyncForUser(db, uid, { fromTodayOnly: true });
     } catch {
       /* user not connected or sync skipped */
     }

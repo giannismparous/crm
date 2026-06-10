@@ -1,5 +1,6 @@
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
 import type { Appointment, Person, PersonalReminder, Project, Task } from "../types";
+import { TEAM_DEPARTMENTS } from "../types";
 import { isAppointmentRelevantToPerson } from "./appointments";
 import { isPersonalReminderRelevantToPerson } from "./personalReminderLinks";
 import { normalizeAssigneeDepartments } from "./taskAssignees";
@@ -88,4 +89,32 @@ export function personVisibleToViewer(
   if (canSeeAllOrgData(role)) return true;
   if (viewer && person.id === viewer.id) return true;
   return departmentsOverlap(person.departments, viewerDepartments(viewer));
+}
+
+/** Founders + anyone who can see or is tied to this task (assigner, assignee, dept, project). */
+export function personMentionableOnTask(
+  task: Task,
+  person: Person,
+  people: Person[],
+  projects: Project[]
+): boolean {
+  if (canSeeAllOrgData(person.orgRole)) return true;
+  if (task.assignedById === person.id) return true;
+  return taskVisibleToViewer(task, person, person.id, people, projects, person.orgRole);
+}
+
+export function peopleMentionableOnTask(task: Task, people: Person[], projects: Project[]): Person[] {
+  return people.filter((p) => personMentionableOnTask(task, p, people, projects));
+}
+
+/** Departments on this task (and its project) — safe @department targets in comments. */
+export function departmentsMentionableOnTask(task: Task, projects: Project[]): string[] {
+  const depts = new Set(normalizeAssigneeDepartments(task.assigneeDepartmentIds));
+  if (task.projectId) {
+    const project = projects.find((p) => p.id === task.projectId);
+    if (project) {
+      for (const d of projectDepartmentIds(project)) depts.add(d);
+    }
+  }
+  return TEAM_DEPARTMENTS.filter((d) => depts.has(d));
 }

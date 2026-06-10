@@ -169,8 +169,12 @@ export type Appointment = {
   createdAt: string;
   canceledAt?: string;
   attachments?: ImageAttachment[];
-  /** Optional link to an open task */
+  /** Optional link to an open task @deprecated prefer tasks with appointmentId */
   taskId?: string;
+  /** Checklist — what to review / have ready before the meeting */
+  reviewItems?: string[];
+  /** Explicitly linked open tasks (source of truth for meeting ↔ task links) */
+  linkedTaskIds?: string[];
 };
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "canceled";
@@ -206,6 +210,17 @@ export type TaskComment = {
   attachments?: ImageAttachment[];
 };
 
+/** One deliverable progress note on a task (replaces monolithic `updates` string). */
+export type TaskUpdateEntry = {
+  id: string;
+  authorId: string;
+  /** Short plain-text label shown in the update header */
+  title?: string;
+  /** Rich HTML — same rules as legacy `updates` */
+  body: string;
+  createdAt: string;
+};
+
 /** Firestore sync for comment like/dislike notifications. */
 export type CommentReactionNotifyChange =
   | { kind: "added"; vote: "like" | "dislike" }
@@ -235,6 +250,7 @@ export type NotificationKind =
   | "task_comment"
   | "mention_person"
   | "mention_department"
+  | "mention_update"
   | "task_feedback"
   | "task_feedback_reply"
   | "task_finished"
@@ -270,10 +286,12 @@ export type Task = {
   id: string;
   title: string;
   description: string;
-  /** Shared progress notes — simple HTML (bold, underline, highlight) */
+  /** Shared progress notes — simple HTML (bold, underline, highlight) @deprecated use updateEntries */
   updates: string;
   /** @deprecated Legacy — all workers share `updates`; cleared on save */
   updatesByUser: Record<string, string>;
+  /** Deliverable-style progress updates (new source of truth) */
+  updateEntries: TaskUpdateEntry[];
   /** Thread-style notes from anyone on the task */
   comments: TaskComment[];
   /** People responsible for the work — ids from org `people` in Firestore */
@@ -292,6 +310,8 @@ export type Task = {
   priority: TaskPriority;
   /** Optional — at most one project per task */
   projectId?: string;
+  /** Set when the task was created for a specific appointment */
+  appointmentId?: string;
   /** Current due date (may move vs original) */
   dueDate: string;
   /** First agreed due date — if different from dueDate, UI shows “postponed” */

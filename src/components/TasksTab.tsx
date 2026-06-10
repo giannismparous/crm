@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
+import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
+import { clearFormDraft, readFormDraft } from "../utils/formDraftStorage";
 import type { TaskComment } from "../types";
 import { Clock, ClockAlert } from "lucide-react";
 import type {
@@ -15,9 +18,22 @@ import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTask
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
-import { PERSON_AVATAR_INLINE_SIZE, PersonAvatarStack, PersonNameInline } from "./PersonAvatar";
+import {
+  PERSON_AVATAR_INLINE_SIZE,
+  PersonAvatarStack,
+  PersonNameInline,
+  PersonNamesInline,
+} from "./PersonAvatar";
 import { TaskCommentsSection } from "./TaskCommentsSection";
 import { TaskUpdatesSection } from "./TaskUpdatesSection";
+import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
+import { richTextHasContent } from "../utils/richTextImages";
+import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "../utils/sanitizeRichText";
+import {
+  mergedTaskUpdatesPlainText,
+  taskDescriptionContent,
+  taskUpdatesHasContent,
+} from "../utils/taskUpdates";
 import {
   assigneeAvatarPeople,
   isSelfAssignedSingleWorkerTask,
@@ -35,7 +51,6 @@ import {
 } from "./TaskWorkerActions";
 import type { NotificationKind } from "../types";
 import { taskCommentsPlainText } from "../utils/taskComments";
-import { mergedTaskUpdatesPlainText, taskUpdatesHasContent } from "../utils/taskUpdates";
 import {
   UNASSIGNED_PROJECT_COLOR,
   UNASSIGNED_PROJECT_ID,
@@ -44,6 +59,39 @@ import {
 const PRIORITY_ORDER: TaskPriority[] = ["urgent", "high", "medium", "low"];
 
 type TaskListSortMode = "urgency" | "project";
+
+const TASKS_NEW_DRAFT_KEY = "tasks:new";
+
+type NewTaskDraftData = {
+  title: string;
+  description: string;
+  assigneeIds: string[];
+  assigneeDepartmentIds: string[];
+  dueDate: string;
+  priority: TaskPriority;
+  projectId: string;
+};
+
+function isNewTaskDraftEmpty(data: NewTaskDraftData): boolean {
+  return (
+    !data.title.trim() &&
+    !data.description.trim() &&
+    data.assigneeIds.length === 0 &&
+    data.assigneeDepartmentIds.length === 0 &&
+    !data.projectId.trim()
+  );
+}
+
+const TASKS_VIEW_DEFAULTS = {
+  scope: "my" as TaskListScope,
+  listTab: "open" as TaskListTab,
+  query: "",
+  everyoneInvolvedFilter: [] as string[],
+  everyoneDepartmentFilter: [] as string[],
+  everyoneFilterExclusive: false,
+  priorityFilter: [] as TaskPriority[],
+  taskSortMode: "urgency" as TaskListSortMode,
+};
 
 type TaskProjectGroup = {
   id: string;
@@ -382,54 +430,30 @@ function AssigneeNamesForFooter({
   if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) {
     return <span className="font-medium text-slate-500">Open</span>;
   }
-  let itemIndex = 0;
-  const parts: ReactNode[] = [];
 
-  function pushSeparator() {
-    if (itemIndex > 0) {
-      parts.push(
-        <span key={`sep-${itemIndex}`} className="px-0.5 text-slate-500" aria-hidden>
-          ,
-        </span>
-      );
-    }
-    itemIndex++;
-  }
-
-  assigneeIds.forEach((id) => {
-    const name = people.find((p) => p.id === id)?.name ?? id;
-    const isMe = id === currentUserId;
-    pushSeparator();
-    parts.push(
-      isMe ? (
-        <span
-          key={`p-${id}`}
-          className="font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2"
-        >
-          {name}
-        </span>
-      ) : (
-        <span key={`p-${id}`} className="font-medium text-slate-800">
-          {name}
-        </span>
-      )
-    );
-  });
-  assigneeDepartmentIds.forEach((dept) => {
-    pushSeparator();
-    parts.push(
-      <span key={`d-${dept}`} className="inline-flex items-center">
-        <span className="font-medium text-violet-900">{dept}</span>
-        <span className="text-slate-500"> (dept)</span>
-      </span>
-    );
-  });
-
+  const assigneePeople = assigneeIds
+    .map((id) => people.find((p) => p.id === id))
+    .filter((p): p is Person => Boolean(p));
   const avatarPeople = assigneeAvatarPeople(assigneeIds, assigneeDepartmentIds, people);
 
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      <span className="inline-flex flex-wrap items-center gap-y-1">{parts}</span>
+      <span className="inline-flex flex-wrap items-center gap-y-1">
+        {assigneePeople.length > 0 && (
+          <PersonNamesInline people={assigneePeople} currentUserId={currentUserId} />
+        )}
+        {assigneeDepartmentIds.map((dept, index) => (
+          <span key={`d-${dept}`} className="inline-flex items-center">
+            {(assigneePeople.length > 0 || index > 0) && (
+              <span className="text-slate-500" aria-hidden>
+                ,{" "}
+              </span>
+            )}
+            <span className="font-medium text-violet-900">{dept}</span>
+            <span className="text-slate-500"> (dept)</span>
+          </span>
+        ))}
+      </span>
       <PersonAvatarStack people={avatarPeople} size={PERSON_AVATAR_INLINE_SIZE} />
     </span>
   );
@@ -762,7 +786,7 @@ export function TasksTab({
   people: Person[];
   projects: Project[];
   tasks: Task[];
-  onAddTask: (t: Omit<Task, "id" | "createdAt">) => Promise<void>;
+  onAddTask: (t: Omit<Task, "id" | "createdAt">) => Promise<string | void>;
   onUpdateTask: (
     id: string,
     patch: Partial<Task>,
@@ -792,16 +816,35 @@ export function TasksTab({
   focusTaskId?: string | null;
   onFocusTaskHandled?: () => void;
 }) {
-  const [scope, setScope] = useState<TaskListScope>("my");
-  const [listTab, setListTab] = useState<TaskListTab>("open");
-  const [query, setQuery] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [everyoneInvolvedFilter, setEveryoneInvolvedFilter] = useState<string[]>([]);
-  const [everyoneDepartmentFilter, setEveryoneDepartmentFilter] = useState<string[]>([]);
-  const [everyoneFilterExclusive, setEveryoneFilterExclusive] = useState(false);
-  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
-  const [taskSortMode, setTaskSortMode] = useState<TaskListSortMode>("urgency");
+  const saved = useMemo(() => readPersistedTabState("tasks", TASKS_VIEW_DEFAULTS), []);
+  const savedNewForm = useMemo(() => readFormDraft<NewTaskDraftData>(TASKS_NEW_DRAFT_KEY), []);
+  const [scope, setScope] = useState<TaskListScope>(() => saved.scope);
+  const [listTab, setListTab] = useState<TaskListTab>(() => saved.listTab);
+  const [query, setQuery] = useState(() => saved.query);
+  const [showForm, setShowForm] = useState(() => Boolean(savedNewForm?.open));
+  const [everyoneInvolvedFilter, setEveryoneInvolvedFilter] = useState<string[]>(
+    () => saved.everyoneInvolvedFilter
+  );
+  const [everyoneDepartmentFilter, setEveryoneDepartmentFilter] = useState<string[]>(
+    () => saved.everyoneDepartmentFilter
+  );
+  const [everyoneFilterExclusive, setEveryoneFilterExclusive] = useState(
+    () => saved.everyoneFilterExclusive
+  );
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(() => saved.priorityFilter);
+  const [taskSortMode, setTaskSortMode] = useState<TaskListSortMode>(() => saved.taskSortMode);
   const taskRefs = useRef<Record<string, HTMLLIElement | null>>({});
+
+  usePersistedTabState("tasks", {
+    scope,
+    listTab,
+    query,
+    everyoneInvolvedFilter,
+    everyoneDepartmentFilter,
+    everyoneFilterExclusive,
+    priorityFilter,
+    taskSortMode,
+  });
 
   useEffect(() => {
     if (!focusTaskId) return;
@@ -842,7 +885,7 @@ export function TasksTab({
       if (!q) return true;
       const projectName = projects.find((p) => p.id === t.projectId)?.name ?? "";
       const blob =
-        `${t.title} ${t.description} ${projectName} ${t.assigneeDepartmentIds.join(" ")} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
+        `${t.title} ${taskUpdatesToPlainText(taskDescriptionContent(t))} ${projectName} ${t.assigneeDepartmentIds.join(" ")} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
       return blob.includes(q);
     });
   }, [
@@ -883,6 +926,7 @@ export function TasksTab({
 
   async function addTask(payload: Omit<Task, "id" | "createdAt">) {
     await onAddTask(payload);
+    clearFormDraft(TASKS_NEW_DRAFT_KEY);
     setShowForm(false);
   }
 
@@ -919,6 +963,8 @@ export function TasksTab({
             people={people}
             projects={projects}
             currentUserId={currentUserId}
+            draftKey={TASKS_NEW_DRAFT_KEY}
+            formOpen={showForm}
             onSubmit={(p) => void addTask(p)}
           />
         </>
@@ -1152,6 +1198,8 @@ export function NewTaskForm({
   currentUserId,
   defaultProjectId = "",
   lockProject = false,
+  draftKey,
+  formOpen = true,
   onSubmit,
 }: {
   people: Person[];
@@ -1159,15 +1207,41 @@ export function NewTaskForm({
   currentUserId: string;
   defaultProjectId?: string;
   lockProject?: boolean;
+  draftKey?: string;
+  formOpen?: boolean;
   onSubmit: (t: Omit<Task, "id" | "createdAt">) => void | Promise<void>;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [assigneeDepartmentIds, setAssigneeDepartmentIds] = useState<string[]>([]);
-  const [dueDate, setDueDate] = useState(() => orgTodayDateKey());
-  const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [projectId, setProjectId] = useState(defaultProjectId);
+  const saved = useMemo(
+    () => (draftKey ? readFormDraft<NewTaskDraftData>(draftKey) : null),
+    [draftKey]
+  );
+  const [title, setTitle] = useState(() => saved?.data.title ?? "");
+  const [description, setDescription] = useState(() => saved?.data.description ?? "");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(() => saved?.data.assigneeIds ?? []);
+  const [assigneeDepartmentIds, setAssigneeDepartmentIds] = useState<string[]>(
+    () => saved?.data.assigneeDepartmentIds ?? []
+  );
+  const [dueDate, setDueDate] = useState(() => saved?.data.dueDate ?? orgTodayDateKey());
+  const [priority, setPriority] = useState<TaskPriority>(() => saved?.data.priority ?? "medium");
+  const [projectId, setProjectId] = useState(
+    () => saved?.data.projectId ?? defaultProjectId
+  );
+
+  const draftData: NewTaskDraftData = {
+    title,
+    description,
+    assigneeIds,
+    assigneeDepartmentIds,
+    dueDate,
+    priority,
+    projectId: lockProject ? defaultProjectId : projectId,
+  };
+
+  usePersistedFormDraft(
+    draftKey ?? "",
+    { open: formOpen, data: draftData },
+    { isEmpty: isNewTaskDraftEmpty }
+  );
 
   useEffect(() => {
     setAssigneeIds((prev) => prev.filter((id) => people.some((p) => p.id === id)));
@@ -1182,7 +1256,7 @@ export function NewTaskForm({
     if (!title.trim()) return;
     const payload: Omit<Task, "id" | "createdAt"> = {
       title: title.trim(),
-      description: description.trim(),
+      description: sanitizeTaskUpdates(description),
       assigneeIds: [...new Set(assigneeIds)],
       assigneeDepartmentIds: [...new Set(assigneeDepartmentIds)],
       finishedByIds: [],
@@ -1197,6 +1271,7 @@ export function NewTaskForm({
       needsFeedback: false,
       updates: "",
       updatesByUser: {},
+      updateEntries: [],
       comments: [],
     };
     const pid = (lockProject ? defaultProjectId : projectId).trim();
@@ -1262,11 +1337,12 @@ export function NewTaskForm({
         )}
         <div className="sm:col-span-3">
           <Field label="Description">
-            <textarea
+            <SimpleRichText
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="input-base min-h-[80px] resize-y py-2"
+              onChange={setDescription}
+              collapsible
+              collapseKey="new-task-desc"
+              placeholder="Add a description…"
             />
           </Field>
         </div>
@@ -1289,6 +1365,92 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
       {children}
     </label>
+  );
+}
+
+function TaskDescriptionSection({
+  task,
+  canEdit,
+  onChange,
+}: {
+  task: Task;
+  canEdit: boolean;
+  onChange: (patch: Partial<Task>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [stayExpanded, setStayExpanded] = useState(false);
+  const flushSaveRef = useRef<(() => void) | null>(null);
+  const descriptionContent = taskDescriptionContent(task);
+  const hasDescription = richTextHasContent(descriptionContent);
+
+  useEffect(() => {
+    setEditing(false);
+    setStayExpanded(false);
+  }, [task.id]);
+
+  function handleSave() {
+    flushSaveRef.current?.();
+    setStayExpanded(true);
+    setEditing(false);
+  }
+
+  if (!hasDescription && !canEdit) return null;
+
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-xs font-medium text-slate-600">
+        Description
+        {canEdit && !editing && (
+          <>
+            {" "}
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="font-normal text-accent hover:underline"
+            >
+              (Edit)
+            </button>
+          </>
+        )}
+        {canEdit && editing && (
+          <>
+            {" "}
+            <button
+              type="button"
+              onClick={handleSave}
+              className="font-normal text-accent hover:underline"
+            >
+              (Save)
+            </button>
+          </>
+        )}
+      </p>
+      {editing ? (
+        <SimpleRichText
+          key={`${task.id}-desc-edit`}
+          value={descriptionContent}
+          persistedHtml={task.description ?? ""}
+          onChange={(description) => onChange({ description })}
+          flushSaveRef={flushSaveRef}
+          autoFocus
+          collapseKey={`${task.id}-desc`}
+          taskId={task.id}
+          inlineImageStorageDir={`tasks/${task.id}/description`}
+          enableGenericFileAttach
+          placeholder="Add a description…"
+        />
+      ) : hasDescription ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80">
+          <SimpleRichTextView
+            html={descriptionContent}
+            collapsible={!stayExpanded}
+            collapseKey={`${task.id}-desc`}
+          />
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">No description yet.</p>
+      )}
+    </div>
   );
 }
 
@@ -1342,7 +1504,6 @@ function TaskCard({
   const completed = isTaskCompleted(task);
   const overdue = isTaskOpen(task) && task.dueDate < today;
   const postponed = task.postponeCount > 0;
-  const [descOpen, setDescOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [workerFlow, setWorkerFlow] = useState<WorkerFlow>(null);
@@ -1353,10 +1514,6 @@ function TaskCard({
   const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? "Someone";
   const hasOpenFeedback = taskHasOpenFeedback(task);
   const hasFeedbackHistory = taskHasFeedbackHistory(task);
-  const descPreview =
-    task.description.length > 160 && !descOpen
-      ? task.description.slice(0, 160).trimEnd() + "…"
-      : task.description;
   const selfAssigned = isSelfAssignedSingleWorkerTask(task, people);
   const assigner = task.assignedById ? people.find((p) => p.id === task.assignedById) : undefined;
   const assignerName =
@@ -1548,25 +1705,17 @@ function TaskCard({
         />
       )}
 
-      {task.description && (
-        <div className="mt-3">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{descPreview}</p>
-          {task.description.length > 160 && (
-            <button
-              type="button"
-              onClick={() => setDescOpen((o) => !o)}
-              className="mt-1 text-xs font-medium text-accent hover:underline"
-            >
-              {descOpen ? "Show less" : "Show more"}
-            </button>
-          )}
-        </div>
-      )}
+      <TaskDescriptionSection
+        task={task}
+        canEdit={isWorker && !completed && !canceled}
+        onChange={onChange}
+      />
 
       {(taskUpdatesHasContent(task, people) || (isWorker && !completed && !canceled)) && (
         <TaskUpdatesSection
           task={task}
           people={people}
+          projectName={project?.name ?? ""}
           currentUserId={currentUserId}
           isWorker={isWorker}
           canEditUpdates={isWorker && !completed && !canceled}
@@ -1577,6 +1726,7 @@ function TaskCard({
       <TaskCommentsSection
         task={task}
         people={people}
+        projects={projects}
         currentUserId={currentUserId}
         onChange={onChange}
         onCommentPosted={onCommentPosted}

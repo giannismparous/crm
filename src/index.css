@@ -58,6 +58,63 @@ html[data-theme="dark"] body {
     @apply cursor-text;
   }
 
+  /* Exactly 5 lines (text-sm / leading-relaxed) + py-2; clips on line boundaries via 1lh. */
+  .collapsible-lines-5 {
+    min-height: calc(1rem + 5 * 1lh);
+  }
+
+  .collapsible-lines-5.is-collapsed {
+    max-height: calc(1rem + 5 * 1lh);
+    overflow: hidden;
+  }
+
+  /* Expanded: full content height (set inline on expand) — never an inner scrollbar. */
+  .collapsible-lines-5.is-expanded,
+  .simple-rich-text.collapsible-lines-5.is-expanded,
+  .collapsible-textarea.collapsible-lines-5.is-expanded,
+  [data-collapsible-expanded="true"] {
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    -webkit-line-clamp: unset;
+    display: block;
+  }
+
+  .collapsible-textarea.collapsible-lines-5.is-expanded {
+    resize: none;
+  }
+
+  /* While focused: grow instantly with content — no delayed height measure. */
+  .simple-rich-text.collapsible-lines-5.is-editing,
+  .collapsible-textarea.collapsible-lines-5.is-editing {
+    height: auto !important;
+    min-height: calc(1rem + 5 * 1lh) !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* While typing, unlock height immediately (before React re-render). */
+  .simple-rich-text-root:focus-within,
+  .collapsible-textarea-root:focus-within {
+    overflow: visible !important;
+  }
+
+  .collapsible-editor-host:focus-within .simple-rich-text.collapsible-lines-5.is-collapsed,
+  .collapsible-textarea-root:focus-within .collapsible-textarea.collapsible-lines-5.is-collapsed {
+    max-height: none !important;
+    overflow: visible !important;
+    -webkit-line-clamp: unset;
+    display: block;
+  }
+
+  /* Plain text: always break on whole lines, never mid-line. */
+  .collapsible-lines-5-clamp.is-collapsed {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    overflow: hidden;
+  }
+
   .simple-rich-text strong {
     font-weight: 600;
   }
@@ -85,6 +142,7 @@ html[data-theme="dark"] body {
   }
   .simple-rich-text .task-inline-image-placeholder {
     @apply relative block h-32 w-48 max-w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100;
+    transition: width 0.2s ease, height 0.2s ease;
   }
   .simple-rich-text .task-inline-image-preview {
     @apply block h-full w-full object-cover opacity-50;
@@ -101,8 +159,18 @@ html[data-theme="dark"] body {
   .simple-rich-text .loadable-media-shell {
     @apply my-2 max-w-full bg-slate-100;
   }
-  .simple-rich-text .loadable-media-shell:has(.loadable-pending) {
+  .simple-rich-text .loadable-media-shell:has(.loadable-ready),
+  .simple-rich-text .task-inline-image-wrap:has(.loadable-ready) {
+    @apply bg-transparent;
+  }
+  .simple-rich-text .loadable-media-shell:has(.loadable-pending),
+  .simple-rich-text .task-inline-image-wrap:has(.loadable-pending),
+  .simple-rich-text .task-inline-video-wrap:has(.loadable-pending) {
     @apply overflow-hidden;
+    transition: width 0.2s ease, height 0.2s ease;
+  }
+  .simple-rich-text .task-inline-video-wrap:has(.loadable-ready) {
+    @apply bg-transparent;
   }
   .simple-rich-text img.loadable-pending,
   .simple-rich-text video.loadable-pending {
@@ -113,20 +181,32 @@ html[data-theme="dark"] body {
     @apply h-auto w-auto max-w-full opacity-100;
   }
   .simple-rich-text.is-collapsed .loadable-media-shell:has(.loadable-ready),
+  .simple-rich-text.is-collapsed .task-inline-image-wrap:has(.loadable-ready),
+  .simple-rich-text.is-collapsed .task-inline-video-wrap:has(.loadable-ready) {
+    max-height: 12rem;
+    width: auto !important;
+    height: auto !important;
+    max-width: 100%;
+  }
   .simple-rich-text.is-collapsed img.task-inline-image.loadable-ready:not([style*="width"]),
   .simple-rich-text.is-collapsed video.task-inline-video.loadable-ready:not([style*="width"]) {
     max-height: 12rem;
+    width: auto;
+    height: auto;
   }
   .simple-rich-text.is-expanded {
     max-height: none !important;
-    overflow: visible !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
   }
   .simple-rich-text.is-expanded img.task-inline-image,
   .simple-rich-text.is-expanded video.task-inline-video,
-  .simple-rich-text.is-expanded .loadable-media-shell {
+  .simple-rich-text.is-expanded .loadable-media-shell,
+  .simple-rich-text.is-expanded .task-inline-image-wrap,
+  .simple-rich-text.is-expanded .task-inline-video-wrap {
     max-height: none !important;
     height: auto;
-    overflow: visible;
+    overflow: hidden;
   }
   .simple-rich-text .task-inline-image-resize {
     @apply absolute z-20 h-3 w-3 rounded-sm border border-white bg-accent opacity-0 shadow transition-opacity;

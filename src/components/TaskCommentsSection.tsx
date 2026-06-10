@@ -1,14 +1,25 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type {
   CommentReactionNotifyChange,
   ImageAttachment,
   Person,
+  Project,
   Task,
   TaskComment,
   TaskFeedbackRequest,
 } from "../types";
+import {
+  departmentsMentionableOnTask,
+  peopleMentionableOnTask,
+} from "../utils/orgVisibility";
 import { appendTaskComment, applyCommentVote } from "../utils/taskComments";
+import {
+  taskUpdateEntries,
+  updateMentionLabels,
+  updatePreviewPlain,
+} from "../utils/taskUpdates";
+import { TASK_UPDATE_EXPAND_EVENT } from "../utils/taskUpdateEntries";
 import {
   addFeedbackResponse,
   askedPersonNames,
@@ -21,6 +32,11 @@ import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
 import { MentionTextarea, renderTextWithMentions } from "./MentionTextarea";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 import { formatInOrgTime } from "../utils/orgTimezone";
+import {
+  clearTaskCommentDraft,
+  readTaskCommentDraft,
+  writeTaskCommentDraft,
+} from "../utils/taskCommentDraftStorage";
 
 const COMMENTS_PAGE_SIZE = 10;
 
@@ -159,11 +175,15 @@ function CommentItem({
   people,
   currentUserId,
   onVote,
+  updateMentions,
+  onUpdateMentionClick,
 }: {
   comment: TaskComment;
   people: Person[];
   currentUserId: string;
   onVote: (commentId: string, vote: "like" | "dislike") => void;
+  updateMentions: ReturnType<typeof updateMentionLabels>;
+  onUpdateMentionClick?: (updateId: string) => void;
 }) {
   const author = people.find((p) => p.id === c.authorId);
   const isMe = c.authorId === currentUserId;
@@ -246,7 +266,10 @@ function CommentItem({
       </p>
       {c.body && (
         <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
-          {renderTextWithMentions(c.body, people)}
+          {renderTextWithMentions(c.body, people, {
+            updateMentions,
+            onUpdateMentionClick,
+          })}
         </p>
       )}
       <ImageAttachmentGallery
@@ -261,6 +284,7 @@ function CommentItem({
 export function TaskCommentsSection({
   task,
   people,
+  projects,
   currentUserId,
   onChange,
   onCommentPosted,
@@ -269,6 +293,7 @@ export function TaskCommentsSection({
 }: {
   task: Task;
   people: Person[];
+  projects: Project[];
   currentUserId: string;
   onChange: (patch: Partial<Task>) => void | Promise<void>;
   onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
@@ -284,14 +309,39 @@ export function TaskCommentsSection({
     updated: Task
   ) => void | Promise<void>;
 }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readTaskCommentDraft(task.id, currentUserId)?.body ?? "");
   const [draftAttachments, setDraftAttachments] = useState<ImageAttachment[]>([]);
   const [draftImagesUploading, setDraftImagesUploading] = useState(false);
   const [posting, setPosting] = useState(false);
-  const [sectionOpen, setSectionOpen] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(() =>
+    Boolean(readTaskCommentDraft(task.id, currentUserId)?.body.trim())
+  );
   const draftAttachmentsRef = useRef<ImageAttachment[]>([]);
   draftAttachmentsRef.current = draftAttachments;
   const [visibleCommentCount, setVisibleCommentCount] = useState(COMMENTS_PAGE_SIZE);
+
+  const mentionablePeople = useMemo(
+    () => peopleMentionableOnTask(task, people, projects),
+    [task, people, projects]
+  );
+  const mentionableDepartments = useMemo(
+    () => departmentsMentionableOnTask(task, projects),
+    [task, projects]
+  );
+
+  const updateMentions = updateMentionLabels(task, people);
+  const updatePreviews = Object.fromEntries(
+    taskUpdateEntries(task, people).map((entry) => [entry.id, updatePreviewPlain(entry)])
+  );
+
+  function scrollToUpdate(updateId: string) {
+    const el = document.getElementById(`task-update-${updateId}`);
+    if (!el) return;
+    el.dispatchEvent(new Event(TASK_UPDATE_EXPAND_EVENT, { bubbles: false }));
+    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    el.classList.add("ring-2", "ring-accent/40");
+    window.setTimeout(() => el.classList.remove("ring-2", "ring-accent/40"), 1600);
+  }
 
   const feedbackSorted = [...(task.feedbackRequests ?? [])].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt)
@@ -300,15 +350,30 @@ export function TaskCommentsSection({
   const totalItems = feedbackSorted.length + task.comments.length;
 
   useEffect(() => {
-    setSectionOpen(false);
+    const saved = readTaskCommentDraft(task.id, currentUserId);
+    setDraft(saved?.body ?? "");
+    setSectionOpen(Boolean(saved?.body.trim()));
     setVisibleCommentCount(COMMENTS_PAGE_SIZE);
-    setDraft("");
     const orphans = draftAttachmentsRef.current;
     setDraftAttachments([]);
     if (orphans.length > 0) {
       void deleteImagesFromStorage(orphans.map((a) => a.storagePath));
     }
-  }, [task.id]);
+  }, [task.id, currentUserId]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (!draft.trim()) {
+        clearTaskCommentDraft(task.id, currentUserId);
+        return;
+      }
+      writeTaskCommentDraft(task.id, currentUserId, {
+        body: draft,
+        updatedAt: new Date().toISOString(),
+      });
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [draft, task.id, currentUserId]);
 
   const visibleComments =
     task.comments.length <= visibleCommentCount
@@ -325,6 +390,7 @@ export function TaskCommentsSection({
       const next = appendTaskComment(task, currentUserId, draft, draftAttachments);
       if (next.length === task.comments.length) return;
       const added = next[next.length - 1]!;
+      clearTaskCommentDraft(task.id, currentUserId);
       setDraft("");
       setDraftAttachments([]);
       await onChange({ comments: next });
@@ -418,6 +484,8 @@ export function TaskCommentsSection({
                     people={people}
                     currentUserId={currentUserId}
                     onVote={(id, vote) => void handleVote(id, vote)}
+                    updateMentions={updateMentions}
+                    onUpdateMentionClick={scrollToUpdate}
                   />
                 ))}
               </ul>
@@ -428,8 +496,12 @@ export function TaskCommentsSection({
             <MentionTextarea
               value={draft}
               onChange={setDraft}
-              placeholder="Add a comment… (@ to mention)"
-              people={people}
+              placeholder="Add a comment… (@ person, department, or update)"
+              people={mentionablePeople}
+              excludePersonId={currentUserId}
+              departmentOptions={mentionableDepartments}
+              updateMentions={updateMentions}
+              updatePreviews={updatePreviews}
               imageStorageDir={`tasks/${task.id}/comments`}
               imageAttachments={draftAttachments}
               onImageAttachmentsChange={setDraftAttachments}

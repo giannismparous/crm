@@ -7,13 +7,230 @@ import {
   parseWidthPx,
   placeholderSizeForImage,
   placeholderSizeForVideo,
+  storeIntrinsicDimensions,
 } from "./mediaPlaceholder";
 
 const SHELL_CLASS = "loadable-media-shell";
 const SHIMMER_CLASS = "loadable-media-shimmer";
 const PLACEHOLDER_CLASS = "loadable-media-placeholder";
+const INLINE_IMAGE_WRAP_CLASS = "task-inline-image-wrap";
+const INLINE_VIDEO_WRAP_CLASS = "task-inline-video-wrap";
 
 const unbindByElement = new WeakMap<Element, () => void>();
+
+function isInlineRichTextImage(img: HTMLImageElement): boolean {
+  return img.classList.contains("task-inline-image") || Boolean(img.closest(".simple-rich-text"));
+}
+
+function isInlineRichTextVideo(video: HTMLVideoElement): boolean {
+  return video.classList.contains("task-inline-video") || Boolean(video.closest(".simple-rich-text"));
+}
+
+/** One wrapper for inline videos — same pattern as images (shell + wrap, no orphan shimmers). */
+function getInlineVideoContainer(video: HTMLVideoElement): HTMLElement {
+  let wrap = video.closest<HTMLElement>(`.${INLINE_VIDEO_WRAP_CLASS}`);
+  if (wrap) {
+    wrap.classList.add(SHELL_CLASS);
+    return wrap;
+  }
+
+  const parent = video.parentElement;
+  if (parent?.classList.contains(SHELL_CLASS)) {
+    parent.classList.add(INLINE_VIDEO_WRAP_CLASS);
+    return parent;
+  }
+
+  const container = document.createElement("span");
+  container.className = `${INLINE_VIDEO_WRAP_CLASS} ${SHELL_CLASS} relative inline-block max-w-full align-top overflow-hidden my-2 rounded-lg bg-slate-100`;
+  container.contentEditable = "false";
+  video.parentNode?.insertBefore(container, video);
+  container.appendChild(video);
+  return container;
+}
+
+/** One wrapper for inline images — avoids shell + wrap fighting and orphan shimmers. */
+function getInlineImageContainer(img: HTMLImageElement): HTMLElement {
+  let wrap = img.closest<HTMLElement>(`.${INLINE_IMAGE_WRAP_CLASS}`);
+  if (wrap) {
+    wrap.classList.add(SHELL_CLASS);
+    return wrap;
+  }
+
+  const parent = img.parentElement;
+  if (parent?.classList.contains(SHELL_CLASS)) {
+    parent.classList.add(INLINE_IMAGE_WRAP_CLASS);
+    return parent;
+  }
+
+  const container = document.createElement("span");
+  container.className = `${INLINE_IMAGE_WRAP_CLASS} ${SHELL_CLASS} relative inline-block max-w-full align-top overflow-hidden my-2 bg-slate-100`;
+  container.contentEditable = "false";
+  img.parentNode?.insertBefore(container, img);
+  container.appendChild(img);
+  return container;
+}
+
+function setPendingContainer(container: HTMLElement, width: number, height: number) {
+  container.style.boxSizing = "border-box";
+  container.style.maxWidth = "100%";
+  container.style.width = `${width}px`;
+  container.style.minWidth = "0";
+  container.style.height = `${height}px`;
+  container.style.minHeight = `${height}px`;
+  container.style.overflow = "hidden";
+  container.style.aspectRatio = `${width} / ${height}`;
+  if (!container.querySelector(`.${SHIMMER_CLASS}`)) {
+    container.insertBefore(createShimmer(), container.firstChild);
+  }
+}
+
+/** Keep placeholder in sync as intrinsic dimensions arrive (before load completes). */
+function bindPendingMediaSizeSync(
+  media: HTMLImageElement | HTMLVideoElement,
+  container: HTMLElement | null,
+  measure: () => { width: number; height: number }
+): () => void {
+  let lastKey = "";
+  const sync = () => {
+    if (!media.classList.contains("loadable-pending")) return;
+    const { width, height } = measure();
+    const key = `${width}x${height}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    if (container) {
+      setPendingContainer(container, width, height);
+    } else if (media instanceof HTMLImageElement) {
+      applyInlinePlaceholder(media, width, height);
+    }
+  };
+
+  sync();
+  if (media instanceof HTMLImageElement) {
+    media.addEventListener("load", sync);
+  } else {
+    media.addEventListener("loadedmetadata", sync);
+  }
+  const timers = [0, 16, 32, 64, 128, 256, 512, 1000, 2000].map((ms) => window.setTimeout(sync, ms));
+  const root = media.closest(".simple-rich-text");
+  const resizeObserver =
+    root && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => sync())
+      : null;
+  resizeObserver?.observe(root as Element);
+
+  return () => {
+    if (media instanceof HTMLImageElement) {
+      media.removeEventListener("load", sync);
+    } else {
+      media.removeEventListener("loadedmetadata", sync);
+    }
+    for (const id of timers) window.clearTimeout(id);
+    resizeObserver?.disconnect();
+  };
+}
+
+function bindPendingSizeSync(img: HTMLImageElement, container: HTMLElement | null): () => void {
+  return bindPendingMediaSizeSync(img, container, () => placeholderSizeForImage(img));
+}
+
+/** Read natural pixel size from the URL (cache-friendly) when HTML has no stored dimensions. */
+function probeImageIntrinsicSize(img: HTMLImageElement, onUpdate: () => void): () => void {
+  if (img.getAttribute("data-intrinsic-w") && img.getAttribute("data-intrinsic-h")) {
+    return () => undefined;
+  }
+  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+    storeIntrinsicDimensions(img, img.naturalWidth, img.naturalHeight);
+    return () => undefined;
+  }
+
+  const src = img.currentSrc || img.getAttribute("src") || "";
+  if (!src) return () => undefined;
+
+  const probe = new Image();
+  const apply = () => {
+    if (probe.naturalWidth <= 0 || probe.naturalHeight <= 0) return;
+    storeIntrinsicDimensions(img, probe.naturalWidth, probe.naturalHeight);
+    onUpdate();
+  };
+
+  probe.addEventListener("load", apply, { once: true });
+  probe.addEventListener("error", () => undefined, { once: true });
+  probe.src = src;
+  if (probe.complete) apply();
+
+  return () => {
+    probe.src = "";
+  };
+}
+
+/** Read video pixel size from the URL (cache-friendly) when HTML has no stored dimensions. */
+function probeVideoIntrinsicSize(video: HTMLVideoElement, onUpdate: () => void): () => void {
+  if (video.getAttribute("data-intrinsic-w") && video.getAttribute("data-intrinsic-h")) {
+    return () => undefined;
+  }
+  if (video.videoWidth > 0 && video.videoHeight > 0) {
+    storeIntrinsicDimensions(video, video.videoWidth, video.videoHeight);
+    return () => undefined;
+  }
+
+  const src = video.currentSrc || video.getAttribute("src") || "";
+  if (!src) return () => undefined;
+
+  const probe = document.createElement("video");
+  const apply = () => {
+    if (probe.videoWidth <= 0 || probe.videoHeight <= 0) return;
+    storeIntrinsicDimensions(video, probe.videoWidth, probe.videoHeight);
+    onUpdate();
+  };
+
+  probe.addEventListener("loadedmetadata", apply, { once: true });
+  probe.addEventListener("error", () => undefined, { once: true });
+  probe.preload = "metadata";
+  probe.src = src;
+  if (probe.readyState >= 1) apply();
+
+  return () => {
+    probe.src = "";
+  };
+}
+
+function finalizeInlineMediaContainer(container: HTMLElement, media: HTMLImageElement | HTMLVideoElement) {
+  removeShimmer(container);
+  const specified = parseWidthPx(media);
+  container.style.boxSizing = "border-box";
+  container.style.display = "inline-block";
+  container.style.maxWidth = "100%";
+  container.style.overflow = "hidden";
+  container.style.aspectRatio = "";
+  container.style.background = "transparent";
+  container.style.minWidth = "0";
+  container.style.minHeight = "";
+
+  if (specified) {
+    container.style.width = `${specified}px`;
+    container.style.height = "auto";
+    media.style.display = "block";
+    media.style.maxWidth = "100%";
+    media.style.width = `${specified}px`;
+    media.style.height = "auto";
+    media.style.objectFit = "";
+    return;
+  }
+
+  if (media instanceof HTMLImageElement && media.naturalWidth > 0 && media.naturalHeight > 0) {
+    storeIntrinsicDimensions(media, media.naturalWidth, media.naturalHeight);
+  } else if (media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0) {
+    storeIntrinsicDimensions(media, media.videoWidth, media.videoHeight);
+  }
+
+  container.style.width = "";
+  container.style.height = "";
+  media.style.display = "block";
+  media.style.maxWidth = "100%";
+  media.style.width = "";
+  media.style.height = "auto";
+  media.style.objectFit = "";
+}
 
 function createShimmer(): HTMLSpanElement {
   const el = document.createElement("span");
@@ -74,8 +291,15 @@ function clearInlinePlaceholder(el: HTMLElement) {
   el.style.minHeight = "";
 }
 
-/** Loaded inline media: shell wraps image at natural aspect ratio (no letterbox gap). */
+/** Loaded inline media: container shrink-wraps to the image (no letterbox / shimmer gap). */
 function finalizeLoadedShell(shell: HTMLElement, media: HTMLImageElement | HTMLVideoElement) {
+  if (
+    (media instanceof HTMLImageElement && isInlineRichTextImage(media)) ||
+    (media instanceof HTMLVideoElement && isInlineRichTextVideo(media))
+  ) {
+    finalizeInlineMediaContainer(shell, media);
+    return;
+  }
   removeShimmer(shell);
   const specified = parseWidthPx(media);
   shell.style.boxSizing = "border-box";
@@ -119,16 +343,36 @@ function markReady(el: HTMLElement) {
   unbindByElement.delete(el);
 }
 
+function cleanupInlineMediaContainers(root: HTMLElement) {
+  root.querySelectorAll<HTMLElement>(`.${SHELL_CLASS}`).forEach((shell) => {
+    const media = shell.querySelector<HTMLImageElement | HTMLVideoElement>(
+      "img.task-inline-image, video.task-inline-video"
+    );
+    if (!media) {
+      shell.remove();
+      return;
+    }
+    if (media.classList.contains("loadable-ready")) {
+      if (media instanceof HTMLImageElement || media instanceof HTMLVideoElement) {
+        finalizeInlineMediaContainer(shell, media);
+      } else {
+        finalizeLoadedShell(shell, media);
+      }
+    }
+  });
+}
+
 function wireImage(img: HTMLImageElement) {
   if (img.classList.contains("loadable-ready")) return;
   if (img.classList.contains("loadable-pending") && unbindByElement.has(img)) return;
   if (img.closest(`[data-uploading]`)) return;
 
   const { width, height } = placeholderSizeForImage(img);
+  const inlineRich = isInlineRichTextImage(img);
 
   if (img.complete && img.naturalWidth > 0) {
-    if (!inRichTextEditor(img) && img.classList.contains("task-inline-image")) {
-      ensureShell(img, width, height);
+    if (inlineRich && !inRichTextEditor(img)) {
+      finalizeInlineMediaContainer(getInlineImageContainer(img), img);
     }
     markReady(img);
     return;
@@ -136,20 +380,44 @@ function wireImage(img: HTMLImageElement) {
 
   img.classList.add("loadable-pending");
 
+  let pendingContainer: HTMLElement | null = null;
   if (inRichTextEditor(img)) {
     applyInlinePlaceholder(img, width, height);
-  } else if (img.classList.contains("task-inline-image") || img.closest(".simple-rich-text")) {
-    ensureShell(img, width, height);
+  } else if (inlineRich) {
+    pendingContainer = getInlineImageContainer(img);
+    setPendingContainer(pendingContainer, width, height);
     img.style.width = "100%";
     img.style.height = "100%";
     img.style.objectFit = "contain";
     img.style.display = "block";
   } else {
-    applyInlinePlaceholder(img, width, height);
+    pendingContainer = ensureShell(img, width, height);
+    img.style.width = "100%";
+    img.style.height = "100%";
+    img.style.objectFit = "contain";
+    img.style.display = "block";
   }
 
   unbindByElement.get(img)?.();
-  unbindByElement.set(img, whenImageReady(img, () => markReady(img)));
+  const unbindReady = whenImageReady(img, () => markReady(img));
+  const unbindSize = bindPendingSizeSync(img, inRichTextEditor(img) ? null : pendingContainer);
+  const unbindProbe =
+    !parseWidthPx(img) && isInlineRichTextImage(img)
+      ? probeImageIntrinsicSize(img, () => {
+          if (!img.classList.contains("loadable-pending")) return;
+          const { width, height } = placeholderSizeForImage(img);
+          if (pendingContainer) {
+            setPendingContainer(pendingContainer, width, height);
+          } else {
+            applyInlinePlaceholder(img, width, height);
+          }
+        })
+      : () => undefined;
+  unbindByElement.set(img, () => {
+    unbindReady();
+    unbindSize();
+    unbindProbe();
+  });
 }
 
 function wireVideo(video: HTMLVideoElement) {
@@ -158,15 +426,25 @@ function wireVideo(video: HTMLVideoElement) {
   if (video.closest(`[data-uploading]`)) return;
 
   const { width, height } = placeholderSizeForVideo(video);
+  const inlineRich = isInlineRichTextVideo(video);
 
   if (video.readyState >= 1 && video.videoWidth > 0) {
-    ensureShell(video, width, height);
+    if (inlineRich && !inRichTextEditor(video)) {
+      finalizeInlineMediaContainer(getInlineVideoContainer(video), video);
+    }
     markReady(video);
     return;
   }
 
   video.classList.add("loadable-pending");
-  ensureShell(video, width, height);
+
+  let pendingContainer: HTMLElement | null = null;
+  if (inlineRich && !inRichTextEditor(video)) {
+    pendingContainer = getInlineVideoContainer(video);
+    setPendingContainer(pendingContainer, width, height);
+  } else {
+    pendingContainer = ensureShell(video, width, height);
+  }
   video.style.width = "100%";
   video.style.height = "100%";
   video.style.display = "block";
@@ -175,10 +453,25 @@ function wireVideo(video: HTMLVideoElement) {
   const onMeta = () => markReady(video);
   video.addEventListener("loadedmetadata", onMeta, { once: true });
   video.addEventListener("error", onMeta, { once: true });
+
   unbindByElement.get(video)?.();
+  const unbindSize = bindPendingMediaSizeSync(video, pendingContainer, () => placeholderSizeForVideo(video));
+  const unbindProbe =
+    !parseWidthPx(video) && inlineRich
+      ? probeVideoIntrinsicSize(video, () => {
+          if (!video.classList.contains("loadable-pending")) return;
+          const size = placeholderSizeForVideo(video);
+          if (pendingContainer) {
+            setPendingContainer(pendingContainer, size.width, size.height);
+          }
+        })
+      : () => undefined;
+
   unbindByElement.set(video, () => {
     video.removeEventListener("loadedmetadata", onMeta);
     video.removeEventListener("error", onMeta);
+    unbindSize();
+    unbindProbe();
   });
 }
 
@@ -271,6 +564,7 @@ function scan(root: HTMLElement) {
   root.querySelectorAll<HTMLVideoElement>("video.task-inline-video").forEach(wireVideo);
   root.querySelectorAll<HTMLAudioElement>("audio.task-inline-audio").forEach(wireAudio);
   root.querySelectorAll<HTMLAnchorElement>("a.task-inline-file").forEach(wireFile);
+  cleanupInlineMediaContainers(root);
 
   root.querySelectorAll<HTMLElement>(`.${PLACEHOLDER_CLASS}`).forEach((ph) => {
     const wrap = ph.parentElement;
@@ -286,14 +580,14 @@ export function refreshRichTextMediaLayout(root: HTMLElement | null) {
 
   root.querySelectorAll<HTMLImageElement>("img.task-inline-image").forEach((img) => {
     img.style.maxHeight = "";
-    const shell = img.parentElement;
-    if (shell?.classList.contains(SHELL_CLASS)) {
-      shell.style.maxHeight = "none";
+    const container = img.closest<HTMLElement>(`.${INLINE_IMAGE_WRAP_CLASS}, .${SHELL_CLASS}`);
+    if (container) {
+      container.style.maxHeight = "none";
       if (img.classList.contains("loadable-ready") && img.naturalWidth > 0) {
-        finalizeLoadedShell(shell, img);
+        finalizeInlineMediaContainer(container, img);
       } else if (img.classList.contains("loadable-pending")) {
         const { width, height } = placeholderSizeForImage(img);
-        ensureShell(img, width, height);
+        setPendingContainer(container, width, height);
       }
     } else {
       img.style.height = "auto";
@@ -302,14 +596,15 @@ export function refreshRichTextMediaLayout(root: HTMLElement | null) {
   });
 
   root.querySelectorAll<HTMLVideoElement>("video.task-inline-video").forEach((video) => {
-    const shell = video.parentElement;
-    if (shell?.classList.contains(SHELL_CLASS)) {
-      shell.style.maxHeight = "none";
+    video.style.maxHeight = "";
+    const container = video.closest<HTMLElement>(`.${INLINE_VIDEO_WRAP_CLASS}, .${SHELL_CLASS}`);
+    if (container) {
+      container.style.maxHeight = "none";
       if (video.classList.contains("loadable-ready") && video.videoWidth > 0) {
-        finalizeLoadedShell(shell, video);
+        finalizeInlineMediaContainer(container, video);
       } else if (video.classList.contains("loadable-pending")) {
         const { width, height } = placeholderSizeForVideo(video);
-        ensureShell(video, width, height);
+        setPendingContainer(container, width, height);
       }
     }
   });

@@ -3,11 +3,24 @@ import { TEAM_DEPARTMENTS } from "../types";
 
 export type ParsedMention =
   | { kind: "person"; id: string; label: string }
-  | { kind: "department"; id: string; label: string };
+  | { kind: "department"; id: string; label: string }
+  | { kind: "update"; id: string; label: string };
+
+export type UpdateMentionOption = { id: string; label: string };
+
+function mentionBoundaryOk(body: string, start: number, nameLen: number): boolean {
+  const after = body[start + 1 + nameLen];
+  return !after || /[\s,.!?;:]/.test(after);
+}
 
 /** Find @mentions in text (longest names first, case-insensitive match). */
-export function parseMentionsFromText(body: string, people: Person[]): ParsedMention[] {
-  const entries: { kind: "person" | "department"; name: string; id: string }[] = [
+export function parseMentionsFromText(
+  body: string,
+  people: Person[],
+  updateMentions: UpdateMentionOption[] = []
+): ParsedMention[] {
+  const entries: { kind: ParsedMention["kind"]; name: string; id: string }[] = [
+    ...updateMentions.map((u) => ({ kind: "update" as const, name: u.label.trim(), id: u.id })),
     ...people.map((p) => ({ kind: "person" as const, name: p.name.trim(), id: p.id })),
     ...TEAM_DEPARTMENTS.map((d) => ({ kind: "department" as const, name: d, id: d })),
   ]
@@ -24,16 +37,11 @@ export function parseMentionsFromText(body: string, people: Person[]): ParsedMen
     for (const entry of entries) {
       const nameLower = entry.name.toLowerCase();
       if (!restLower.startsWith(nameLower)) continue;
-      const after = body[i + 1 + entry.name.length];
-      if (after && !/[\s,.!?;:]/.test(after)) continue;
+      if (!mentionBoundaryOk(body, i, entry.name.length)) continue;
       const key = `${entry.kind}:${entry.id}`;
       if (seen.has(key)) break;
       seen.add(key);
-      found.push(
-        entry.kind === "person"
-          ? { kind: "person", id: entry.id, label: entry.name }
-          : { kind: "department", id: entry.id, label: entry.name }
-      );
+      found.push({ kind: entry.kind, id: entry.id, label: entry.name });
       break;
     }
   }

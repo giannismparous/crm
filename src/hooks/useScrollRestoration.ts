@@ -83,5 +83,14 @@ export function useScrollRestoration(section: string, ready: boolean) {
       window.scrollTo(0, Math.min(y, max));
     };
     requestAnimationFrame(tryRestore);
+
+    const late = window.setTimeout(() => {
+      const lateY = readScroll(section);
+      if (lateY == null || lateY === 0) return;
+      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo(0, Math.min(lateY, max));
+    }, 450);
+
+    return () => window.clearTimeout(late);
   }, [section, ready]);
 }

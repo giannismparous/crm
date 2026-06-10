@@ -3,6 +3,13 @@ import type { LightboxImage } from "../components/ImageLightbox";
 import { isOrgStoragePath, mediaFileFingerprint } from "./imageAttachments";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./sanitizeRichText";
 
+import {
+  copyIntrinsicDimensions,
+  inlineDisplaySizeForImage,
+  inlineDisplaySizeForVideo,
+  storeIntrinsicDimensions,
+} from "./mediaPlaceholder";
+
 const IMG_SELECTOR = "img.task-inline-image";
 const IMG_PREVIEW_SELECTOR = "img.task-inline-image-preview";
 const LIGHTBOX_IMG_SELECTOR = `${IMG_SELECTOR}, ${IMG_PREVIEW_SELECTOR}`;
@@ -15,6 +22,19 @@ const AUDIO_WRAP_CLASS = "task-inline-audio-wrap";
 const FILE_WRAP_CLASS = "task-inline-file-wrap";
 const DELETE_BTN_ATTR = "data-inline-img-delete";
 const RESIZE_HANDLE_ATTR = "data-inline-img-resize";
+const RICH_TEXT_EDITABLE_ATTR = "data-rich-text-editable";
+
+/** True only on live editors (contenteditable), not read-only views. */
+export function isRichTextEditable(root: HTMLElement): boolean {
+  const host = root.closest<HTMLElement>(`[${RICH_TEXT_EDITABLE_ATTR}]`) ?? root;
+  return host.getAttribute(RICH_TEXT_EDITABLE_ATTR) === "true";
+}
+
+function stripEditControls(wrap: HTMLElement) {
+  wrap.querySelectorAll(`[${DELETE_BTN_ATTR}]`).forEach((el) => el.remove());
+  wrap.querySelectorAll(`[${RESIZE_HANDLE_ATTR}]`).forEach((el) => el.remove());
+  wrap.draggable = false;
+}
 const AUDIO_PLAY_ATTR = "data-audio-play";
 const VIDEO_PLAY_ATTR = "data-video-play";
 const VIDEO_SEEK_ATTR = "data-video-seek";
@@ -176,6 +196,12 @@ function pruneEmptyMediaWraps(root: HTMLElement) {
   }
 }
 
+function stripReadOnlyMediaControls(root: HTMLElement) {
+  if (isRichTextEditable(root)) return;
+  root.querySelectorAll<HTMLElement>(INLINE_WRAP_SELECTOR).forEach((wrap) => stripEditControls(wrap));
+  root.querySelectorAll<HTMLElement>(`[${UPLOADING_ATTR}]`).forEach((wrap) => stripEditControls(wrap));
+}
+
 function runMediaControlRefresh(root: HTMLElement, afterRefresh: (() => void)[] = []) {
   if (ensuringRoots.has(root)) return;
   ensuringRoots.add(root);
@@ -184,6 +210,7 @@ function runMediaControlRefresh(root: HTMLElement, afterRefresh: (() => void)[] 
     ensureInlineVideoControls(root);
     ensureInlineAudioControls(root);
     ensureInlineFileControls(root);
+    stripReadOnlyMediaControls(root);
     pruneEmptyMediaWraps(root);
     for (const fn of afterRefresh) fn();
   } finally {
@@ -338,6 +365,14 @@ export function createUploadingImagePlaceholder(file: File): HTMLElement {
   preview.src = URL.createObjectURL(file);
   preview.alt = "Uploading…";
   preview.draggable = false;
+  preview.addEventListener("load", () => {
+    if (preview.naturalWidth <= 0 || preview.naturalHeight <= 0) return;
+    storeIntrinsicDimensions(wrap, preview.naturalWidth, preview.naturalHeight);
+    const { width, height } = inlineDisplaySizeForImage(preview);
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    box.style.maxWidth = "100%";
+  });
 
   const spinner = document.createElement("span");
   spinner.className = "task-inline-image-upload-spinner";
@@ -369,6 +404,7 @@ export function replaceUploadingPlaceholder(
   const fp = wrap.getAttribute(FILE_FP_ATTR)?.trim();
   if (fp) img.setAttribute(FILE_FP_ATTR, fp);
   img.draggable = false;
+  if (preview) copyIntrinsicDimensions(wrap, img) || copyIntrinsicDimensions(preview, img);
 
   return new Promise((resolve, reject) => {
     let done = false;
@@ -380,18 +416,28 @@ export function replaceUploadingPlaceholder(
       preview?.remove();
       box?.remove();
 
+      wrap.removeAttribute("data-intrinsic-w");
+      wrap.removeAttribute("data-intrinsic-h");
       wrap.removeAttribute(UPLOADING_ATTR);
       wrap.classList.remove("task-inline-image-uploading");
       wrap.appendChild(img);
       resolve(img);
     };
 
-    img.onload = () => finish();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        storeIntrinsicDimensions(img, img.naturalWidth, img.naturalHeight);
+      }
+      finish();
+    };
     img.onerror = () => {
       if (!done) reject(new Error("Image failed to load"));
     };
     img.src = attachment.url;
-    if (img.complete && img.naturalWidth > 0) finish();
+    if (img.complete && img.naturalWidth > 0) {
+      storeIntrinsicDimensions(img, img.naturalWidth, img.naturalHeight);
+      finish();
+    }
   });
 }
 
@@ -413,6 +459,14 @@ export function createUploadingVideoPlaceholder(file: File): HTMLElement {
   preview.playsInline = true;
   preview.preload = "metadata";
   if (file.name) preview.setAttribute("data-name", file.name);
+  preview.addEventListener("loadedmetadata", () => {
+    if (preview.videoWidth <= 0 || preview.videoHeight <= 0) return;
+    storeIntrinsicDimensions(wrap, preview.videoWidth, preview.videoHeight);
+    const { width, height } = inlineDisplaySizeForVideo(preview);
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    box.style.maxWidth = "100%";
+  });
 
   const spinner = document.createElement("span");
   spinner.className = "task-inline-image-upload-spinner";
@@ -476,23 +530,34 @@ export function replaceUploadingVideoPlaceholder(
   const videoFp = wrap.getAttribute(FILE_FP_ATTR)?.trim();
   if (videoFp) video.setAttribute(FILE_FP_ATTR, videoFp);
   configureInlineVideoPlayer(video);
+  if (preview) copyIntrinsicDimensions(wrap, video) || copyIntrinsicDimensions(preview, video);
 
   return new Promise((resolve, reject) => {
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
+      wrap.removeAttribute("data-intrinsic-w");
+      wrap.removeAttribute("data-intrinsic-h");
       wrap.removeAttribute(UPLOADING_ATTR);
       wrap.classList.remove("task-inline-media-uploading");
       wrap.appendChild(video);
       resolve(video);
     };
-    video.onloadedmetadata = () => finish();
+    video.onloadedmetadata = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        storeIntrinsicDimensions(video, video.videoWidth, video.videoHeight);
+      }
+      finish();
+    };
     video.onerror = () => {
       if (!done) reject(new Error("Video failed to load"));
     };
     video.src = attachment.url;
-    if (video.readyState >= 1) finish();
+    if (video.readyState >= 1 && video.videoWidth > 0) {
+      storeIntrinsicDimensions(video, video.videoWidth, video.videoHeight);
+      finish();
+    }
   });
 }
 
@@ -594,16 +659,34 @@ function appendResizeHandles(wrap: HTMLElement, minWidth: number, maxWidth: numb
 
 function ensureInlineImageControls(root: HTMLElement) {
   root.querySelectorAll<HTMLImageElement>(IMG_SELECTOR).forEach((img) => {
-    if (img.closest(`[${UPLOADING_ATTR}]`)) return;
+    const uploadingWrap = img.closest<HTMLElement>(`[${UPLOADING_ATTR}]`);
+    if (uploadingWrap) {
+      if (!isRichTextEditable(root)) stripEditControls(uploadingWrap);
+      return;
+    }
     let wrap = img.closest<HTMLElement>(`.${WRAP_CLASS}`);
     if (!wrap) {
-      wrap = document.createElement("span");
-      wrap.className = `${WRAP_CLASS} relative inline-block max-w-full align-top`;
-      wrap.contentEditable = "false";
-      img.parentNode?.insertBefore(wrap, img);
-      wrap.appendChild(img);
+      const shell = img.closest<HTMLElement>(`.loadable-media-shell`);
+      if (shell?.contains(img)) {
+        shell.classList.add(WRAP_CLASS);
+        if (!shell.classList.contains("relative")) {
+          shell.classList.add("relative", "inline-block", "max-w-full", "align-top");
+        }
+        wrap = shell;
+      } else {
+        wrap = document.createElement("span");
+        wrap.className = `${WRAP_CLASS} relative inline-block max-w-full align-top`;
+        wrap.contentEditable = "false";
+        img.parentNode?.insertBefore(wrap, img);
+        wrap.appendChild(img);
+      }
     }
 
+    if (!isRichTextEditable(root)) {
+      stripEditControls(wrap);
+      img.draggable = false;
+      return;
+    }
     appendDeleteButton(wrap, "Delete image");
     appendResizeHandles(wrap, MIN_IMG_WIDTH, MAX_IMG_WIDTH);
     wrap.draggable = true;
@@ -613,9 +696,23 @@ function ensureInlineImageControls(root: HTMLElement) {
 
 function ensureInlineVideoControls(root: HTMLElement) {
   root.querySelectorAll<HTMLVideoElement>(VIDEO_SELECTOR).forEach((video) => {
-    let wrap = video.parentElement;
-    if (wrap?.hasAttribute(UPLOADING_ATTR)) return;
-    if (!wrap?.classList.contains(VIDEO_WRAP_CLASS)) {
+    const uploadingWrap = video.closest<HTMLElement>(`[${UPLOADING_ATTR}]`);
+    if (uploadingWrap) {
+      if (!isRichTextEditable(root)) stripEditControls(uploadingWrap);
+      return;
+    }
+    let wrap = video.closest<HTMLElement>(`.${VIDEO_WRAP_CLASS}`);
+    if (!wrap) {
+      const shell = video.closest<HTMLElement>(`.loadable-media-shell`);
+      if (shell?.contains(video)) {
+        shell.classList.add(VIDEO_WRAP_CLASS);
+        if (!shell.classList.contains("relative")) {
+          shell.classList.add("relative", "inline-block", "max-w-full", "align-top");
+        }
+        wrap = shell;
+      }
+    }
+    if (!wrap) {
       wrap = document.createElement("span");
       wrap.className = `${VIDEO_WRAP_CLASS} relative inline-block max-w-full align-top`;
       wrap.contentEditable = "false";
@@ -624,6 +721,11 @@ function ensureInlineVideoControls(root: HTMLElement) {
     }
     configureInlineVideoPlayer(video);
     buildVideoControlBar(wrap, video);
+    if (!isRichTextEditable(root)) {
+      stripEditControls(wrap);
+      video.draggable = false;
+      return;
+    }
     appendDeleteButton(wrap, "Delete video");
     appendResizeHandles(wrap, MIN_VIDEO_WIDTH, MAX_VIDEO_WIDTH);
     wrap.draggable = true;
@@ -633,7 +735,11 @@ function ensureInlineVideoControls(root: HTMLElement) {
 
 function ensureInlineAudioControls(root: HTMLElement) {
   root.querySelectorAll<HTMLAudioElement>(AUDIO_SELECTOR).forEach((audio) => {
-    if (audio.closest(`[${UPLOADING_ATTR}]`)) return;
+    const uploadingWrap = audio.closest<HTMLElement>(`[${UPLOADING_ATTR}]`);
+    if (uploadingWrap) {
+      if (!isRichTextEditable(root)) stripEditControls(uploadingWrap);
+      return;
+    }
     let wrap = audio.closest<HTMLElement>(`.${AUDIO_WRAP_CLASS}`);
     if (!wrap) {
       wrap = document.createElement("span");
@@ -642,8 +748,6 @@ function ensureInlineAudioControls(root: HTMLElement) {
       audio.parentNode?.insertBefore(wrap, audio);
       wrap.appendChild(audio);
     }
-
-    appendDeleteButton(wrap, "Delete audio");
 
     let ui = wrap.querySelector<HTMLElement>(".task-inline-audio-ui");
     if (!ui) {
@@ -667,6 +771,12 @@ function ensureInlineAudioControls(root: HTMLElement) {
       const next = audio.getAttribute("data-name")?.trim() || "Audio clip";
       if (name && name.textContent !== next) name.textContent = next;
     }
+    if (!isRichTextEditable(root)) {
+      stripEditControls(wrap);
+      audio.draggable = false;
+      return;
+    }
+    appendDeleteButton(wrap, "Delete audio");
     wrap.draggable = true;
     audio.draggable = false;
   });
@@ -674,7 +784,11 @@ function ensureInlineAudioControls(root: HTMLElement) {
 
 function ensureInlineFileControls(root: HTMLElement) {
   root.querySelectorAll<HTMLAnchorElement>(FILE_SELECTOR).forEach((link) => {
-    if (link.closest(`[${UPLOADING_ATTR}]`)) return;
+    const uploadingWrap = link.closest<HTMLElement>(`[${UPLOADING_ATTR}]`);
+    if (uploadingWrap) {
+      if (!isRichTextEditable(root)) stripEditControls(uploadingWrap);
+      return;
+    }
     let wrap = link.closest<HTMLElement>(`.${FILE_WRAP_CLASS}`);
     if (!wrap) {
       wrap = document.createElement("span");
@@ -697,6 +811,11 @@ function ensureInlineFileControls(root: HTMLElement) {
     const name = link.getAttribute("data-name")?.trim() || link.textContent?.trim() || "File";
     if (link.textContent !== name) link.textContent = name;
 
+    if (!isRichTextEditable(root)) {
+      stripEditControls(wrap);
+      link.draggable = false;
+      return;
+    }
     appendDeleteButton(wrap, "Delete file");
     wrap.draggable = true;
     link.draggable = false;
@@ -800,6 +919,7 @@ export function bindInlineImageDelete(
   const releaseWatch = acquireMediaWatch(root);
 
   const onPointer = (e: Event) => {
+    if (!isRichTextEditable(root)) return;
     const target = e.target as HTMLElement;
     const btn = target.closest(`[${DELETE_BTN_ATTR}]`);
     if (!btn || !root.contains(btn)) return;
@@ -857,6 +977,12 @@ export function bindInlineImageResize(
 
   function endDrag() {
     if (active) {
+      const { el } = active;
+      if (el instanceof HTMLImageElement && el.naturalWidth > 0) {
+        storeIntrinsicDimensions(el, el.naturalWidth, el.naturalHeight);
+      } else if (el instanceof HTMLVideoElement && el.videoWidth > 0) {
+        storeIntrinsicDimensions(el, el.videoWidth, el.videoHeight);
+      }
       active = null;
       onResizeEnd?.();
     }
@@ -867,6 +993,7 @@ export function bindInlineImageResize(
   }
 
   const onMouseDown = (e: Event) => {
+    if (!isRichTextEditable(root)) return;
     const me = e as MouseEvent;
     const target = me.target as HTMLElement;
     const handle = target.closest<HTMLElement>(`[${RESIZE_HANDLE_ATTR}]`);
@@ -1080,6 +1207,7 @@ export function bindInlineImageMove(
   let movingWrap: HTMLElement | null = null;
 
   const onDragStart = (e: Event) => {
+    if (!isRichTextEditable(root)) return;
     const de = e as DragEvent;
     const target = de.target as HTMLElement;
     if (isMediaControlTarget(target)) return;
@@ -1149,4 +1277,39 @@ export function bindInlineImageMove(
     root.removeEventListener("dragend", onDragEnd, true);
     releaseWatch();
   };
+}
+
+export type UpdateMediaCounts = {
+  images: number;
+  videos: number;
+  audio: number;
+  files: number;
+};
+
+const EMPTY_UPDATE_MEDIA_COUNTS: UpdateMediaCounts = {
+  images: 0,
+  videos: 0,
+  audio: 0,
+  files: 0,
+};
+
+/** Count inline media in saved update HTML (images, video, audio, generic files). */
+export function countUpdateMediaInHtml(html: string): UpdateMediaCounts {
+  const trimmed = html.trim();
+  if (!trimmed) return { ...EMPTY_UPDATE_MEDIA_COUNTS };
+
+  const doc = new DOMParser().parseFromString(trimmed, "text/html");
+  return {
+    images: doc.querySelectorAll(IMG_SELECTOR).length,
+    videos: doc.querySelectorAll(VIDEO_SELECTOR).length,
+    audio: doc.querySelectorAll(AUDIO_SELECTOR).length,
+    files: doc.querySelectorAll(FILE_SELECTOR).length,
+  };
+}
+
+/** Badge label: 1–3 as-is; 4+ as +N (e.g. +5). */
+export function updateMediaCountLabel(count: number): string {
+  if (count <= 0) return "";
+  if (count > 3) return `+${count}`;
+  return String(count);
 }

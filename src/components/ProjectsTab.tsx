@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
+import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
+import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import type { Person, Project, Task } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import { isTaskOpen } from "../utils/personTaskStats";
@@ -116,6 +119,33 @@ function SidebarSectionHeader({
   );
 }
 
+const PROJECTS_VIEW_DEFAULTS = {
+  selectedId: "",
+  openSectionExpanded: false,
+  completeSectionExpanded: false,
+};
+
+const PROJECTS_CREATE_DRAFT_KEY = "projects:create";
+const PROJECTS_EDIT_DRAFT_KEY = "projects:edit";
+const PROJECTS_TASK_FORM_KEY = "projects:task-form";
+
+type ProjectCreateDraft = {
+  name: string;
+  desc: string;
+  color: ProjectColor;
+  departments: string[];
+};
+
+type ProjectEditDraft = ProjectCreateDraft;
+
+function isProjectCreateDraftEmpty(draft: ProjectCreateDraft): boolean {
+  return isShallowDraftEmpty(draft as unknown as Record<string, unknown>);
+}
+
+function projectTaskDraftKey(projectId: string): string {
+  return `projects:task:${projectId}`;
+}
+
 export function ProjectsTab({
   projects,
   tasks,
@@ -136,21 +166,50 @@ export function ProjectsTab({
   onCreateProject: (payload: Omit<Project, "id" | "createdAt" | "completed">) => void | Promise<void>;
   onUpdateProject: (id: string, patch: Partial<Project>) => void | Promise<void>;
   onRemoveProject: (id: string) => void | Promise<void>;
-  onAddTask: (t: Omit<Task, "id" | "createdAt">) => void | Promise<void>;
+  onAddTask: (t: Omit<Task, "id" | "createdAt">) => void | Promise<string | void>;
   onOpenTask: (taskId: string) => void;
 }) {
-  const [selectedId, setSelectedId] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draftName, setDraftName] = useState("");
-  const [draftDesc, setDraftDesc] = useState("");
-  const [createName, setCreateName] = useState("");
-  const [createDesc, setCreateDesc] = useState("");
-  const [createColor, setCreateColor] = useState<ProjectColor>(DEFAULT_PROJECT_COLOR);
-  const [createDepartments, setCreateDepartments] = useState<string[]>([]);
-  const [openSectionExpanded, setOpenSectionExpanded] = useState(false);
-  const [completeSectionExpanded, setCompleteSectionExpanded] = useState(false);
+  const saved = useMemo(() => readPersistedTabState("projects", PROJECTS_VIEW_DEFAULTS), []);
+  const savedCreate = useMemo(() => readFormDraft<ProjectCreateDraft>(PROJECTS_CREATE_DRAFT_KEY), []);
+  const savedEdit = useMemo(() => readFormDraft<ProjectEditDraft>(PROJECTS_EDIT_DRAFT_KEY), []);
+  const savedTaskForm = useMemo(() => readFormDraft<Record<string, never>>(PROJECTS_TASK_FORM_KEY), []);
+  const [selectedId, setSelectedId] = useState(() => {
+    if (savedEdit?.editing && savedEdit.editId) return savedEdit.editId;
+    if (savedTaskForm?.open && savedTaskForm.editId) return savedTaskForm.editId;
+    return saved.selectedId;
+  });
+  const [showCreate, setShowCreate] = useState(() => Boolean(savedCreate?.open));
+  const [showTaskForm, setShowTaskForm] = useState(() => Boolean(savedTaskForm?.open));
+  const [editing, setEditing] = useState(() => Boolean(savedEdit?.editing));
+  const [draftName, setDraftName] = useState(() => savedEdit?.data.name ?? "");
+  const [draftDesc, setDraftDesc] = useState(() => savedEdit?.data.desc ?? "");
+  const [createName, setCreateName] = useState(() => savedCreate?.data.name ?? "");
+  const [createDesc, setCreateDesc] = useState(() => savedCreate?.data.desc ?? "");
+  const [createColor, setCreateColor] = useState<ProjectColor>(
+    () => savedCreate?.data.color ?? DEFAULT_PROJECT_COLOR
+  );
+  const [createDepartments, setCreateDepartments] = useState<string[]>(
+    () => savedCreate?.data.departments ?? []
+  );
+  const [openSectionExpanded, setOpenSectionExpanded] = useState(() => saved.openSectionExpanded);
+  const [completeSectionExpanded, setCompleteSectionExpanded] = useState(
+    () => saved.completeSectionExpanded
+  );
+
+  usePersistedTabState("projects", { selectedId, openSectionExpanded, completeSectionExpanded });
+
+  const createDraftData: ProjectCreateDraft = {
+    name: createName,
+    desc: createDesc,
+    color: createColor,
+    departments: createDepartments,
+  };
+
+  usePersistedFormDraft(
+    PROJECTS_CREATE_DRAFT_KEY,
+    { open: showCreate, data: createDraftData },
+    { isEmpty: isProjectCreateDraftEmpty }
+  );
 
   const openProjects = useMemo(
     () => [...projects].filter((p) => !p.completed).sort((a, b) => a.name.localeCompare(b.name)),
@@ -185,7 +244,10 @@ export function ProjectsTab({
     [projects, openProjects, completedProjects, selectedId]
   );
 
+  const prevSelectedIdRef = useRef(selectedId);
   useEffect(() => {
+    if (prevSelectedIdRef.current === selectedId) return;
+    prevSelectedIdRef.current = selectedId;
     setEditing(false);
     setShowTaskForm(false);
   }, [selectedId]);
@@ -209,8 +271,39 @@ export function ProjectsTab({
       });
   }, [tasks, selected]);
 
-  const [draftColor, setDraftColor] = useState<ProjectColor>(DEFAULT_PROJECT_COLOR);
-  const [draftDepartments, setDraftDepartments] = useState<string[]>([]);
+  const [draftColor, setDraftColor] = useState<ProjectColor>(
+    () => savedEdit?.data.color ?? DEFAULT_PROJECT_COLOR
+  );
+  const [draftDepartments, setDraftDepartments] = useState<string[]>(
+    () => savedEdit?.data.departments ?? []
+  );
+
+  const editDraftData: ProjectEditDraft = {
+    name: draftName,
+    desc: draftDesc,
+    color: draftColor,
+    departments: draftDepartments,
+  };
+
+  usePersistedFormDraft(
+    PROJECTS_EDIT_DRAFT_KEY,
+    {
+      editing,
+      editId: editing ? selectedId : undefined,
+      data: editDraftData,
+    },
+    { isEmpty: isProjectCreateDraftEmpty }
+  );
+
+  usePersistedFormDraft(
+    PROJECTS_TASK_FORM_KEY,
+    {
+      open: showTaskForm,
+      editId: showTaskForm ? selectedId : undefined,
+      data: {},
+    },
+    { isEmpty: () => true }
+  );
 
   function startEdit() {
     if (!selected) return;
@@ -229,6 +322,7 @@ export function ProjectsTab({
       color: draftColor,
       departmentIds: draftDepartments,
     });
+    clearFormDraft(PROJECTS_EDIT_DRAFT_KEY);
     setEditing(false);
   }
 
@@ -241,6 +335,7 @@ export function ProjectsTab({
       color: createColor,
       departmentIds: createDepartments,
     });
+    clearFormDraft(PROJECTS_CREATE_DRAFT_KEY);
     setCreateName("");
     setCreateDesc("");
     setCreateColor(DEFAULT_PROJECT_COLOR);
@@ -542,8 +637,12 @@ export function ProjectsTab({
                 currentUserId={currentUserId}
                 defaultProjectId={selected.id}
                 lockProject
+                draftKey={projectTaskDraftKey(selected.id)}
+                formOpen={showTaskForm}
                 onSubmit={async (payload) => {
                   await onAddTask(payload);
+                  clearFormDraft(projectTaskDraftKey(selected.id));
+                  clearFormDraft(PROJECTS_TASK_FORM_KEY);
                   setShowTaskForm(false);
                 }}
               />

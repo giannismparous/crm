@@ -5,6 +5,7 @@ export const googleClientId = defineString("GOOGLE_OAUTH_CLIENT_ID");
 export const googleClientSecret = defineSecret("GOOGLE_OAUTH_CLIENT_SECRET");
 export const googleRedirectUri = defineString("GOOGLE_OAUTH_REDIRECT_URI");
 export const crmAppUrl = defineString("CRM_APP_URL", { default: "http://localhost:5173" });
+export const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
 export function integrationRef(db: Firestore, uid: string) {
   return db.doc(`users/${uid}/integrations/googleCalendar`);

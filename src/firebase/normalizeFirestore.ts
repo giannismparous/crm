@@ -12,10 +12,12 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "../types";
+import { normalizeReviewItems } from "../utils/appointmentReview";
 import { normalizeFeedbackRequests, taskHasOpenFeedback } from "../utils/taskFeedback";
 import { normalizePersonTaskStats } from "../utils/personTaskStats";
 import { normalizeImageAttachments } from "../utils/imageAttachments";
 import { normalizeTaskComments } from "../utils/taskComments";
+import { normalizeTaskUpdateEntries } from "../utils/taskUpdateEntries";
 import { normalizeOrgRole } from "../auth/roles";
 import { normalizeDepartments } from "../types";
 import { normalizeProjectColor } from "../utils/projectColors";
@@ -130,9 +132,10 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   const task: Task = {
     id: typeof data.id === "string" ? data.id : id,
     title: String(data.title ?? ""),
-    description: String(data.description ?? ""),
+    description: sanitizeTaskUpdates(String(data.description ?? "")),
     updates: sanitizeTaskUpdates(String(data.updates ?? "")),
     updatesByUser: normalizeUpdatesByUser(data.updatesByUser),
+    updateEntries: normalizeTaskUpdateEntries(data.updateEntries),
     comments: normalizeTaskComments(data.comments),
     assigneeIds: readAssigneeIds(data),
     assigneeDepartmentIds: normalizeAssigneeDepartments(data.assigneeDepartmentIds),
@@ -156,6 +159,8 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   if (canceledById) task.canceledById = canceledById;
   const projectId = String(data.projectId ?? "").trim();
   if (projectId) task.projectId = projectId;
+  const appointmentId = String(data.appointmentId ?? "").trim();
+  if (appointmentId) task.appointmentId = appointmentId;
   task.needsFeedback =
     taskHasOpenFeedback(task) ||
     Boolean(data.needsFeedback) ||
@@ -231,6 +236,8 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   if (attachments.length > 0) apt.attachments = attachments;
   const taskId = String(data.taskId ?? "").trim();
   if (taskId) apt.taskId = taskId;
+  const reviewItems = normalizeReviewItems(data);
+  if (reviewItems.length > 0) apt.reviewItems = reviewItems;
   return apt;
 }
 

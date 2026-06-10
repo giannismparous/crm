@@ -24,6 +24,7 @@ export function writeTabToLocation(tab: TabId, options?: { clearFocus?: boolean 
     params.delete("task");
     params.delete("appointment");
     params.delete("reminder");
+    params.delete("contact");
   }
   const next = params.toString();
   const path = window.location.pathname + (next ? `?${next}` : "");
@@ -35,4 +36,5 @@ export function stripCrmItemParams(params: URLSearchParams) {
   params.delete("task");
   params.delete("appointment");
   params.delete("reminder");
+  params.delete("contact");
 }

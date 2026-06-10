@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type RefObject,
+} from "react";
 import { File as FileIcon, ImagePlus, Music, Video } from "lucide-react";
-import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
+import { looksLikeHtml, sanitizeTaskUpdates } from "../utils/sanitizeRichText";
 import {
   deleteImagesFromStorage,
   mediaKindForFile,
@@ -37,19 +45,30 @@ import {
 import { MAX_AUDIO_BYTES, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../types";
 import { bindLoadableImages, refreshRichTextMediaLayout } from "../utils/bindLoadableImages";
 import { RICH_TEXT_HIGHLIGHT_COLOR } from "../utils/richTextHighlight";
+import {
+  applyEditingDom,
+  applyExpandedDom,
+  COLLAPSED_TEXT_LINES,
+  COLLAPSED_TEXT_MIN_HEIGHT,
+  contentOverflowsLines,
+  useOneWayCollapsible,
+} from "../hooks/useOneWayCollapsible";
+import { CollapsibleExpandToggle } from "./CollapsibleExpandToggle";
 import { ImageLightbox, type LightboxImage } from "./ImageLightbox";
-/** Default visible height for updates (matches min-height). */
-export const UPDATES_COLLAPSED_MAX = "4.5rem";
+/** Default visible height for updates (exactly 5 lines + padding). */
+export const UPDATES_COLLAPSED_MAX = COLLAPSED_TEXT_MIN_HEIGHT;
 
 type Props = {
   value: string;
+  /** Raw HTML from storage — when it differs from sanitized `value`, auto-save the cleanup once. */
+  persistedHtml?: string;
   onChange: (html: string) => void;
   placeholder?: string;
   minHeight?: string;
   /** When set, new typing is tagged with data-author for multi-user color view. */
   authorId?: string;
   className?: string;
-  /** Cap height until user expands; shows “… Show more” / “Show less”. */
+  /** Cap height (~5 lines) until expanded; “Show more” stays open until refresh. */
   collapsible?: boolean;
   /** Resets expand/collapse when task changes. */
   collapseKey?: string;
@@ -61,130 +80,22 @@ type Props = {
   onImagesUploadingChange?: (uploading: boolean) => void;
   /** Show “attach any file” (PDF, docs, etc.) with auto-routing for images/video/audio. Defaults to on when inline storage is enabled. */
   enableGenericFileAttach?: boolean;
+  /** After blur + save (e.g. switch from editor back to read-only view). */
+  onBlurComplete?: () => void;
+  /** Focus the field on mount (e.g. click-to-edit). */
+  autoFocus?: boolean;
+  /** Auto-save persistedHtml cleanup on load (updates only — off for descriptions). */
+  autoMigratePersisted?: boolean;
+  /** Parent can call `.current()` to flush any pending debounced save immediately. */
+  flushSaveRef?: MutableRefObject<(() => void) | null>;
 };
 
-const COLLAPSED_HEIGHT_PX = 72;
-
-function isOtherTextEntry(el: HTMLElement): boolean {
-  if (el.isContentEditable) return true;
-  if (el.matches("textarea")) return true;
-  if (el.matches("input")) {
-    const type = (el.getAttribute("type") ?? "text").toLowerCase();
-    return !["button", "submit", "reset", "checkbox", "radio", "file", "hidden", "image"].includes(
-      type
-    );
-  }
-  return false;
-}
-
-function useCollapsibleBody(
-  collapseKey: string | undefined,
-  watchHtml: string,
-  collapsible: boolean,
-  bodyRef: RefObject<HTMLDivElement | null>
-) {
-  const [expanded, setExpanded] = useState(false);
-  /** Stays open after first edit until "Show less" or focus moves to another text field. */
-  const [activated, setActivated] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const effectiveExpanded = expanded || activated;
-
-  useEffect(() => {
-    setExpanded(false);
-    setActivated(false);
-  }, [collapseKey]);
-
-  const measure = useCallback(() => {
-    const el = bodyRef.current;
-    if (!el || !collapsible) {
-      setOverflows(false);
-      return;
-    }
-    const hasContent =
-      (el.textContent ?? "").trim().length > 0 ||
-      Boolean(el.querySelector("img, video, audio, a.task-inline-file, table, ul, ol"));
-    if (!hasContent) {
-      setOverflows(false);
-      return;
-    }
-    setOverflows(el.scrollHeight > COLLAPSED_HEIGHT_PX + 2);
-  }, [collapsible]);
-
-  useEffect(() => {
-    measure();
-  }, [measure, watchHtml, collapseKey, expanded, activated]);
-
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => measure());
-    ro.observe(el);
-    const mo = new MutationObserver(() => measure());
-    mo.observe(el, { childList: true, subtree: true, characterData: true });
-    return () => {
-      ro.disconnect();
-      mo.disconnect();
-    };
-  }, [measure, collapseKey]);
-
-  const showToggle = collapsible && overflows;
-
-  const scheduleMediaLayoutRefresh = useCallback(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    refreshRichTextMediaLayout(el);
-    requestAnimationFrame(() => refreshRichTextMediaLayout(el));
-    window.setTimeout(() => refreshRichTextMediaLayout(el), 150);
-  }, [bodyRef]);
-
-  const collapseToggle = showToggle ? (
-    <div className="border-t border-slate-100 px-2 py-1">
-      <button
-        type="button"
-        onClick={() => {
-          if (effectiveExpanded) {
-            setExpanded(false);
-            setActivated(false);
-          } else {
-            setExpanded(true);
-            setActivated(true);
-            scheduleMediaLayoutRefresh();
-          }
-        }}
-        className="text-xs font-medium text-accent hover:underline"
-      >
-        {effectiveExpanded ? "Show less" : "… Show more"}
-      </button>
-    </div>
-  ) : null;
-
-  const bodyClampClass = collapsible
-    ? effectiveExpanded
-      ? "is-expanded max-h-none overflow-visible"
-      : "is-collapsed max-h-[4.5rem] overflow-hidden"
-    : "";
-
-  useEffect(() => {
-    if (!effectiveExpanded) return;
-    scheduleMediaLayoutRefresh();
-  }, [effectiveExpanded, watchHtml, collapseKey, scheduleMediaLayoutRefresh]);
-
-  const activate = useCallback(() => {
-    setActivated(true);
-    scheduleMediaLayoutRefresh();
-  }, [scheduleMediaLayoutRefresh]);
-
-  const deactivate = useCallback(() => {
-    setExpanded(false);
-    setActivated(false);
-  }, []);
-
-  return {
-    bodyClampClass,
-    collapseToggle,
-    activate,
-    deactivate,
-  };
+function scheduleMediaLayoutRefresh(bodyRef: RefObject<HTMLDivElement | null>) {
+  const el = bodyRef.current;
+  if (!el) return;
+  refreshRichTextMediaLayout(el);
+  requestAnimationFrame(() => refreshRichTextMediaLayout(el));
+  window.setTimeout(() => refreshRichTextMediaLayout(el), 150);
 }
 
 function hasHighlightInSelection(root: HTMLElement): boolean {
@@ -288,6 +199,114 @@ function ensureAuthorSpan(root: HTMLElement, authorId: string) {
   }
 }
 
+function insertPlainTextWithLineBreaks(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  lines.forEach((line, index) => {
+    if (index > 0) document.execCommand("insertLineBreak");
+    if (line) document.execCommand("insertText", false, line);
+  });
+}
+
+function insertLineBreakAtCaret(root: HTMLElement) {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount) {
+    document.execCommand("insertLineBreak");
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) {
+    document.execCommand("insertLineBreak");
+    return;
+  }
+
+  const br = document.createElement("br");
+  range.deleteContents();
+  range.insertNode(br);
+
+  // Browsers need a trailing <br> or text node to place the caret on the new line.
+  const tail = document.createTextNode("\u200b");
+  if (br.nextSibling) {
+    br.parentNode?.insertBefore(tail, br.nextSibling);
+  } else {
+    br.parentNode?.appendChild(tail);
+  }
+
+  range.setStart(tail, 1);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function useLineBreakParagraphs() {
+  try {
+    document.execCommand("defaultParagraphSeparator", false, "br");
+  } catch {
+    /* unsupported in some browsers */
+  }
+}
+
+/** Remove invisible caret placeholders; keep intentional blank lines as <br>. */
+function pruneEmptyAuthorSpans(root: HTMLElement) {
+  root.querySelectorAll("span[data-author]").forEach((span) => {
+    const text = (span.textContent ?? "").replace(/[\u200b\ufeff]/g, "").trim();
+    if (text) return;
+    const brs = [...span.querySelectorAll("br")];
+    if (brs.length > 0) {
+      const frag = document.createDocumentFragment();
+      for (const br of brs) frag.appendChild(br.cloneNode());
+      span.replaceWith(frag);
+      return;
+    }
+    span.remove();
+  });
+}
+
+function selectionIsInside(node: Node): boolean {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  return node.contains(range.startContainer) || node.contains(range.endContainer);
+}
+
+function nodeHasVisibleContent(node: Node | null): boolean {
+  if (!node) return false;
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent ?? "").replace(/[\u200b\ufeff]/g, "").trim().length > 0;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = node as HTMLElement;
+  if (el.querySelector("img, video, audio, a.task-inline-file")) return true;
+  return (el.textContent ?? "").replace(/[\u200b\ufeff]/g, "").trim().length > 0;
+}
+
+/** Remove only leading/trailing empty blocks left after deletes — keep blank lines between text. */
+function pruneEmptyBlocks(root: HTMLElement) {
+  const blocks = [...root.querySelectorAll("div, p")].reverse();
+  for (const block of blocks) {
+    if (block === root) continue;
+    if (selectionIsInside(block)) continue;
+    const hasMedia = block.querySelector("img, video, audio, a.task-inline-file");
+    if (hasMedia) continue;
+    const text = (block.textContent ?? "").replace(/[\u200b\ufeff]/g, "").trim();
+    if (text) continue;
+
+    const prev = block.previousSibling;
+    const next = block.nextSibling;
+    if (nodeHasVisibleContent(prev) && nodeHasVisibleContent(next)) continue;
+
+    block.remove();
+  }
+}
+
+function pruneEditorDomForSave(root: HTMLElement) {
+  pruneEmptyAuthorSpans(root);
+}
+
+function pruneEditorDomAfterDelete(root: HTMLElement) {
+  pruneEmptyAuthorSpans(root);
+  pruneEmptyBlocks(root);
+}
+
 function insertNodeAtCaret(root: HTMLElement, node: Node) {
   root.focus();
   const sel = window.getSelection();
@@ -309,6 +328,7 @@ function insertNodeAtCaret(root: HTMLElement, node: Node) {
 
 export function SimpleRichText({
   value,
+  persistedHtml,
   onChange,
   placeholder = "Add progress notes…",
   minHeight = UPDATES_COLLAPSED_MAX,
@@ -320,6 +340,10 @@ export function SimpleRichText({
   inlineImageStorageDir,
   onImagesUploadingChange,
   enableGenericFileAttach: enableGenericFileAttachProp,
+  onBlurComplete,
+  autoFocus = false,
+  autoMigratePersisted = true,
+  flushSaveRef,
 }: Props) {
   const imageStorageDir =
     inlineImageStorageDir ?? (taskId ? `tasks/${taskId}/updates` : undefined);
@@ -333,32 +357,31 @@ export function SimpleRichText({
   const anyFileRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
+  const [editing, setEditing] = useState(false);
   const updatesScopeKey = `updates-${collapseKey ?? taskId ?? "default"}`;
 
   useEffect(() => {
     setLightbox(null);
   }, [updatesScopeKey]);
 
-  const { bodyClampClass, collapseToggle, activate, deactivate } = useCollapsibleBody(
+  const scheduleLayout = useCallback(() => scheduleMediaLayoutRefresh(ref), []);
+
+  const { showMore, expand, expanded } = useOneWayCollapsible(
     collapseKey,
     value,
     collapsible,
-    ref
+    ref,
+    scheduleLayout,
+    { unlockCollapsed: editing, rootRef }
   );
 
-  useEffect(() => {
-    const rootEl = rootRef.current;
-    if (!rootEl || !collapsible) return;
-    function onFocusIn(e: FocusEvent) {
-      const target = e.target as HTMLElement | null;
-      const host = rootRef.current;
-      if (!target || !host || host.contains(target)) return;
-      if (target.closest('[role="dialog"]')) return;
-      if (isOtherTextEntry(target)) deactivate();
-    }
-    document.addEventListener("focusin", onFocusIn, true);
-    return () => document.removeEventListener("focusin", onFocusIn, true);
-  }, [collapseKey, collapsible, deactivate]);
+  /** Collapsed preview only when blurred and not permanently expanded. */
+  const clipCollapsed = collapsible && !expanded && !editing;
+
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    scheduleMediaLayoutRefresh(ref);
+  }, [expanded, value, collapseKey]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastEmitted = useRef(value);
   const focused = useRef(false);
@@ -389,6 +412,19 @@ export function SimpleRichText({
 
     const safe = sanitizeTaskUpdates(value);
     const domSafe = sanitizeTaskUpdates(el.innerHTML);
+    const rawPersisted = (persistedHtml ?? "").trim();
+
+    // One-time cleanup for stored rich HTML (updates ghost breaks) — never plain text / descriptions.
+    if (autoMigratePersisted && rawPersisted && looksLikeHtml(rawPersisted)) {
+      const cleanedPersisted = sanitizeTaskUpdates(rawPersisted);
+      if (cleanedPersisted !== rawPersisted) {
+        el.innerHTML = cleanedPersisted || "";
+        lastEmitted.current = cleanedPersisted;
+        onChange(cleanedPersisted);
+        return;
+      }
+    }
+
     // DOM already reflects our latest emit — don't revert to a stale prop.
     if (domSafe === lastEmitted.current) return;
     if (safe === lastEmitted.current && domSafe === safe) return;
@@ -397,11 +433,23 @@ export function SimpleRichText({
       el.innerHTML = safe || "";
       lastEmitted.current = safe;
     }
-  }, [value]);
+  }, [value, persistedHtml, onChange, autoMigratePersisted]);
 
   useEffect(() => {
     syncFromProp();
   }, [syncFromProp]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    if (collapsible) {
+      setEditing(true);
+      expand();
+      applyEditingDom(el, rootRef.current);
+    }
+  }, [autoFocus, collapsible, expand]);
 
   function purgeRemovedInlineImages(prevHtml: string, nextHtml: string) {
     const prevPaths = storagePathsInUpdatesHtml(prevHtml);
@@ -417,6 +465,7 @@ export function SimpleRichText({
   function emit() {
     const el = ref.current;
     if (!el) return;
+    pruneEditorDomForSave(el);
     const safe = sanitizeTaskUpdates(el.innerHTML);
     if (safe !== lastEmitted.current) {
       const prev = lastEmitted.current;
@@ -428,14 +477,46 @@ export function SimpleRichText({
 
   function scheduleSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(emit, 600);
+    saveTimer.current = setTimeout(() => emit(), 600);
   }
 
   function onEditInput() {
     const el = ref.current;
-    if (el && authorId) ensureAuthorSpan(el, authorId);
+    if (el) {
+      if (authorId) ensureAuthorSpan(el, authorId);
+      if (collapsible && contentOverflowsLines(el, COLLAPSED_TEXT_LINES)) expand();
+    }
     scheduleSave();
   }
+
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+
+  useEffect(() => {
+    if (!flushSaveRef) return;
+    flushSaveRef.current = () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      emitRef.current();
+    };
+    return () => {
+      flushSaveRef.current = null;
+    };
+  }, [flushSaveRef]);
+
+  useEffect(() => {
+    function flushPendingSave() {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      emitRef.current();
+    }
+    window.addEventListener("pagehide", flushPendingSave);
+    return () => window.removeEventListener("pagehide", flushPendingSave);
+  }, []);
 
   function exec(cmd: string, arg?: string) {
     ref.current?.focus();
@@ -754,7 +835,7 @@ export function SimpleRichText({
   return (
     <div
       ref={rootRef}
-      className={`rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-100/80 ${className}`}
+      className={`simple-rich-text-root ${clipCollapsed ? "overflow-hidden" : "overflow-visible"} rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-100/80 ${className}`}
     >
       <div className="rich-text-toolbar flex items-center gap-0.5 border-b border-slate-100 px-1.5 py-1">
         <ToolbarBtn label="Bold" onClick={() => exec("bold")}>
@@ -785,7 +866,7 @@ export function SimpleRichText({
           </>
         )}
       </div>
-      <div className="relative">
+      <div className="collapsible-editor-host relative">
       <div
         ref={ref}
         contentEditable
@@ -795,21 +876,50 @@ export function SimpleRichText({
         data-placeholder={placeholder}
         onFocus={() => {
           focused.current = true;
-          if (collapsible) activate();
-          if (authorId && ref.current) ensureAuthorSpan(ref.current, authorId);
+          setEditing(true);
+          useLineBreakParagraphs();
+          const el = ref.current;
+          if (el && collapsible) {
+            expand();
+            applyEditingDom(el, rootRef.current);
+          }
+          if (authorId && el) ensureAuthorSpan(el, authorId);
         }}
         onBlur={() => {
           focused.current = false;
+          setEditing(false);
           if (saveTimer.current) {
             clearTimeout(saveTimer.current);
             saveTimer.current = null;
           }
           emit();
+          const el = ref.current;
+          if (el && collapsible && expanded) {
+            applyExpandedDom(el, { rootEl: rootRef.current });
+          }
+          onBlurComplete?.();
         }}
         onInput={onEditInput}
         onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            setEditing(true);
+            const el = ref.current;
+            if (el) {
+              if (collapsible) {
+                expand();
+                applyEditingDom(el, rootRef.current);
+              }
+              insertLineBreakAtCaret(el);
+              if (authorId) ensureAuthorSpan(el, authorId);
+              onEditInput();
+            }
+            return;
+          }
           if (e.key !== "Backspace" && e.key !== "Delete") return;
           requestAnimationFrame(() => {
+            const el = ref.current;
+            if (el) pruneEditorDomAfterDelete(el);
             if (saveTimer.current) {
               clearTimeout(saveTimer.current);
               saveTimer.current = null;
@@ -820,10 +930,11 @@ export function SimpleRichText({
         onPaste={(e) => {
           e.preventDefault();
           const text = e.clipboardData.getData("text/plain");
-          document.execCommand("insertText", false, text);
+          insertPlainTextWithLineBreaks(text);
           onEditInput();
         }}
-        className={`simple-rich-text min-h-[4.5rem] cursor-text px-3 py-2 text-sm leading-relaxed text-slate-800 outline-none empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] ${bodyClampClass}`}
+        data-rich-text-editable="true"
+        className={`simple-rich-text cursor-text break-words px-3 py-2 text-sm leading-relaxed text-slate-800 outline-none empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] collapsible-lines-5 ${!collapsible || !clipCollapsed ? "is-expanded" : "is-collapsed"}`}
         style={{ minHeight }}
       />
       {imageStorageDir && (
@@ -879,7 +990,7 @@ export function SimpleRichText({
       {uploadError && (
         <p className="border-t border-rose-100 px-3 py-2 text-xs text-rose-700">{uploadError}</p>
       )}
-      {collapseToggle}
+      <CollapsibleExpandToggle show={showMore} onExpand={expand} />
       <ImageLightbox
         open={lightbox !== null}
         images={lightbox?.images ?? []}
@@ -927,12 +1038,17 @@ export function SimpleRichTextView({
 }) {
   const safe = sanitizeTaskUpdates(html);
   const viewRef = useRef<HTMLDivElement>(null);
+  const viewRootRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
-  const { bodyClampClass, collapseToggle } = useCollapsibleBody(
+  const scheduleLayout = useCallback(() => scheduleMediaLayoutRefresh(viewRef), []);
+
+  const { bodyClampClass, showMore, expand, expanded: viewExpanded } = useOneWayCollapsible(
     collapseKey,
     safe,
     collapsible,
-    viewRef
+    viewRef,
+    scheduleLayout,
+    { rootRef: viewRootRef }
   );
 
   useEffect(() => {
@@ -963,13 +1079,17 @@ export function SimpleRichTextView({
 
   if (!safe) return null;
   return (
-    <>
+    <div
+      ref={viewRootRef}
+      className={viewExpanded ? "overflow-visible" : "overflow-hidden"}
+    >
       <div
         ref={viewRef}
-        className={`simple-rich-text px-3 py-2 text-sm leading-relaxed text-slate-800 ${bodyClampClass} ${className}`}
+        data-rich-text-editable="false"
+        className={`simple-rich-text cursor-default collapsible-lines-5 break-words px-3 py-2 text-sm leading-relaxed text-slate-800 ${bodyClampClass} ${className}`}
         dangerouslySetInnerHTML={{ __html: safe }}
       />
-      {collapseToggle}
+      <CollapsibleExpandToggle show={showMore} onExpand={expand} />
       <ImageLightbox
         open={lightbox !== null}
         images={lightbox?.images ?? []}
@@ -977,6 +1097,6 @@ export function SimpleRichTextView({
         onClose={() => setLightbox(null)}
         onNavigate={(index) => setLightbox((lb) => (lb ? { ...lb, index } : null))}
       />
-    </>
+    </div>
   );
 }
