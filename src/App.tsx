@@ -15,8 +15,11 @@ import { NotificationsBell } from "./components/NotificationsBell";
 import { SettingsModal } from "./components/SettingsPanel";
 import { UserAccountMenu } from "./components/UserAccountMenu";
 import { useNotificationAlerts } from "./hooks/useNotificationAlerts";
+import { useChatMessageAlerts } from "./hooks/useChatMessageAlerts";
+import { MessagesChatStack } from "./components/chat/MessagesChatStack";
 import { useOrgFirestore } from "./useOrgFirestore";
 import type { AppNotification } from "./types";
+import { ActionFeedbackBanner } from "./components/ActionFeedbackBanner";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { needsProfileSetup } from "./utils/profileSetup";
 import { useUserAppearance } from "./hooks/useAppearance";
@@ -43,7 +46,9 @@ function App() {
     currentUserOrgRole,
     updateTask,
     createTask,
+    sendTaskCreatedNotifications,
     cancelTask,
+    removeTask,
     createProject,
     updateProject,
     removeProject,
@@ -57,8 +62,10 @@ function App() {
     updatePersonalReminder,
     removePersonalReminder,
     createAppointment,
+    createAppointmentSeries,
     updateAppointment,
     cancelAppointment,
+    removeAppointment,
     updatePerson,
     notifications,
     markNotificationRead,
@@ -74,9 +81,23 @@ function App() {
     seesAllOrgData,
     issueRegistrationSeed,
     completeProfileSetup,
+    chatConversations,
+    markChatConversationRead,
+    chatMyMemberState,
+    sendChatMessage,
+    unsendChatMessage,
+    openOrCreateDm,
+    createGroupChat,
+    chatUnreadCount,
+    presenceMap,
   } = useOrgFirestore();
 
-  const [tab, setTabState] = useState<TabId>(() => readTabFromLocation());
+  const [tab, setTabState] = useState<TabId>(() => {
+    const fromUrl = readTabFromLocation();
+    return fromUrl === "messages" ? "tasks" : fromUrl;
+  });
+  const [chatOpenRequest, setChatOpenRequest] = useState<string | null>(null);
+  const [chatUiActive, setChatUiActive] = useState(false);
   const setTab = useCallback((next: TabId) => {
     setTabState(next);
     writeTabToLocation(next, { clearFocus: true });
@@ -160,6 +181,11 @@ function App() {
   }, []);
 
   function openNotification(n: AppNotification) {
+    if (n.kind === "chat_message" && n.conversationId) {
+      setChatOpenRequest(n.conversationId);
+      void markChatConversationRead(n.conversationId);
+      return;
+    }
     if (n.kind === "reminder_shared" || n.kind === "reminder_due") {
       setTab("reminders");
       return;
@@ -204,6 +230,10 @@ function App() {
   );
 
   useNotificationAlerts(notifications, Boolean(user && currentUserPersonId));
+  useChatMessageAlerts(
+    notifications,
+    Boolean(user && currentUserPersonId) && !chatUiActive
+  );
 
   const currentUserName = useMemo(() => {
     if (currentUserPerson?.name.trim()) return currentUserPerson.name.trim();
@@ -321,10 +351,14 @@ function App() {
             currentUserId={currentUserId}
             seesAllOrgData={seesAllOrgData}
             onCreateAppointment={createAppointment}
+            onCreateAppointmentSeries={createAppointmentSeries}
             onUpdateAppointment={updateAppointment}
             onCancelAppointment={cancelAppointment}
+            onRemoveAppointment={removeAppointment}
             onCreateTask={createTask}
+            onSendTaskCreatedNotifications={sendTaskCreatedNotifications}
             onUpdateTask={updateTask}
+            onRemoveTask={removeTask}
             onOpenTask={openTaskFromCalendar}
             focusAppointmentId={focusAppointmentId}
             onFocusAppointmentHandled={() => setFocusAppointmentId(null)}
@@ -337,6 +371,7 @@ function App() {
             onUpdatePerson={updatePerson}
             focusPersonId={focusPersonId}
             onFocusPersonHandled={() => setFocusPersonId(null)}
+            presenceMap={presenceMap}
           />
         ) : tab === "contacts" ? (
           <ContactsTab
@@ -383,6 +418,26 @@ function App() {
           />
         )}
       </main>
+
+      <MessagesChatStack
+        unreadCount={chatUnreadCount}
+        people={people}
+        currentUserId={currentUserId}
+        currentUserOrgRole={currentUserOrgRole}
+        conversations={chatConversations}
+        myMemberState={chatMyMemberState}
+        presenceMap={presenceMap}
+        onSendMessage={sendChatMessage}
+        onUnsendMessage={unsendChatMessage}
+        onOpenOrCreateDm={openOrCreateDm}
+        onCreateGroup={createGroupChat}
+        onMarkRead={markChatConversationRead}
+        openConversationRequest={chatOpenRequest}
+        onOpenConversationRequestHandled={() => setChatOpenRequest(null)}
+        onActivityChange={setChatUiActive}
+      />
+
+      <ActionFeedbackBanner />
 
       <SettingsModal
         open={settingsOpen}

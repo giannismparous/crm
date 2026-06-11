@@ -12,8 +12,44 @@ import {
 } from "./crmData";
 import { loadCalendarBuildContext, loadRelatedForCalendarEvent } from "./calendarContext";
 import { buildCalendarEvent } from "./eventBuilder";
+import { SIMASIA_CALENDAR_NAME } from "./calendarSetup";
 import { getAuthedCalendarClient, loadIntegration, saveIntegration } from "./tokens";
 import { itemVisibleToUser, loadOrgContext, type OrgContext } from "./visibility";
+
+/** Stagger Google API calls to stay under per-minute quotas (jitter spreads multi-user load). */
+const CALENDAR_SYNC_DELAY_MIN_MS = 100;
+const CALENDAR_SYNC_DELAY_MAX_MS = 280;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function calendarSyncPause(): Promise<void> {
+  const span = CALENDAR_SYNC_DELAY_MAX_MS - CALENDAR_SYNC_DELAY_MIN_MS + 1;
+  const ms = CALENDAR_SYNC_DELAY_MIN_MS + Math.floor(Math.random() * span);
+  return sleep(ms);
+}
+
+function isGoogleRateLimitError(err: unknown): boolean {
+  const code = (err as { code?: number })?.code;
+  if (code === 429) return true;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /rate limit/i.test(msg);
+}
+
+async function withGoogleCalendarRetry<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isGoogleRateLimitError(err) || attempt === maxAttempts - 1) throw err;
+      await sleep(600 * Math.pow(2, attempt));
+    }
+  }
+  throw lastErr;
+}
 
 async function buildEventForItem(
   db: Firestore,
@@ -67,7 +103,9 @@ async function deleteMappedEvent(
   const { googleEventId } = mapSnap.data() as { googleEventId: string };
   try {
     const calendar = await getAuthedCalendarClient(db, uid);
-    await calendar.events.delete({ calendarId, eventId: googleEventId });
+    await withGoogleCalendarRetry(() =>
+      calendar.events.delete({ calendarId, eventId: googleEventId })
+    );
   } catch (err) {
     const code = (err as { code?: number })?.code;
     if (code !== 404 && code !== 410) throw err;
@@ -88,15 +126,17 @@ async function findGoogleEventsByCrmItem(
   crmType: CrmType,
   crmId: string
 ): Promise<calendar_v3.Schema$Event[]> {
-  const res = await calendar.events.list({
-    calendarId,
-    privateExtendedProperty: [
-      `crmSource=${CRM_SOURCE}`,
-      `crmType=${crmType}`,
-      `crmId=${crmId}`,
-    ],
-    maxResults: 25,
-  });
+  const res = await withGoogleCalendarRetry(() =>
+    calendar.events.list({
+      calendarId,
+      privateExtendedProperty: [
+        `crmSource=${CRM_SOURCE}`,
+        `crmType=${crmType}`,
+        `crmId=${crmId}`,
+      ],
+      maxResults: 25,
+    })
+  );
   return res.data.items ?? [];
 }
 
@@ -108,18 +148,18 @@ async function deleteDuplicateGoogleEvents(
   keepEventId: string
 ): Promise<void> {
   const items = await findGoogleEventsByCrmItem(calendar, calendarId, crmType, crmId);
-  await Promise.all(
-    items
-      .filter((item) => item.id && item.id !== keepEventId)
-      .map(async (item) => {
-        try {
-          await calendar.events.delete({ calendarId, eventId: item.id! });
-        } catch (err) {
-          const code = (err as { code?: number })?.code;
-          if (code !== 404 && code !== 410) throw err;
-        }
-      })
-  );
+  for (const item of items) {
+    if (!item.id || item.id === keepEventId) continue;
+    try {
+      await withGoogleCalendarRetry(() =>
+        calendar.events.delete({ calendarId, eventId: item.id! })
+      );
+    } catch (err) {
+      const code = (err as { code?: number })?.code;
+      if (code !== 404 && code !== 410) throw err;
+    }
+    await calendarSyncPause();
+  }
 }
 
 async function upsertMappedEvent(
@@ -139,16 +179,21 @@ async function upsertMappedEvent(
   if (mapSnap.exists) {
     googleEventId = (mapSnap.data() as { googleEventId: string }).googleEventId;
     try {
-      const existing = await calendar.events.get({ calendarId, eventId: googleEventId });
-      await calendar.events.update({
-        calendarId,
-        eventId: googleEventId,
-        requestBody: {
-          ...existing.data,
-          ...event,
-          id: googleEventId,
-        },
-      });
+      const existing = await withGoogleCalendarRetry(() =>
+        calendar.events.get({ calendarId, eventId: googleEventId })
+      );
+      await calendarSyncPause();
+      await withGoogleCalendarRetry(() =>
+        calendar.events.update({
+          calendarId,
+          eventId: googleEventId,
+          requestBody: {
+            ...existing.data,
+            ...event,
+            id: googleEventId,
+          },
+        })
+      );
     } catch (err) {
       const code = (err as { code?: number })?.code;
       if (code !== 404 && code !== 410) throw err;
@@ -161,24 +206,32 @@ async function upsertMappedEvent(
     const matches = await findGoogleEventsByCrmItem(calendar, calendarId, crmType, crmId);
     if (matches[0]?.id) {
       googleEventId = matches[0].id;
-      const existing = await calendar.events.get({ calendarId, eventId: googleEventId });
-      await calendar.events.update({
-        calendarId,
-        eventId: googleEventId,
-        requestBody: {
-          ...existing.data,
-          ...event,
-          id: googleEventId,
-        },
-      });
+      const existing = await withGoogleCalendarRetry(() =>
+        calendar.events.get({ calendarId, eventId: googleEventId })
+      );
+      await calendarSyncPause();
+      await withGoogleCalendarRetry(() =>
+        calendar.events.update({
+          calendarId,
+          eventId: googleEventId,
+          requestBody: {
+            ...existing.data,
+            ...event,
+            id: googleEventId,
+          },
+        })
+      );
     }
   }
 
   if (!googleEventId) {
-    const created = await calendar.events.insert({
-      calendarId,
-      requestBody: event,
-    });
+    await calendarSyncPause();
+    const created = await withGoogleCalendarRetry(() =>
+      calendar.events.insert({
+        calendarId,
+        requestBody: event,
+      })
+    );
     googleEventId = created.data.id ?? undefined;
     if (!googleEventId) throw new Error("Google Calendar did not return an event id.");
   }
@@ -247,32 +300,42 @@ export async function syncItemForAllUsers(
   crmType: CrmType,
   crmId: string,
   action: SyncAction
-): Promise<void> {
+): Promise<{ ok: boolean; errors: string[]; rateLimitHit: boolean }> {
+  const errors: string[] = [];
+  let rateLimitHit = false;
+
   if (action === "delete") {
     const maps = await db
       .collectionGroup("events")
       .where("crmType", "==", crmType)
       .where("crmId", "==", crmId)
       .get();
-    await Promise.all(
-      maps.docs.map(async (mapDoc) => {
-        const uid = mapDoc.ref.parent.parent?.parent?.parent?.id;
-        if (!uid) return;
-        const integration = await loadIntegration(db, uid);
-        if (!integration?.connected) return;
-        const calendarId = integration.calendarId || "primary";
-        const { googleEventId } = mapDoc.data() as { googleEventId: string };
-        try {
-          const calendar = await getAuthedCalendarClient(db, uid);
-          await calendar.events.delete({ calendarId, eventId: googleEventId });
-        } catch (err) {
-          const code = (err as { code?: number })?.code;
-          if (code !== 404 && code !== 410) throw err;
+    for (const mapDoc of maps.docs) {
+      const uid = mapDoc.ref.parent.parent?.parent?.parent?.id;
+      if (!uid) continue;
+      const integration = await loadIntegration(db, uid);
+      if (!integration?.connected) continue;
+      const calendarId = integration.calendarId || "primary";
+      const { googleEventId } = mapDoc.data() as { googleEventId: string };
+      try {
+        const calendar = await getAuthedCalendarClient(db, uid);
+        await withGoogleCalendarRetry(() =>
+          calendar.events.delete({ calendarId, eventId: googleEventId })
+        );
+      } catch (err) {
+        const code = (err as { code?: number })?.code;
+        if (code === 404 || code === 410) {
+          /* already gone */
+        } else {
+          const msg = err instanceof Error ? err.message : "Calendar delete failed.";
+          if (isGoogleRateLimitError(err)) rateLimitHit = true;
+          errors.push(msg);
         }
-        await mapDoc.ref.delete();
-      })
-    );
-    return;
+      }
+      await mapDoc.ref.delete();
+      await calendarSyncPause();
+    }
+    return { ok: errors.length === 0, errors, rateLimitHit };
   }
 
   const item = await loadCrmItem(db, crmType, crmId);
@@ -284,17 +347,19 @@ export async function syncItemForAllUsers(
   ]);
   const userIds = [...new Set([...connected, ...mapped])];
 
-  await Promise.all(
-    userIds.map(async (userId) => {
-      try {
-        await syncItemForUser(db, userId, crmType, crmId, "upsert", item, ctx);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Calendar sync failed.";
-        console.error(`syncItemForUser ${crmType}/${crmId} for ${userId}:`, err);
-        await saveIntegration(db, userId, { lastError: msg }).catch(() => undefined);
-      }
-    })
-  );
+  for (const userId of userIds) {
+    try {
+      await syncItemForUser(db, userId, crmType, crmId, "upsert", item, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Calendar sync failed.";
+      console.error(`syncItemForUser ${crmType}/${crmId} for ${userId}:`, err);
+      if (isGoogleRateLimitError(err)) rateLimitHit = true;
+      errors.push(msg);
+    }
+    await calendarSyncPause();
+  }
+
+  return { ok: errors.length === 0, errors, rateLimitHit };
 }
 
 export type FullSyncOptions = {
@@ -313,6 +378,7 @@ export async function fullSyncForUser(
 
   const ctx = await loadOrgContext(db);
   let synced = 0;
+  let rateLimitHit = false;
   const collections: Array<{ crmType: CrmType; name: string }> = [];
 
   if (integration.syncTasks) collections.push({ crmType: "task", name: "tasks" });
@@ -327,12 +393,18 @@ export async function fullSyncForUser(
       const keepOnCalendar =
         visible && shouldSyncItemToCalendar(crmType, item, { fromTodayOnly });
 
-      if (!keepOnCalendar) {
-        await syncItemForUser(db, uid, crmType, doc.id, "delete", null, ctx);
-        continue;
+      try {
+        if (!keepOnCalendar) {
+          await syncItemForUser(db, uid, crmType, doc.id, "delete", null, ctx);
+        } else {
+          await syncItemForUser(db, uid, crmType, doc.id, "upsert", item, ctx);
+          synced++;
+        }
+      } catch (err) {
+        if (isGoogleRateLimitError(err)) rateLimitHit = true;
+        else throw err;
       }
-      await syncItemForUser(db, uid, crmType, doc.id, "upsert", item, ctx);
-      synced++;
+      await calendarSyncPause();
     }
   }
 
@@ -352,13 +424,21 @@ export async function fullSyncForUser(
       item && visible && shouldSyncItemToCalendar(crmType, item, { fromTodayOnly });
     if (!keep) {
       const calendarId = integration.calendarId || "primary";
-      await deleteMappedEvent(db, uid, mapDoc.id, calendarId);
+      try {
+        await deleteMappedEvent(db, uid, mapDoc.id, calendarId);
+      } catch (err) {
+        if (isGoogleRateLimitError(err)) rateLimitHit = true;
+        else throw err;
+      }
+      await calendarSyncPause();
     }
   }
 
   await saveIntegration(db, uid, {
     lastSyncAt: new Date().toISOString(),
-    lastError: "",
+    lastError: rateLimitHit
+      ? "Google rate limit hit during sync. Most items should be fine — wait a minute and sync again."
+      : "",
   });
   return synced;
 }
@@ -393,6 +473,7 @@ export async function refreshMappedGoogleCalendarEventsForUser(
     } catch (err) {
       console.error(`refresh mapped ${crmType}/${crmId} for ${uid}:`, err);
     }
+    await calendarSyncPause();
   }
 
   await saveIntegration(db, uid, {
@@ -432,6 +513,7 @@ export async function refreshAllConnectedGoogleCalendarsOnce(
     try {
       const count = await refreshMappedGoogleCalendarEventsForUser(db, uid);
       totalEvents += count;
+      await calendarSyncPause();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${uid}: ${msg}`);
@@ -453,4 +535,89 @@ export async function refreshAllConnectedGoogleCalendarsOnce(
   );
 
   return { users: userIds.length, events: totalEvents, skipped: false, errors };
+}
+
+/** Remove all CRM-synced Google Calendar events while the user is still connected (before token revoke). */
+export async function purgeAllGoogleCalendarEventsForUser(db: Firestore, uid: string): Promise<number> {
+  const integration = await loadIntegration(db, uid);
+  if (!integration?.connected) return 0;
+
+  const calendar = await getAuthedCalendarClient(db, uid);
+  const calendarIds = new Set<string>();
+  if (integration.calendarId?.trim()) calendarIds.add(integration.calendarId.trim());
+  calendarIds.add("primary");
+
+  try {
+    const list = await calendar.calendarList.list({ showHidden: true });
+    for (const entry of list.data.items ?? []) {
+      if (entry.id && entry.summary === SIMASIA_CALENDAR_NAME) calendarIds.add(entry.id);
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  let deleted = 0;
+  const eventsCol = db.collection(`users/${uid}/integrations/googleCalendar/events`);
+  const eventsSnap = await eventsCol.get();
+
+  for (const mapDoc of eventsSnap.docs) {
+    const { googleEventId } = mapDoc.data() as { googleEventId?: string };
+    const calendarId = integration.calendarId || "primary";
+    if (googleEventId) {
+      try {
+        await withGoogleCalendarRetry(() =>
+          calendar.events.delete({ calendarId, eventId: googleEventId })
+        );
+        deleted++;
+      } catch (err) {
+        const code = (err as { code?: number })?.code;
+        if (code !== 404 && code !== 410) {
+          console.warn(`disconnect purge mapped event ${googleEventId}:`, err);
+        }
+      }
+      await calendarSyncPause();
+    }
+    await mapDoc.ref.delete();
+  }
+
+  for (const calendarId of calendarIds) {
+    let pageToken: string | undefined;
+    do {
+      let res;
+      try {
+        res = await withGoogleCalendarRetry(() =>
+          calendar.events.list({
+            calendarId,
+            privateExtendedProperty: [`crmSource=${CRM_SOURCE}`],
+            maxResults: 250,
+            pageToken,
+          })
+        );
+      } catch (err) {
+        const code = (err as { code?: number })?.code;
+        if (code === 404 || code === 403) break;
+        console.warn(`disconnect purge list ${calendarId}:`, err);
+        break;
+      }
+
+      for (const item of res.data.items ?? []) {
+        if (!item.id) continue;
+        try {
+          await withGoogleCalendarRetry(() =>
+            calendar.events.delete({ calendarId, eventId: item.id! })
+          );
+          deleted++;
+        } catch (err) {
+          const code = (err as { code?: number })?.code;
+          if (code !== 404 && code !== 410) {
+            console.warn(`disconnect purge event ${item.id}:`, err);
+          }
+        }
+        await calendarSyncPause();
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+  }
+
+  return deleted;
 }

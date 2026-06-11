@@ -385,8 +385,12 @@ export async function deleteImageFromStorage(storagePath: string): Promise<void>
   }
 }
 
-/** Delete several storage objects; continues if some are already gone. */
+/** Delete several storage objects; continues if some are already gone or fail. */
 export async function deleteImagesFromStorage(storagePaths: string[]): Promise<void> {
   const paths = [...new Set(storagePaths.map((p) => p.trim()).filter(Boolean))];
-  await Promise.all(paths.map((p) => deleteImageFromStorage(p)));
+  const results = await Promise.allSettled(paths.map((p) => deleteImageFromStorage(p)));
+  const failed = results.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    console.error("deleteImagesFromStorage: some paths failed", failed);
+  }
 }

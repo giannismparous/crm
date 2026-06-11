@@ -8,28 +8,53 @@ const SOUND_COOLDOWN_MS = 700;
 let audioCtx: AudioContext | null = null;
 let audioPrimed = false;
 let pendingSound = false;
+let pendingChatSound = false;
 let soundDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSoundAt = 0;
+
+function runTone(
+  ctx: AudioContext,
+  t0: number,
+  freqStart: number,
+  freqEnd: number,
+  duration: number,
+  volume: number
+) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(freqStart, t0);
+  osc.frequency.exponentialRampToValueAtTime(freqEnd, t0 + duration * 0.35);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.linearRampToValueAtTime(volume, t0 + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
 
 function runNotificationSound() {
   try {
     if (!audioCtx) audioCtx = new AudioContext();
     const ctx = audioCtx;
     if (ctx.state === "suspended") void ctx.resume();
+    runTone(ctx, ctx.currentTime, 740, 988, 0.35, 0.07);
+    lastSoundAt = Date.now();
+  } catch {
+    /* ignore */
+  }
+}
 
+/** Lower double-chime for chat messages — distinct from task notifications. */
+function runChatNotificationSound() {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    const ctx = audioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
     const t0 = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(740, t0);
-    osc.frequency.exponentialRampToValueAtTime(988, t0 + 0.12);
-    gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.linearRampToValueAtTime(0.07, t0 + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.36);
+    runTone(ctx, t0, 420, 520, 0.22, 0.09);
+    runTone(ctx, t0 + 0.14, 520, 640, 0.22, 0.08);
     lastSoundAt = Date.now();
   } catch {
     /* ignore */
@@ -49,6 +74,10 @@ export function primeNotificationAudio() {
     pendingSound = false;
     runNotificationSound();
   }
+  if (pendingChatSound) {
+    pendingChatSound = false;
+    runChatNotificationSound();
+  }
 }
 
 /** One chime per burst — multiple new notifs in one snapshot still play once. */
@@ -62,6 +91,19 @@ export function scheduleNotificationSound() {
     soundDebounceTimer = null;
     if (Date.now() - lastSoundAt < SOUND_COOLDOWN_MS) return;
     runNotificationSound();
+  }, SOUND_DEBOUNCE_MS);
+}
+
+export function scheduleChatNotificationSound() {
+  if (!audioPrimed) {
+    pendingChatSound = true;
+    return;
+  }
+  if (soundDebounceTimer) clearTimeout(soundDebounceTimer);
+  soundDebounceTimer = setTimeout(() => {
+    soundDebounceTimer = null;
+    if (Date.now() - lastSoundAt < SOUND_COOLDOWN_MS) return;
+    runChatNotificationSound();
   }, SOUND_DEBOUNCE_MS);
 }
 
@@ -87,6 +129,7 @@ export function clearTabNotificationBadge() {
 
 export function resetNotificationAlertState() {
   pendingSound = false;
+  pendingChatSound = false;
   if (soundDebounceTimer) {
     clearTimeout(soundDebounceTimer);
     soundDebounceTimer = null;

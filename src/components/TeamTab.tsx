@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import type { Person, PersonTaskStats } from "../types";
-import { PersonAvatar } from "./PersonAvatar";
+import { PersonPresenceAvatar } from "./PersonPresenceAvatar";
+import { useOnlinePersonIds, usePresenceTick } from "../hooks/usePresence";
+import type { PersonPresence } from "../types";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
 import { EMPTY_PERSON_TASK_STATS, personStatsLabel } from "../utils/personTaskStats";
 import { hasPrivilege, type OrgRole } from "../auth/roles";
@@ -44,6 +46,7 @@ export function TeamTab({
   onUpdatePerson,
   focusPersonId,
   onFocusPersonHandled,
+  presenceMap,
 }: {
   people: Person[];
   currentUserId: string;
@@ -51,7 +54,10 @@ export function TeamTab({
   onUpdatePerson: (id: string, patch: Partial<Person>) => Promise<void>;
   focusPersonId?: string | null;
   onFocusPersonHandled?: () => void;
+  presenceMap?: Map<string, PersonPresence>;
 }) {
+  const nowMs = usePresenceTick();
+  const onlineIds = useOnlinePersonIds(presenceMap ?? new Map(), nowMs);
   const saved = useMemo(() => readPersistedTabState("team", TEAM_VIEW_DEFAULTS), []);
   const [selectedId, setSelectedId] = useState(() => saved.selectedId);
   const [query, setQuery] = useState(() => saved.query);
@@ -166,7 +172,7 @@ export function TeamTab({
                   }`}
                 >
                   <div className="flex items-start gap-2.5">
-                    <PersonAvatar person={p} size="md" />
+                    <PersonPresenceAvatar person={p} size="md" online={onlineIds.has(p.id)} />
                     <div className="min-w-0 flex-1">
                       <OrgRoleWithInfo role={p.orgRole} size="xs" showInfo={false} />
                       <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">

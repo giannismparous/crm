@@ -34,13 +34,14 @@ export function useNotificationAlerts(notifications: AppNotification[], enabled:
       return;
     }
 
-    const unreadCount = notifications.filter((n) => !n.read).length;
+    const taskNotifications = notifications.filter((n) => n.kind !== "chat_message");
+    const unreadCount = taskNotifications.filter((n) => !n.read).length;
     syncTabNotificationBadge(unreadCount);
 
-    const snapshot = buildNotificationSnapshot(notifications);
+    const snapshot = buildNotificationSnapshot(taskNotifications);
     const prev = initializedRef.current ? snapshotRef.current : null;
 
-    if (hasUnreadAlertChanges(notifications, prev)) {
+    if (hasUnreadAlertChanges(taskNotifications, prev)) {
       scheduleNotificationSound();
     }
 

@@ -1,5 +1,6 @@
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import {
+  connectAuthEmulator,
   getAuth,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -7,8 +8,13 @@ import {
   type Auth,
   type UserCredential,
 } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
-import { getStorage, type FirebaseStorage } from "firebase/storage";
+import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import { connectStorageEmulator, getStorage, type FirebaseStorage } from "firebase/storage";
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __crmFirebaseEmulatorsConnected: boolean | undefined;
+}
 
 /** Tenant id — Firestore path `organizations/{SIMASIA_AI_ORG_ID}` */
 export const SIMASIA_AI_ORG_ID = "SimasiaAI";
@@ -42,32 +48,41 @@ let auth: Auth | undefined;
 let db: Firestore | undefined;
 let storage: FirebaseStorage | undefined;
 
-export function getFirebaseApp(): FirebaseApp {
-  if (!app) {
-    app = initializeApp(readFirebaseConfig());
+function useEmulators(): boolean {
+  return String(import.meta.env.VITE_USE_FIREBASE_EMULATORS ?? "").trim() === "1";
+}
+
+function ensureFirebaseServices(): void {
+  if (!app) app = initializeApp(readFirebaseConfig());
+  if (!auth) auth = getAuth(app);
+  if (!db) db = getFirestore(app);
+  if (!storage) storage = getStorage(app);
+  if (useEmulators() && !globalThis.__crmFirebaseEmulatorsConnected) {
+    connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    connectFirestoreEmulator(db, "127.0.0.1", 8080);
+    connectStorageEmulator(storage, "127.0.0.1", 9199);
+    globalThis.__crmFirebaseEmulatorsConnected = true;
   }
-  return app;
+}
+
+export function getFirebaseApp(): FirebaseApp {
+  ensureFirebaseServices();
+  return app!;
 }
 
 export function getFirebaseAuth(): Auth {
-  if (!auth) {
-    auth = getAuth(getFirebaseApp());
-  }
-  return auth;
+  ensureFirebaseServices();
+  return auth!;
 }
 
 export function getFirestoreDb(): Firestore {
-  if (!db) {
-    db = getFirestore(getFirebaseApp());
-  }
-  return db;
+  ensureFirebaseServices();
+  return db!;
 }
 
 export function getFirebaseStorage(): FirebaseStorage {
-  if (!storage) {
-    storage = getStorage(getFirebaseApp());
-  }
-  return storage;
+  ensureFirebaseServices();
+  return storage!;
 }
 
 /** Email / password (enable “Email/Password” in Firebase Console → Authentication → Sign-in method) */

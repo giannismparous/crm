@@ -13,6 +13,7 @@ import type {
   TaskStatus,
 } from "../types";
 import { normalizeReviewItems } from "../utils/appointmentReview";
+import { normalizeRecurrenceRule } from "../utils/appointmentRecurrence";
 import { normalizeFeedbackRequests, taskHasOpenFeedback } from "../utils/taskFeedback";
 import { normalizePersonTaskStats } from "../utils/personTaskStats";
 import { normalizeImageAttachments } from "../utils/imageAttachments";
@@ -238,6 +239,18 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   if (taskId) apt.taskId = taskId;
   const reviewItems = normalizeReviewItems(data);
   if (reviewItems.length > 0) apt.reviewItems = reviewItems;
+  const linkedTaskIds = normalizeIdList(data.linkedTaskIds);
+  if (linkedTaskIds.length > 0) apt.linkedTaskIds = linkedTaskIds;
+  const recurrenceSeriesId = String(data.recurrenceSeriesId ?? "").trim();
+  if (recurrenceSeriesId) apt.recurrenceSeriesId = recurrenceSeriesId;
+  if (typeof data.recurrenceIndex === "number" && Number.isFinite(data.recurrenceIndex)) {
+    apt.recurrenceIndex = data.recurrenceIndex;
+  }
+  const recurrenceRule = normalizeRecurrenceRule(data.recurrenceRule);
+  if (recurrenceRule) apt.recurrenceRule = recurrenceRule;
+  if (typeof data.recurrenceCount === "number" && Number.isFinite(data.recurrenceCount)) {
+    apt.recurrenceCount = data.recurrenceCount;
+  }
   return apt;
 }
 

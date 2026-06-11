@@ -8,6 +8,7 @@ import {
   updateGoogleCalendarSyncOptions,
   type GoogleCalendarStatus,
 } from "../firebase/googleCalendar";
+import { ConfirmPanel } from "./TaskWorkerActions";
 
 export function GoogleCalendarIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -29,8 +30,14 @@ export function GoogleCalendarIntegration({
 }) {
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [optionsBusy, setOptionsBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
+
+  const anyBusy = connectBusy || disconnectBusy || syncBusy || optionsBusy;
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -53,7 +60,7 @@ export function GoogleCalendarIntegration({
   }, [active, oauthMessage, refresh]);
 
   async function handleConnect() {
-    setBusy(true);
+    setConnectBusy(true);
     setMessage(null);
     try {
       const authUrl = await startGoogleCalendarConnect();
@@ -63,34 +70,33 @@ export function GoogleCalendarIntegration({
         text: err instanceof Error ? err.message : "Could not start Google sign-in.",
         error: true,
       });
-      setBusy(false);
+      setConnectBusy(false);
     }
   }
 
   async function handleDisconnect() {
-    const ok = window.confirm(
-      "Disconnect Google Calendar?\n\nSync will stop and your CRM events will no longer update in Google Calendar. You can connect again anytime."
-    );
-    if (!ok) return;
-
-    setBusy(true);
+    setDisconnectBusy(true);
     setMessage(null);
     try {
       await disconnectGoogleCalendar();
+      setDisconnectConfirmOpen(false);
       await refresh();
-      setMessage({ text: "Google Calendar disconnected.", error: false });
+      setMessage({
+        text: "Google Calendar disconnected. CRM events were removed from your Google Calendar.",
+        error: false,
+      });
     } catch (err) {
       setMessage({
         text: err instanceof Error ? err.message : "Could not disconnect.",
         error: true,
       });
     } finally {
-      setBusy(false);
+      setDisconnectBusy(false);
     }
   }
 
   async function handleSyncNow() {
-    setBusy(true);
+    setSyncBusy(true);
     setMessage(null);
     try {
       const count = await syncGoogleCalendarNow();
@@ -105,7 +111,7 @@ export function GoogleCalendarIntegration({
         error: true,
       });
     } finally {
-      setBusy(false);
+      setSyncBusy(false);
     }
   }
 
@@ -120,7 +126,7 @@ export function GoogleCalendarIntegration({
       syncReminders: status.syncReminders,
       [key]: value,
     };
-    setBusy(true);
+    setOptionsBusy(true);
     try {
       setStatus(await updateGoogleCalendarSyncOptions(next));
     } catch (err) {
@@ -129,8 +135,15 @@ export function GoogleCalendarIntegration({
         error: true,
       });
     } finally {
-      setBusy(false);
+      setOptionsBusy(false);
     }
+  }
+
+  function formatLastSyncError(raw: string): string {
+    if (/rate limit/i.test(raw)) {
+      return "Google temporarily limited requests. Sync usually still works — wait a minute and tap Sync now again.";
+    }
+    return raw;
   }
 
   const connected = Boolean(status?.connected);
@@ -174,15 +187,26 @@ export function GoogleCalendarIntegration({
         {connected && !loading && (
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void handleDisconnect()}
+            disabled={anyBusy}
+            onClick={() => setDisconnectConfirmOpen(true)}
             className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
           >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
+            {disconnectBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
             Disconnect
           </button>
         )}
       </div>
+
+      {disconnectConfirmOpen && (
+        <ConfirmPanel
+          message="Disconnect Google Calendar? CRM events will be removed from your Google Calendar and sync will stop. You can connect again anytime."
+          yesLabel="Yes, disconnect"
+          noLabel="Keep connected"
+          yesEmphasis
+          onYes={() => void handleDisconnect()}
+          onNo={() => setDisconnectConfirmOpen(false)}
+        />
+      )}
 
       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
         Deleting or editing events in Google Calendar does <strong>not</strong> change the CRM. Manage items here —
@@ -216,7 +240,7 @@ export function GoogleCalendarIntegration({
                 <input
                   type="checkbox"
                   checked={status[key]}
-                  disabled={busy}
+                  disabled={anyBusy}
                   onChange={(e) => void toggleOption(key, e.target.checked)}
                   className="h-4 w-4 accent-accent"
                 />
@@ -226,24 +250,29 @@ export function GoogleCalendarIntegration({
 
           <button
             type="button"
-            disabled={busy}
+            disabled={anyBusy}
             onClick={() => void handleSyncNow()}
             className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calendar className="h-3.5 w-3.5" />}
+            {syncBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calendar className="h-3.5 w-3.5" />}
             Sync now
           </button>
 
-          {status.lastError && <p className="text-[10px] text-amber-700">Last error: {status.lastError}</p>}
+          {status.lastError && (
+            <p className="text-[10px] leading-relaxed text-amber-700">
+              Previous sync note (opening settings does not sync):{" "}
+              {formatLastSyncError(status.lastError)}
+            </p>
+          )}
         </>
       ) : (
         <button
           type="button"
-          disabled={busy}
+          disabled={anyBusy}
           onClick={() => void handleConnect()}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleCalendarIcon className="h-4 w-4" />}
+          {connectBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleCalendarIcon className="h-4 w-4" />}
           Connect Google Calendar
         </button>
       )}

@@ -133,7 +133,58 @@ export type TabId =
   | "team"
   | "contacts"
   | "reminders"
+  | "messages"
   | "calendar";
+
+export type ChatConversationKind = "founders" | "dm" | "group";
+
+export type ChatConversation = {
+  id: string;
+  kind: ChatConversationKind;
+  /** Person ids (Firebase Auth uids) in this conversation */
+  memberIds: string[];
+  createdById: string;
+  createdAt: string;
+  /** Group display name — omitted for DM / founders channel */
+  title?: string;
+  /** Sorted member ids joined — DM dedup key */
+  dmKey?: string;
+  /** Explicit people picked when the group was created (excludes creator). */
+  participantIds?: string[];
+  /** Departments picked when the group was created. */
+  departmentIds?: string[];
+  /** Dedup key from participantIds + departmentIds — group reuse */
+  groupKey?: string;
+  lastMessageAt?: string;
+  lastMessagePreview?: string;
+  lastMessageAuthorId?: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  conversationId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  /** Epoch ms — used for unsend window in Firestore rules */
+  createdAtMs?: number;
+  attachments?: ImageAttachment[];
+};
+
+/** Per-user read cursors for all conversations */
+export type ChatMemberState = {
+  userId: string;
+  readByConversation: Record<string, string>;
+  updatedAt: string;
+};
+
+export type PersonPresence = {
+  userId: string;
+  online: boolean;
+  lastSeenAt: string;
+  /** Effective IANA timezone (synced from client while online). */
+  timezone?: string;
+};
 
 export type Project = {
   id: string;
@@ -149,6 +200,14 @@ export type Project = {
 };
 
 export type AppointmentStatus = "scheduled" | "canceled";
+
+export type AppointmentRecurrenceKind = "daily" | "weekly" | "monthly" | "monthly_day";
+
+export type AppointmentRecurrenceRule = {
+  kind: AppointmentRecurrenceKind;
+  interval: number;
+  dayOfMonth?: number;
+};
 
 export type Appointment = {
   id: string;
@@ -175,6 +234,14 @@ export type Appointment = {
   reviewItems?: string[];
   /** Explicitly linked open tasks (source of truth for meeting ↔ task links) */
   linkedTaskIds?: string[];
+  /** Shared id for materialized recurring instances */
+  recurrenceSeriesId?: string;
+  /** 0-based index within the series */
+  recurrenceIndex?: number;
+  /** Recurrence pattern (stored on each instance in the series) */
+  recurrenceRule?: AppointmentRecurrenceRule;
+  /** Total meetings in the series when created */
+  recurrenceCount?: number;
 };
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "canceled";
@@ -261,7 +328,8 @@ export type NotificationKind =
   | "comment_reaction"
   | "reminder_shared"
   | "reminder_due"
-  | "member_joined";
+  | "member_joined"
+  | "chat_message";
 
 /** Max notifications loaded per user (Firestore query limit). */
 export const NOTIFICATION_INBOX_LIMIT = 50;
@@ -278,6 +346,8 @@ export type AppNotification = {
   bodyPreview: string;
   /** Department name when kind is mention_department */
   mentionLabel?: string;
+  /** Chat notification — conversation to open */
+  conversationId?: string;
   read: boolean;
   createdAt: string;
 };

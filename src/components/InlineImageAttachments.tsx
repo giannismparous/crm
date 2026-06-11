@@ -107,8 +107,11 @@ export function InlineImageAttachments({
   const inFlightFingerprintsRef = useRef(new Set<string>());
   const attachmentsRef = useRef(attachmentList);
   const pendingRef = useRef(pending);
-  attachmentsRef.current = attachmentList;
   pendingRef.current = pending;
+
+  useEffect(() => {
+    attachmentsRef.current = attachmentList;
+  }, [attachmentList]);
 
   useEffect(() => {
     if (!uploadMode) {
@@ -147,7 +150,14 @@ export function InlineImageAttachments({
     return partitionMediaFiles([file], kind).valid.length > 0 ? kind : "file";
   }
 
-  async function uploadPickedFile(file: File) {
+  function commitAttachments(updater: (prev: ImageAttachment[]) => ImageAttachment[]) {
+    if (!onAttachmentsChange) return;
+    const next = updater(attachmentsRef.current);
+    attachmentsRef.current = next;
+    onAttachmentsChange(next);
+  }
+
+  async function uploadPickedFile(file: File, uploadIndex = 0) {
     if (!storageDir || !onAttachmentsChange) return;
     const mediaKind = resolveUploadKind(file);
     const id = crypto.randomUUID();
@@ -166,15 +176,15 @@ export function InlineImageAttachments({
     try {
       const uploaded =
         mediaKind === "file"
-          ? await uploadSingleFile(storageDir, file)
+          ? await uploadSingleFile(storageDir, file, uploadIndex)
           : mediaKind === "image"
-            ? await uploadSingleImageFile(storageDir, file)
-            : await uploadSingleMediaFile(storageDir, file);
+            ? await uploadSingleImageFile(storageDir, file, uploadIndex)
+            : await uploadSingleMediaFile(storageDir, file, uploadIndex);
       if (abortedRef.current.has(id)) {
         abortedRef.current.delete(id);
         await deleteImageFromStorage(uploaded.storagePath).catch(console.error);
       } else {
-        onAttachmentsChange([...attachmentsRef.current, uploaded]);
+        commitAttachments((prev) => [...prev, uploaded]);
       }
     } catch (err) {
       console.error("inline media upload", err);
@@ -213,7 +223,7 @@ export function InlineImageAttachments({
       if (rejected > 0) parts.push(`${rejected} skipped (invalid or over ${limits.maxMb} MB)`);
       if (duplicates > 0) parts.push(duplicateUploadMessage(duplicates, true));
       setError(parts.length > 0 ? parts.join("; ") : null);
-      for (const file of unique) void uploadPickedFile(file);
+      unique.forEach((file, index) => void uploadPickedFile(file, index));
       return;
     }
 
@@ -256,7 +266,7 @@ export function InlineImageAttachments({
       if (rejected > 0) parts.push(`${rejected} skipped (invalid or over size limit)`);
       if (duplicates > 0) parts.push(duplicateUploadMessage(duplicates, true));
       setError(parts.length > 0 ? parts.join("; ") : null);
-      for (const file of unique) void uploadPickedFile(file);
+      unique.forEach((file, index) => void uploadPickedFile(file, index));
       return;
     }
 
@@ -287,9 +297,9 @@ export function InlineImageAttachments({
   async function removeAttachmentAt(i: number) {
     const att = attachmentList[i];
     if (!att || !onAttachmentsChange) return;
-    onAttachmentsChange(attachmentList.filter((_, idx) => idx !== i));
     try {
       await deleteImageFromStorage(att.storagePath);
+      commitAttachments((prev) => prev.filter((_, idx) => idx !== i));
     } catch (err) {
       console.error("inline media delete", err);
       setError(storageUploadErrorMessage(err));

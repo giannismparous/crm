@@ -14,6 +14,7 @@ import type {
   TaskPriority,
   CommentReactionNotifyChange,
 } from "../types";
+import { reportActionError } from "../utils/actionFeedback";
 import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTaskStats";
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
@@ -933,7 +934,7 @@ export function TasksTab({
   function updateTask(id: string, patch: Partial<Task>, intent?: TaskUpdateIntent) {
     if (intent === "reopen") setListTab("open");
     return onUpdateTask(id, patch, { intent, actorId: currentUserId }).catch((e) => {
-      console.error(e);
+      reportActionError(e instanceof Error ? e.message : "Could not update task.");
       throw e;
     });
   }
@@ -941,7 +942,7 @@ export function TasksTab({
   function cancelTask(id: string) {
     setListTab("canceled");
     return onCancelTask(id).catch((e) => {
-      console.error(e);
+      reportActionError(e instanceof Error ? e.message : "Could not cancel task.");
       throw e;
     });
   }
@@ -1128,7 +1129,7 @@ export function TasksTab({
                       currentUserOrgRole={currentUserOrgRole}
                       highlighted={task.id === focusTaskId}
                       onChange={(patch, intent) => updateTask(task.id, patch, intent)}
-                      onCancelTask={() => cancelTask(task.id).catch(console.error)}
+                      onCancelTask={() => void cancelTask(task.id)}
                       onCommentPosted={onCommentPosted}
                       onCommentReaction={onCommentReaction}
                       onTaskActionNotify={onTaskActionNotify}
@@ -1163,7 +1164,7 @@ export function TasksTab({
                             highlighted={task.id === focusTaskId}
                             showProjectChip={false}
                             onChange={(patch, intent) => updateTask(task.id, patch, intent)}
-                            onCancelTask={() => cancelTask(task.id).catch(console.error)}
+                            onCancelTask={() => void cancelTask(task.id)}
                             onCommentPosted={onCommentPosted}
                             onCommentReaction={onCommentReaction}
                             onTaskActionNotify={onTaskActionNotify}
@@ -1626,7 +1627,7 @@ function TaskCard({
                           `${actorLabel} marked “${title}” complete.`
                         );
                       } catch (e) {
-                        console.error(e);
+                        reportActionError(e instanceof Error ? e.message : "Could not mark task complete.");
                       }
                     })()
                   }
@@ -1682,7 +1683,7 @@ function TaskCard({
                   await onBroadcastTaskEvent?.(task, "task_reopened", `${actorLabel} reopened “${title}”.`);
                   setReopenOpen(false);
                 } catch (e) {
-                  console.error(e);
+                  reportActionError(e instanceof Error ? e.message : "Could not reopen task.");
                 }
               })()
             }
@@ -1832,7 +1833,7 @@ function TaskCard({
                       await onCancelTask();
                       setCancelOpen(false);
                     } catch (e) {
-                      console.error(e);
+                      reportActionError(e instanceof Error ? e.message : "Could not cancel task.");
                     }
                   })()
                 }

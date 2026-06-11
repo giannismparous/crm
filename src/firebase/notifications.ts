@@ -41,6 +41,7 @@ const NOTIFICATION_KINDS = new Set<NotificationKind>([
   "reminder_shared",
   "reminder_due",
   "member_joined",
+  "chat_message",
 ]);
 
 function normalizeKind(raw: unknown): NotificationKind {
@@ -68,9 +69,56 @@ export function normalizeNotification(id: string, data: Record<string, unknown>)
     authorName: String(data.authorName ?? ""),
     bodyPreview: String(data.bodyPreview ?? ""),
     mentionLabel,
+    conversationId:
+      typeof data.conversationId === "string" && data.conversationId.trim()
+        ? data.conversationId.trim()
+        : undefined,
     read: Boolean(data.read),
     createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
   };
+}
+
+/** Notify conversation members (except author) about a new chat message. */
+export async function createNotificationsForChatMessage(
+  db: Firestore,
+  orgId: string,
+  input: {
+    messageId: string;
+    conversationId: string;
+    conversationTitle: string;
+    authorId: string;
+    authorName: string;
+    body: string;
+    memberIds: string[];
+    createdAt: string;
+  }
+): Promise<void> {
+  const recipients = input.memberIds.filter((id) => id && id !== input.authorId);
+  if (recipients.length === 0) return;
+
+  const batch = writeBatch(db);
+  const col = collection(db, "organizations", orgId, "notifications");
+  const preview = bodyPreview(input.body);
+
+  for (const recipientId of recipients) {
+    const notifId = `chat_${input.messageId}_${recipientId}`;
+    batch.set(doc(col, notifId), {
+      id: notifId,
+      recipientId,
+      kind: "chat_message",
+      taskId: "",
+      taskTitle: input.conversationTitle,
+      commentId: input.messageId,
+      conversationId: input.conversationId,
+      authorId: input.authorId,
+      authorName: input.authorName,
+      bodyPreview: preview,
+      read: false,
+      createdAt: input.createdAt,
+    });
+  }
+
+  await batch.commit();
 }
 
 /**

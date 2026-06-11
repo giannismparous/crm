@@ -17,7 +17,19 @@
     "migrate:google-calendars": "npm run functions:build && node --env-file=functions/.env scripts/refresh-all-google-calendars-once.cjs",
     "migrate:google-calendars:force": "npm run functions:build && node --env-file=functions/.env scripts/refresh-all-google-calendars-once.cjs -- --force",
     "deploy:functions": "firebase deploy --only functions,firestore:rules,firestore:indexes",
-    "deploy:all-firebase": "firebase deploy --only functions,firestore,storage"
+    "deploy:all-firebase": "firebase deploy --only functions,firestore,storage",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rules": "node scripts/run-emulator-tests.mjs rules",
+    "test:rules:optional": "CRM_TEST_ALLOW_SKIP=1 vitest run --config vitest.rules.config.ts",
+    "test:integration": "node scripts/run-emulator-tests.mjs integration",
+    "test:integration:optional": "CRM_TEST_ALLOW_SKIP=1 vitest run --config vitest.integration.config.ts",
+    "setup:local-jdk": "node scripts/setup-local-jdk.mjs",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:optional": "playwright test",
+    "test:functions": "npm --prefix functions test",
+    "test:all": "npm run build && npm run functions:build && npm test && npm run test:rules && npm run test:integration && npm run test:functions",
+    "emulators": "firebase emulators:exec --only auth,firestore,storage 'echo emulators ready'"
   },
   "dependencies": {
     "firebase": "^10.14.1",
@@ -26,16 +38,21 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "@playwright/test": "^1.60.0",
     "@types/node": "^20.14.0",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^4.1.8",
     "autoprefixer": "^10.4.19",
     "firebase-admin": "^12.6.0",
     "firebase-tools": "^13.35.1",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "~5.4.5",
-    "vite": "^5.2.11"
+    "vite": "^5.2.11",
+    "vitest": "^4.1.8"
   }
 }

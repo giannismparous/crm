@@ -6,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 import type { ContactReminder, ContactStage, ImageAttachment, SalesContact } from "../types";
 import { newContactDocId, newContactReminderDocId } from "../firebase/firestoreIds";
 import { deleteImagesFromStorage } from "../utils/imageAttachments";
+import { reportActionError } from "../utils/actionFeedback";
 import { storagePathsInUpdatesHtml } from "../utils/richTextImages";
 import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
 import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
@@ -272,7 +273,9 @@ export function ContactsTab({
   }
 
   function updateContact(id: string, patch: Partial<SalesContact>) {
-    void onUpdateContact(id, patch).catch(console.error);
+    void onUpdateContact(id, patch).catch((err) => {
+      reportActionError(err instanceof Error ? err.message : "Could not update contact.");
+    });
   }
 
   async function removeContact(id: string) {
@@ -293,7 +296,9 @@ export function ContactsTab({
   }
 
   function removeReminder(contactId: string, reminderId: string) {
-    void onRemoveReminder(contactId, reminderId).catch(console.error);
+    void onRemoveReminder(contactId, reminderId).catch((err) => {
+      reportActionError(err instanceof Error ? err.message : "Could not delete reminder.");
+    });
   }
 
   return (
@@ -407,7 +412,9 @@ export function ContactsTab({
             setShowForm(false);
           }}
           onMergeComplete={(values, sources, deleteIds) =>
-            void finishMergeCreate(values, sources, deleteIds).catch(console.error)
+            void finishMergeCreate(values, sources, deleteIds).catch((err) => {
+              reportActionError(err instanceof Error ? err.message : "Could not merge contacts.");
+            })
           }
         />
       ) : selected ? (
@@ -422,7 +429,9 @@ export function ContactsTab({
           onUpdateReminder={(rid, patch) => updateReminder(selected.id, rid, patch)}
           onRemoveReminder={(rid) => removeReminder(selected.id, rid)}
           onMergeComplete={(values, sources, deleteIds) =>
-            void finishMergeUpdate(selected.id, values, sources, deleteIds).catch(console.error)
+            void finishMergeUpdate(selected.id, values, sources, deleteIds).catch((err) => {
+              reportActionError(err instanceof Error ? err.message : "Could not merge contacts.");
+            })
           }
         />
       ) : (
@@ -747,7 +756,9 @@ function ReminderCard({
           <button
             type="button"
             onClick={() => {
-              void Promise.resolve(onUpdateReminder(r.id, { done: false })).catch(console.error);
+              void Promise.resolve(onUpdateReminder(r.id, { done: false })).catch((err) => {
+                reportActionError(err instanceof Error ? err.message : "Could not reopen reminder.");
+              });
             }}
             className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
           >
@@ -792,7 +803,9 @@ function ReminderCard({
                 onChange={(e) => {
                   if (e.target.checked) onStopEdit();
                   void Promise.resolve(onUpdateReminder(r.id, { done: e.target.checked })).catch(
-                    console.error
+                    (err) => {
+                      reportActionError(err instanceof Error ? err.message : "Could not update reminder.");
+                    }
                   );
                 }}
                 className="rounded border-slate-300 text-accent focus:ring-accent/30"
@@ -834,7 +847,9 @@ function ReminderCard({
             onChange={(e) => {
               if (e.target.checked) onStopEdit();
               void Promise.resolve(onUpdateReminder(r.id, { done: e.target.checked })).catch(
-                console.error
+                (err) => {
+                  reportActionError(err instanceof Error ? err.message : "Could not update reminder.");
+                }
               );
             }}
             className="rounded border-slate-300 text-accent focus:ring-accent/30"
@@ -857,7 +872,9 @@ function ReminderCard({
           storageDir={`contacts/${contactId}/reminders/${r.id}`}
           attachments={r.attachments ?? []}
           onAttachmentsChange={(attachments) => {
-            void Promise.resolve(onUpdateReminder(r.id, { attachments })).catch(console.error);
+            void Promise.resolve(onUpdateReminder(r.id, { attachments })).catch((err) => {
+              reportActionError(err instanceof Error ? err.message : "Could not save attachments.");
+            });
           }}
           onUploadingChange={(uploading) => setReminderUploading(uploading ? r.id : null)}
           disabled={reminderUploading === r.id}
@@ -1037,7 +1054,7 @@ function ContactDetail({
       setRDraftAttachments([]);
       setRDue(defaultOrgDatetimeLocal(24));
     } catch (err) {
-      console.error(err);
+      reportActionError(err instanceof Error ? err.message : "Could not save reminder.");
     } finally {
       setReminderSubmitting(false);
     }

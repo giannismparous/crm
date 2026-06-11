@@ -7,6 +7,22 @@
         { "fieldPath": "crmType", "order": "ASCENDING" },
         { "fieldPath": "crmId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "chatConversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "dmKey", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chatConversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "groupKey", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

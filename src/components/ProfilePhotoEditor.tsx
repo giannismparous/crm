@@ -31,7 +31,12 @@ export function ProfilePhotoAvatar({
       const file = new File([blob], "avatar.jpg", { type: "image/jpeg" });
       const { avatarUrl, avatarStoragePath } = await uploadPersonAvatar(person.id, file);
       const oldPath = person.avatarStoragePath;
-      await onChange({ avatarUrl, avatarStoragePath });
+      try {
+        await onChange({ avatarUrl, avatarStoragePath });
+      } catch (saveErr) {
+        await deletePersonAvatar(avatarStoragePath).catch(console.error);
+        throw saveErr;
+      }
       if (oldPath && oldPath !== avatarStoragePath) {
         await deletePersonAvatar(oldPath).catch(console.error);
       }

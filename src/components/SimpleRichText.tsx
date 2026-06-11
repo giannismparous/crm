@@ -384,6 +384,7 @@ export function SimpleRichText({
   }, [expanded, value, collapseKey]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastEmitted = useRef(value);
+  const lastParentValue = useRef(value);
   const focused = useRef(false);
   const deleteImageRef = useRef<(storagePath: string, el: HTMLElement) => void>(() => {});
   const abortedUploadIdsRef = useRef(new Set<string>());
@@ -462,14 +463,24 @@ export function SimpleRichText({
     });
   }
 
+  useEffect(() => {
+    const prev = lastParentValue.current;
+    if (prev === value) return;
+    if (value === lastEmitted.current) {
+      purgeRemovedInlineImages(prev, value);
+    }
+    lastParentValue.current = value;
+    if (value !== lastEmitted.current) {
+      lastEmitted.current = value;
+    }
+  }, [value]);
+
   function emit() {
     const el = ref.current;
     if (!el) return;
     pruneEditorDomForSave(el);
     const safe = sanitizeTaskUpdates(el.innerHTML);
     if (safe !== lastEmitted.current) {
-      const prev = lastEmitted.current;
-      purgeRemovedInlineImages(prev, safe);
       lastEmitted.current = safe;
       onChange(safe);
     }

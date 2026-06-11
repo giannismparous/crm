@@ -10,6 +10,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.tools/
 dist
 dist-ssr
 *.local
@@ -17,6 +18,8 @@ dist-ssr
 .env.*
 .env.local
 .env.*.local
+.netlify-auth.local
+.netlify/
 env
 !.env.example
 service-account.json

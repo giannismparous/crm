@@ -12,6 +12,7 @@ import {
   type ProjectColor,
 } from "../utils/projectColors";
 import { NewTaskForm, PRIORITY_SHORT_LABEL, PriorityUrgencyIcon } from "./TasksTab";
+import { ConfirmPanel } from "./TaskWorkerActions";
 
 function ProjectDepartmentPicker({
   value,
@@ -181,6 +182,7 @@ export function ProjectsTab({
   const [showCreate, setShowCreate] = useState(() => Boolean(savedCreate?.open));
   const [showTaskForm, setShowTaskForm] = useState(() => Boolean(savedTaskForm?.open));
   const [editing, setEditing] = useState(() => Boolean(savedEdit?.editing));
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draftName, setDraftName] = useState(() => savedEdit?.data.name ?? "");
   const [draftDesc, setDraftDesc] = useState(() => savedEdit?.data.desc ?? "");
   const [createName, setCreateName] = useState(() => savedCreate?.data.name ?? "");
@@ -615,18 +617,30 @@ export function ProjectsTab({
           </div>
 
           {editing && canManageProjects && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm(`Delete “${selected.name}”?`)) {
-                  void Promise.resolve(onRemoveProject(selected.id));
-                  setEditing(false);
-                }
-              }}
-              className="mt-4 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-            >
-              Delete
-            </button>
+            deleteConfirmOpen ? (
+              <div className="mt-4">
+                <ConfirmPanel
+                  message={`Delete “${selected.name}”? This cannot be undone.`}
+                  yesLabel="Yes, delete project"
+                  noLabel="Keep project"
+                  yesEmphasis
+                  onYes={() => {
+                    void Promise.resolve(onRemoveProject(selected.id));
+                    setEditing(false);
+                    setDeleteConfirmOpen(false);
+                  }}
+                  onNo={() => setDeleteConfirmOpen(false)}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmOpen(true)}
+                className="mt-4 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+              >
+                Delete
+              </button>
+            )
           )}
 
           <div className="mt-6 border-t border-slate-100 pt-4">

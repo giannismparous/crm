@@ -533,6 +533,207 @@ html[data-theme="dark"] .shadow-sm.ring-1 {
   }
 }
 
+@keyframes chat-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chat-panel-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+@keyframes chat-bubble-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes chat-bubble-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.6) translateY(8px);
+  }
+}
+
+.chat-panel-shell {
+  transform-origin: bottom right;
+  transition:
+    opacity 0.22s ease-out,
+    transform 0.22s ease-out,
+    visibility 0.22s ease-out;
+}
+
+.chat-panel-shell[data-motion="open"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.chat-panel-shell[data-motion="hidden"] {
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-panel-shell[data-motion="exit"] {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+  visibility: visible;
+  pointer-events: none;
+}
+
+.chat-bubble-dock-btn {
+  transition: box-shadow 0.22s ease-out, opacity 0.22s ease-out;
+}
+
+.chat-bubble-aura {
+  box-shadow:
+    0 0 0 2px rgb(52 211 153 / 0.55),
+    0 0 14px 4px rgb(52 211 153 / 0.4),
+    0 0 26px 10px rgb(16 185 129 / 0.2);
+  animation: chat-bubble-aura-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes chat-bubble-aura-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgb(52 211 153 / 0.5),
+      0 0 12px 3px rgb(52 211 153 / 0.35),
+      0 0 22px 8px rgb(16 185 129 / 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgb(52 211 153 / 0.65),
+      0 0 18px 6px rgb(52 211 153 / 0.48),
+      0 0 30px 12px rgb(16 185 129 / 0.28);
+  }
+}
+
+.chat-bubble-dock-btn--inactive {
+  opacity: 0.7;
+}
+
+.chat-bubble-dock-btn--inactive:hover {
+  opacity: 0.9;
+}
+
+.chat-panel-tail {
+  transition: right 0.22s ease-out;
+}
+
+.chat-panel-shell-positioned {
+  transition:
+    opacity 0.22s ease-out,
+    transform 0.22s ease-out,
+    visibility 0.22s ease-out,
+    right 0.22s ease-out;
+}
+
+.chat-bubble-enter {
+  animation: chat-bubble-in 0.22s ease-out forwards;
+}
+
+.chat-bubble-exit {
+  animation: chat-bubble-out 0.2s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes chat-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message-in {
+  animation: chat-message-in 0.3s ease-out both;
+}
+
+@keyframes chat-message-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+
+.chat-message-out {
+  animation: chat-message-out 0.28s ease-in forwards;
+  pointer-events: none;
+}
+
+.chat-message-out--mine {
+  transform-origin: center right;
+}
+
+.chat-message-out--theirs {
+  transform-origin: center left;
+}
+
+@keyframes chat-messages-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.chat-messages-reveal {
+  animation: chat-messages-reveal 0.25s ease-out forwards;
+}
+
+.chat-launcher-btn {
+  color: #fff;
+}
+
+html[data-theme="dark"] .chat-panel-shell,
+html[data-theme="dark"] .chat-panel-tail {
+  background-color: rgb(var(--dm-surface));
+  border-color: rgb(var(--dm-border-subtle) / 0.9);
+}
+
+html[data-theme="dark"] .chat-bubble-dock-btn {
+  background-color: rgb(var(--dm-surface));
+  border-color: rgb(var(--dm-border-subtle) / 0.85);
+}
+
+html[data-theme="dark"] .chat-bubble-dock-btn--inactive {
+  opacity: 0.75;
+}
+
 html[data-theme="dark"] .glass {
   background-color: rgb(var(--dm-surface) / 0.95);
   border-color: rgb(var(--dm-border-subtle) / 0.85);

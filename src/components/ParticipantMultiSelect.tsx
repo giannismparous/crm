@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import { personDisplayName } from "../utils/appointments";
+import { participantIdsCoveredByDepartments } from "../utils/appointmentParticipants";
 
 function personMatchesSearch(p: Person, q: string): boolean {
   const needle = q.trim().toLowerCase();
@@ -70,18 +71,29 @@ export function ParticipantMultiSelect({
     return bits.join(", ");
   }, [participantIds, participantDepartmentIds, selectablePeople, placeholder]);
 
+  function stripDeptCoveredPeople(ids: string[], depts: string[]): string[] {
+    const covered = participantIdsCoveredByDepartments(selectablePeople, depts);
+    return ids.filter((id) => !covered.has(id));
+  }
+
   function togglePerson(id: string) {
+    const covered = participantIdsCoveredByDepartments(selectablePeople, participantDepartmentIds);
+    if (covered.has(id) && !participantIds.includes(id)) return;
     if (participantIds.includes(id)) onChange(participantIds.filter((x) => x !== id), participantDepartmentIds);
     else onChange([...participantIds, id], participantDepartmentIds);
   }
 
   function toggleDept(dept: string) {
-    if (participantDepartmentIds.includes(dept)) {
-      onChange(participantIds, participantDepartmentIds.filter((d) => d !== dept));
-    } else {
-      onChange(participantIds, [...participantDepartmentIds, dept]);
-    }
+    const nextDepts = participantDepartmentIds.includes(dept)
+      ? participantDepartmentIds.filter((d) => d !== dept)
+      : [...participantDepartmentIds, dept];
+    onChange(stripDeptCoveredPeople(participantIds, nextDepts), nextDepts);
   }
+
+  const coveredByDept = useMemo(
+    () => participantIdsCoveredByDepartments(selectablePeople, participantDepartmentIds),
+    [selectablePeople, participantDepartmentIds]
+  );
 
   return (
     <div className="relative" ref={rootRef}>
@@ -110,14 +122,27 @@ export function ParticipantMultiSelect({
               type="button"
               className="mb-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
               onClick={() => {
-                if (participantIds.includes(currentUserId)) {
-                  onChange(participantIds.filter((x) => x !== currentUserId), participantDepartmentIds);
+                if (participantIds.includes(currentUserId) || coveredByDept.has(currentUserId)) {
+                  if (participantIds.includes(currentUserId)) {
+                    onChange(
+                      participantIds.filter((x) => x !== currentUserId),
+                      participantDepartmentIds
+                    );
+                  }
                 } else {
-                  onChange([...participantIds.filter(Boolean), currentUserId], participantDepartmentIds);
+                  onChange(
+                    stripDeptCoveredPeople(
+                      [...participantIds.filter(Boolean), currentUserId],
+                      participantDepartmentIds
+                    ),
+                    participantDepartmentIds
+                  );
                 }
               }}
             >
-              {participantIds.includes(currentUserId) ? "Remove me" : "Add me"}
+              {participantIds.includes(currentUserId) || coveredByDept.has(currentUserId)
+                ? "Remove me"
+                : "Add me"}
             </button>
           )}
           <div className="max-h-52 overflow-y-auto text-xs">
@@ -126,22 +151,31 @@ export function ParticipantMultiSelect({
                 <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   People
                 </p>
-                {filteredPeople.map((p) => (
+                {filteredPeople.map((p) => {
+                  const viaDept = coveredByDept.has(p.id) && !participantIds.includes(p.id);
+                  return (
                   <label
                     key={p.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                    className={`flex items-center gap-2 rounded-md px-1.5 py-1 ${
+                      viaDept ? "cursor-default opacity-80" : "cursor-pointer hover:bg-slate-50"
+                    }`}
                   >
                     <input
                       type="checkbox"
-                      checked={participantIds.includes(p.id)}
+                      checked={participantIds.includes(p.id) || viaDept}
+                      disabled={viaDept}
                       onChange={() => togglePerson(p.id)}
-                      className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                      className="rounded border-slate-300 text-accent focus:ring-accent/30 disabled:opacity-70"
                     />
                     <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                       {personDisplayName(p)}
+                      {viaDept ? (
+                        <span className="ml-1 text-[10px] font-normal text-slate-400">(dept)</span>
+                      ) : null}
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </>
             )}
             {filteredDepts.length > 0 && (

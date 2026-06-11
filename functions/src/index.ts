@@ -16,10 +16,11 @@ import {
   integrationRef,
 } from "./config";
 import { ensureSimasiaCalendar } from "./calendarSetup";
-import { createOAuthClient, getAuthedCalendarClient, loadIntegration, saveIntegration } from "./tokens";
-import { fullSyncForUser, refreshAllConnectedGoogleCalendarsOnce, syncItemForAllUsers } from "./sync";
+import { createOAuthClient, loadIntegration, saveIntegration } from "./tokens";
+import { fullSyncForUser, purgeAllGoogleCalendarEventsForUser, refreshAllConnectedGoogleCalendarsOnce, syncItemForAllUsers } from "./sync";
 import { loadOrgContext } from "./visibility";
 import { generateUpdateTitleWithGemini, type GenerateUpdateTitleInput } from "./generateUpdateTitle";
+import { healLegacyRateLimitError } from "./calendarStatus";
 
 initializeApp();
 const db = getFirestore();
@@ -60,7 +61,15 @@ export const getGoogleCalendarStatus = onCall(
   async (request) => {
     const uid = requireAuthUid(request.auth);
     const snap = await integrationRef(db, uid).get();
-    return publicIntegrationView(snap.data());
+    const data = snap.data();
+    const rawLastError = String(data?.lastError ?? "").trim();
+    const lastError = healLegacyRateLimitError(rawLastError);
+    // Heal legacy background rate-limit strings (Settings only reads status — never syncs).
+    if (lastError === "" && rawLastError) {
+      await saveIntegration(db, uid, { lastError: "" }).catch(() => undefined);
+      return publicIntegrationView({ ...data, lastError: "" });
+    }
+    return publicIntegrationView(data);
   }
 );
 
@@ -78,11 +87,14 @@ export const startGoogleCalendarConnect = onCall(
     });
 
     const oauth = createOAuthClient();
+    const existing = await loadIntegration(db, uid);
     const authUrl = oauth.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
+      include_granted_scopes: true,
       scope: [CALENDAR_SCOPE, "openid", "email"],
       state,
+      ...(existing?.googleEmail ? { login_hint: existing.googleEmail } : {}),
     });
 
     return { authUrl };
@@ -159,7 +171,10 @@ export const googleCalendarOAuthCallback = onRequest(
         await ensureSimasiaCalendar(db, uid);
         await fullSyncForUser(db, uid, { fromTodayOnly: true });
       } catch (syncErr) {
-        const msg = syncErr instanceof Error ? syncErr.message : "Initial sync failed.";
+        const raw = syncErr instanceof Error ? syncErr.message : "Initial sync failed.";
+        const msg = /rate limit/i.test(raw)
+          ? "Google rate limit hit during initial sync. Most items should be fine — wait a minute and tap Sync now."
+          : raw;
         await saveIntegration(db, uid, { lastError: msg });
       }
 
@@ -176,7 +191,22 @@ export const disconnectGoogleCalendar = onCall(
   async (request) => {
     const uid = requireAuthUid(request.auth);
     const integration = await loadIntegration(db, uid);
-    if (integration?.refreshToken) {
+    if (!integration?.connected) {
+      return { ok: true, removed: 0 };
+    }
+
+    let removed = 0;
+    try {
+      removed = await purgeAllGoogleCalendarEventsForUser(db, uid);
+    } catch (err) {
+      console.error("disconnectGoogleCalendar purge", err);
+      throw new HttpsError(
+        "internal",
+        err instanceof Error ? err.message : "Could not remove CRM events from Google Calendar."
+      );
+    }
+
+    if (integration.refreshToken) {
       try {
         const oauth = createOAuthClient();
         await oauth.revokeToken(integration.refreshToken);
@@ -185,33 +215,9 @@ export const disconnectGoogleCalendar = onCall(
       }
     }
 
-    const calendarId = integration?.calendarId || "primary";
-    const eventsSnap = await db.collection(`users/${uid}/integrations/googleCalendar/events`).get();
-    if (integration?.connected && eventsSnap.docs.length > 0) {
-      try {
-        const calendar = await getAuthedCalendarClient(db, uid);
-        await Promise.all(
-          eventsSnap.docs.map(async (mapDoc) => {
-            const { googleEventId } = mapDoc.data() as { googleEventId: string };
-            try {
-              await calendar.events.delete({ calendarId, eventId: googleEventId });
-            } catch (err) {
-              const code = (err as { code?: number })?.code;
-              if (code !== 404 && code !== 410) throw err;
-            }
-          })
-        );
-      } catch {
-        /* best-effort cleanup */
-      }
-    }
+    await integrationRef(db, uid).delete();
 
-    const batch = db.batch();
-    eventsSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(integrationRef(db, uid));
-    await batch.commit();
-
-    return { ok: true };
+    return { ok: true, removed };
   }
 );
 
@@ -263,7 +269,7 @@ export const syncGoogleCalendarForUser = onCall(
 export const syncGoogleCalendarItem = onCall(
   fnOpts,
   async (request) => {
-    requireAuthUid(request.auth);
+    const uid = requireAuthUid(request.auth);
     const data = request.data as {
       crmType?: CrmType;
       crmId?: string;
@@ -282,11 +288,21 @@ export const syncGoogleCalendarItem = onCall(
     }
 
     try {
-      await syncItemForAllUsers(db, crmType, crmId, action);
+      const result = await syncItemForAllUsers(db, crmType, crmId, action);
+      if (!result.ok) {
+        const friendly = result.rateLimitHit
+          ? "Google rate limit hit. Wait a minute — your calendar should still be mostly up to date."
+          : result.errors[0] ?? "Calendar sync failed.";
+        await saveIntegration(db, uid, { lastError: friendly }).catch(() => undefined);
+        return { ok: false, message: friendly };
+      }
+      await saveIntegration(db, uid, { lastError: "" }).catch(() => undefined);
       return { ok: true };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Calendar sync failed.";
       console.error("syncGoogleCalendarItem", err);
-      return { ok: false };
+      await saveIntegration(db, uid, { lastError: msg }).catch(() => undefined);
+      return { ok: false, message: msg };
     }
   }
 );

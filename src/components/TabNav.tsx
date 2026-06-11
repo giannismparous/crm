@@ -26,10 +26,7 @@ export function TabNav({
   );
 
   return (
-    <nav
-      className="segment-track shrink-0"
-      aria-label="Primary"
-    >
+    <nav className="segment-track shrink-0" aria-label="Primary">
       {visibleTabs.map((t) => {
         const isActive = active === t.id;
         return (

@@ -128,6 +128,7 @@ export function PersonalRemindersTab({
   const [submitting, setSubmitting] = useState(false);
   const [listTab, setListTab] = useState<ReminderListTab>(() => saved.listTab);
   const [reopenOpen, setReopenOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const draftAttachmentsRef = useRef<ImageAttachment[]>([]);
   const draftSubmittedRef = useRef(false);
   draftAttachmentsRef.current = draftAttachments;
@@ -749,10 +750,7 @@ export function PersonalRemindersTab({
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!window.confirm("Delete this reminder?")) return;
-                          void Promise.resolve(onRemoveReminder(selected.id)).then(() => setSelectedId(""));
-                        }}
+                        onClick={() => setDeleteConfirmOpen(true)}
                         className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
                       >
                         Delete
@@ -786,6 +784,23 @@ export function PersonalRemindersTab({
                         .catch(console.error);
                     }}
                     onNo={() => setReopenOpen(false)}
+                  />
+                </div>
+              )}
+              {deleteConfirmOpen && !selected.done && (
+                <div className="mt-3">
+                  <ConfirmPanel
+                    message="Delete this reminder? This cannot be undone."
+                    yesLabel="Yes, delete"
+                    noLabel="Keep reminder"
+                    yesEmphasis
+                    onYes={() => {
+                      void Promise.resolve(onRemoveReminder(selected.id)).then(() => {
+                        setSelectedId("");
+                        setDeleteConfirmOpen(false);
+                      });
+                    }}
+                    onNo={() => setDeleteConfirmOpen(false)}
                   />
                 </div>
               )}

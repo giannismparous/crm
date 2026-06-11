@@ -57,15 +57,15 @@ service cloud.firestore {
 
     function reminderPartnerCanRead(orgId) {
       let r = resource.data;
-      return r.ownerId == request.auth.uid
-        || r.participantIds.hasAny([request.auth.uid])
+      return r.get('ownerId', '') == request.auth.uid
+        || r.get('participantIds', []).hasAny([request.auth.uid])
         || r.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
     }
 
     function reminderPartnerCanCreate(orgId) {
       let r = request.resource.data;
-      return r.ownerId == request.auth.uid
-        || r.participantIds.hasAny([request.auth.uid])
+      return r.get('ownerId', '') == request.auth.uid
+        || r.get('participantIds', []).hasAny([request.auth.uid])
         || r.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
     }
 
@@ -189,6 +189,74 @@ service cloud.firestore {
       allow read, update, delete: if signedIn()
         && resource.data.recipientId == request.auth.uid;
       allow create: if signedIn();
+    }
+
+    function chatConv(orgId, convId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/chatConversations/$(convId)).data;
+    }
+
+    function chatConvMember(orgId, convId) {
+      return chatConv(orgId, convId).memberIds.hasAny([request.auth.uid]);
+    }
+
+    match /organizations/{orgId}/chatConversations/{convId} {
+      allow read: if signedIn() && chatConvMember(orgId, convId);
+      allow create: if signedIn()
+        && (
+          (
+            request.resource.data.memberIds.hasAny([request.auth.uid])
+            && request.resource.data.kind in ['dm', 'group']
+          )
+          || (
+            convId == 'founders'
+            && request.resource.data.kind == 'founders'
+            && isFounder(orgId)
+          )
+        );
+      allow update: if signedIn()
+        && (
+          (
+            chatConvMember(orgId, convId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['memberIds', 'lastMessageAt', 'lastMessagePreview', 'lastMessageAuthorId'])
+          )
+          || (
+            isFounder(orgId)
+            && resource.data.kind == 'founders'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+          )
+        );
+      allow delete: if isFounder(orgId);
+
+      match /messages/{messageId} {
+        allow read: if signedIn() && chatConvMember(orgId, convId);
+        allow create: if signedIn()
+          && chatConvMember(orgId, convId)
+          && request.resource.data.authorId == request.auth.uid;
+        allow update: if isFounder(orgId);
+        allow delete: if signedIn()
+          && chatConvMember(orgId, convId)
+          && (
+            isFounder(orgId)
+            || (
+              resource.data.authorId == request.auth.uid
+              && resource.data.createdAtMs is number
+              && request.time.toMillis() <= resource.data.createdAtMs + 300000
+            )
+          );
+      }
+    }
+
+    match /organizations/{orgId}/chatMemberState/{userId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && userId == request.auth.uid;
+      allow delete: if signedIn() && userId == request.auth.uid;
+    }
+
+    match /organizations/{orgId}/presence/{userId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && userId == request.auth.uid;
+      allow delete: if signedIn() && userId == request.auth.uid;
     }
 
     match /organizations/{orgId}/{collection}/{document=**} {

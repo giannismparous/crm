@@ -3,7 +3,7 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import { Plus, Trash2 } from "lucide-react";
-import type { Appointment, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
+import type { Appointment, AppointmentRecurrenceKind, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
 import { isTaskOpen } from "../utils/personTaskStats";
 import { reviewItemsForSearch } from "../utils/appointmentReview";
 import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
@@ -21,6 +21,7 @@ import {
   isAppointmentScheduled,
 } from "../utils/appointments";
 import { ParticipantMultiSelect } from "./ParticipantMultiSelect";
+import { ConfirmPanel } from "./TaskWorkerActions";
 import {
   datetimeLocalToIso,
   defaultOrgDatetimeLocal,
@@ -30,6 +31,18 @@ import {
   toDatetimeLocalValue,
 } from "../utils/orgTimezone";
 import { syncCrmItemToGoogleCalendar } from "../firebase/googleCalendar";
+import { normalizeAppointmentParticipants } from "../utils/appointmentParticipants";
+import {
+  DEFAULT_RECURRENCE_COUNT,
+  generateRecurrenceOccurrences,
+  MAX_RECURRENCE_COUNT,
+  MIN_RECURRENCE_COUNT,
+  normalizeRecurrenceCount,
+  normalizeRecurrenceDayOfMonth,
+  normalizeRecurrenceInterval,
+  formatRecurrenceSummary,
+  type AppointmentRecurrenceRule,
+} from "../utils/appointmentRecurrence";
 
 type AppointmentListTab = "upcoming" | "past" | "canceled";
 
@@ -64,11 +77,27 @@ type AppointmentDraft = {
   participantDepartmentIds: string[];
   linkedTaskIds: string[];
   newTasks: AppointmentTaskDraft[];
+  recurring: boolean;
+  recurrenceKind: AppointmentRecurrenceKind;
+  recurrenceInterval: number;
+  recurrenceDayOfMonth: number;
+  recurrenceCount: number;
 };
+
+function isRecurrenceDraftDefault(draft: AppointmentDraft): boolean {
+  return (
+    !draft.recurring &&
+    draft.recurrenceKind === "weekly" &&
+    draft.recurrenceInterval === 1 &&
+    draft.recurrenceDayOfMonth === 1 &&
+    draft.recurrenceCount === DEFAULT_RECURRENCE_COUNT
+  );
+}
 
 function isAppointmentDraftEmpty(draft: AppointmentDraft): boolean {
   if (draft.linkedTaskIds.length > 0 || draft.newTasks.length > 0) return false;
   if (draft.reviewItems.some((x) => x.trim())) return false;
+  if (!isRecurrenceDraftDefault(draft)) return false;
   const { linkedTaskIds: _l, newTasks: _n, reviewItems: _r, ...rest } = draft;
   return isShallowDraftEmpty(rest as unknown as Record<string, unknown>);
 }
@@ -112,6 +141,11 @@ function emptyDraft(currentUserId: string): AppointmentDraft {
     participantDepartmentIds: [],
     linkedTaskIds: [],
     newTasks: [],
+    recurring: false,
+    recurrenceKind: "weekly",
+    recurrenceInterval: 1,
+    recurrenceDayOfMonth: 1,
+    recurrenceCount: DEFAULT_RECURRENCE_COUNT,
   };
 }
 
@@ -263,10 +297,14 @@ export function AppointmentsTab({
   currentUserId,
   seesAllOrgData = true,
   onCreateAppointment,
+  onCreateAppointmentSeries,
   onUpdateAppointment,
   onCancelAppointment,
+  onRemoveAppointment,
   onCreateTask,
+  onSendTaskCreatedNotifications,
   onUpdateTask,
+  onRemoveTask,
   onOpenTask,
   focusAppointmentId,
   onFocusAppointmentHandled,
@@ -283,16 +321,26 @@ export function AppointmentsTab({
     appointmentId?: string,
     options?: { skipCalendarSync?: boolean }
   ) => Promise<string>;
+  onCreateAppointmentSeries: (
+    payload: Omit<Appointment, "id" | "createdAt" | "status" | "startsAt" | "endsAt">,
+    occurrences: { startsAt: string; endsAt?: string }[],
+    meta: { seriesId: string; rule: AppointmentRecurrenceRule; count: number },
+    firstAppointmentId?: string,
+    options?: { skipCalendarSync?: boolean }
+  ) => Promise<string[]>;
   onUpdateAppointment: (
     id: string,
     patch: Partial<Appointment>,
     options?: { skipCalendarSync?: boolean }
   ) => Promise<void>;
   onCancelAppointment: (id: string) => Promise<void>;
+  onRemoveAppointment: (id: string) => Promise<void>;
   onCreateTask: (
     payload: Omit<Task, "id" | "createdAt">,
-    options?: { skipCalendarSync?: boolean }
+    options?: { skipCalendarSync?: boolean; skipNotifications?: boolean; skipStats?: boolean }
   ) => Promise<string>;
+  onSendTaskCreatedNotifications: (taskIds: string[], actorId: string) => Promise<void>;
+  onRemoveTask: (id: string) => Promise<void>;
   onUpdateTask: (
     id: string,
     patch: Partial<Task>,
@@ -318,6 +366,7 @@ export function AppointmentsTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [descriptionImagesUploading, setDescriptionImagesUploading] = useState(false);
+  const [cancelConfirmId, setCancelConfirmId] = useState("");
   const [newAppointmentDraftId, setNewAppointmentDraftId] = useState(newAppointmentDocId);
   const descriptionAtEditStartRef = useRef("");
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -430,6 +479,11 @@ export function AppointmentsTab({
       participantDepartmentIds: [...(apt.participantDepartmentIds ?? [])],
       linkedTaskIds: linkedTaskIdsForAppointment(apt, allTasks),
       newTasks: [],
+      recurring: false,
+      recurrenceKind: "weekly",
+      recurrenceInterval: 1,
+      recurrenceDayOfMonth: 1,
+      recurrenceCount: DEFAULT_RECURRENCE_COUNT,
     });
     descriptionAtEditStartRef.current = apt.description ?? "";
     setDescriptionImagesUploading(false);
@@ -464,7 +518,52 @@ export function AppointmentsTab({
     }
     setBusy(true);
     setError(null);
+
+    const seriesIds: string[] = [];
+    const createdTaskIds: string[] = [];
+    let createdAppointmentIds: string[] = [];
+
+    async function rollbackCreate() {
+      const canHardDelete = seesAllOrgData;
+      for (const taskId of createdTaskIds) {
+        try {
+          if (canHardDelete) {
+            await onRemoveTask(taskId);
+          } else {
+            await onUpdateTask(
+              taskId,
+              {
+                status: "canceled",
+                canceledAt: new Date().toISOString(),
+                canceledById: currentUserId,
+              },
+              { skipCalendarSync: true }
+            );
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+      const aptIds = seriesIds.length > 0 ? seriesIds : createdAppointmentIds;
+      for (const id of aptIds) {
+        try {
+          if (canHardDelete) {
+            await onRemoveAppointment(id);
+          } else {
+            await onCancelAppointment(id);
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
     try {
+      const participants = normalizeAppointmentParticipants(
+        people,
+        draft.participantIds,
+        draft.participantDepartmentIds
+      );
       const fields: {
         title: string;
         startsAt: string;
@@ -480,8 +579,8 @@ export function AppointmentsTab({
         startsAt,
         endsAt,
         location: draft.location.trim(),
-        participantIds: [...new Set(draft.participantIds.filter(Boolean))],
-        participantDepartmentIds: [...new Set(draft.participantDepartmentIds.filter(Boolean))],
+        participantIds: participants.participantIds,
+        participantDepartmentIds: participants.participantDepartmentIds,
       };
       const description = sanitizeTaskUpdates(draft.description.trim());
       if (richTextHasContent(description)) fields.description = description;
@@ -498,7 +597,11 @@ export function AppointmentsTab({
         editing && selected
           ? new Set(linkedTaskIdsForAppointment(selected, allTasks))
           : new Set<string>();
-      const syncOpts = { skipCalendarSync: true as const };
+      const syncOpts = {
+        skipCalendarSync: true as const,
+        skipNotifications: true as const,
+        skipStats: true as const,
+      };
 
       let appointmentId: string;
       if (editing && selected) {
@@ -512,11 +615,76 @@ export function AppointmentsTab({
         setShowForm(false);
         setEditing(false);
       } else {
-        appointmentId = await onCreateAppointment(
-          { ...fields, linkedTaskIds: desiredLinked, createdById: currentUserId },
-          newAppointmentDraftId,
-          syncOpts
-        );
+        // Create new tasks before appointments so a late failure does not leave a full series behind.
+        for (const taskDraft of taskDrafts) {
+          const assignees = normalizeAppointmentParticipants(
+            people,
+            taskDraft.assigneeIds,
+            taskDraft.assigneeDepartmentIds
+          );
+          const payload: Omit<Task, "id" | "createdAt"> = {
+            title: taskDraft.title,
+            description: "",
+            assigneeIds: assignees.participantIds,
+            assigneeDepartmentIds: assignees.participantDepartmentIds,
+            finishedByIds: [],
+            feedbackByIds: [],
+            feedbackRequests: [],
+            assignedById: currentUserId,
+            status: "todo",
+            priority: taskDraft.priority,
+            dueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
+            originalDueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
+            postponeCount: 0,
+            needsFeedback: false,
+            updates: "",
+            updatesByUser: {},
+            updateEntries: [],
+            comments: [],
+          };
+          const pid = taskDraft.projectId.trim();
+          if (pid) payload.projectId = pid;
+          const newId = await onCreateTask(payload, syncOpts);
+          createdTaskIds.push(newId);
+          desiredLinked.push(newId);
+        }
+
+        // See src/utils/appointmentCreateFlow.ts — partner rollback may leave canceled docs.
+
+        const basePayload = {
+          ...fields,
+          linkedTaskIds: [...new Set(desiredLinked.filter(Boolean))],
+          createdById: currentUserId,
+        };
+
+        if (draft.recurring) {
+          const rule: AppointmentRecurrenceRule = {
+            kind: draft.recurrenceKind,
+            interval: normalizeRecurrenceInterval(draft.recurrenceInterval),
+            ...(draft.recurrenceKind === "monthly_day"
+              ? { dayOfMonth: normalizeRecurrenceDayOfMonth(draft.recurrenceDayOfMonth) }
+              : {}),
+          };
+          const count = normalizeRecurrenceCount(draft.recurrenceCount);
+          const occurrences = generateRecurrenceOccurrences(startsAt, endsAt, rule, count);
+          const ids = await onCreateAppointmentSeries(
+            basePayload,
+            occurrences,
+            { seriesId: crypto.randomUUID(), rule, count },
+            newAppointmentDraftId,
+            syncOpts
+          );
+          seriesIds.push(...ids);
+          createdAppointmentIds = ids;
+          appointmentId = ids[0] ?? newAppointmentDraftId;
+        } else {
+          appointmentId = await onCreateAppointment(
+            basePayload,
+            newAppointmentDraftId,
+            syncOpts
+          );
+          createdAppointmentIds = [appointmentId];
+        }
         descriptionAtEditStartRef.current = description;
         setShowForm(false);
         setSelectedId(appointmentId);
@@ -527,6 +695,8 @@ export function AppointmentsTab({
         const task = allTasks.find((t) => t.id === taskId);
         if (task && task.appointmentId !== appointmentId) {
           await onUpdateTask(taskId, { appointmentId }, syncOpts);
+        } else if (createdTaskIds.includes(taskId)) {
+          await onUpdateTask(taskId, { appointmentId }, syncOpts);
         }
       }
       for (const taskId of previousLinked) {
@@ -535,45 +705,27 @@ export function AppointmentsTab({
         }
       }
 
-      for (const taskDraft of taskDrafts) {
-        const payload: Omit<Task, "id" | "createdAt"> = {
-          title: taskDraft.title,
-          description: "",
-          assigneeIds: [...new Set(taskDraft.assigneeIds.filter(Boolean))],
-          assigneeDepartmentIds: [...new Set(taskDraft.assigneeDepartmentIds.filter(Boolean))],
-          finishedByIds: [],
-          feedbackByIds: [],
-          feedbackRequests: [],
-          assignedById: currentUserId,
-          status: "todo",
-          priority: taskDraft.priority,
-          dueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
-          originalDueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
-          postponeCount: 0,
-          needsFeedback: false,
-          updates: "",
-          updatesByUser: {},
-          updateEntries: [],
-          comments: [],
-          appointmentId,
-        };
-        const pid = taskDraft.projectId.trim();
-        if (pid) payload.projectId = pid;
-        const newId = await onCreateTask(payload, syncOpts);
-        desiredLinked.push(newId);
+      const aptIdsForSync =
+        seriesIds.length > 0
+          ? seriesIds
+          : createdAppointmentIds.length > 0
+            ? createdAppointmentIds
+            : [appointmentId];
+      for (const aptId of aptIdsForSync) {
+        if (aptId) void syncCrmItemToGoogleCalendar("appointment", aptId);
       }
-
-      if (taskDrafts.length > 0) {
-        await onUpdateAppointment(appointmentId, { linkedTaskIds: desiredLinked }, syncOpts);
-      }
-
-      void syncCrmItemToGoogleCalendar("appointment", appointmentId);
       for (const taskId of desiredLinked) {
         void syncCrmItemToGoogleCalendar("task", taskId);
+      }
+      if (createdTaskIds.length > 0) {
+        await onSendTaskCreatedNotifications(createdTaskIds, currentUserId);
       }
       clearFormDraft(APPOINTMENTS_DRAFT_KEY);
       setDraft(emptyDraft(currentUserId));
     } catch (err) {
+      if (!editing) {
+        await rollbackCreate();
+      }
       setError(err instanceof Error ? err.message : "Could not save appointment");
     } finally {
       setBusy(false);
@@ -581,11 +733,11 @@ export function AppointmentsTab({
   }
 
   async function handleCancel(id: string) {
-    if (!window.confirm("Cancel this appointment?")) return;
     setBusy(true);
     try {
       await onCancelAppointment(id);
       setSelectedId("");
+      setCancelConfirmId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not cancel appointment");
     } finally {
@@ -662,6 +814,118 @@ export function AppointmentsTab({
                 className="input-base mt-1 w-full"
               />
             </label>
+
+            {!editing && (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={draft.recurring}
+                    onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))}
+                    className="rounded border-slate-300 text-accent focus:ring-accent/30"
+                  />
+                  Recurring meeting
+                </label>
+
+                {draft.recurring && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                      Frequency
+                      <select
+                        value={draft.recurrenceKind}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            recurrenceKind: e.target.value as AppointmentRecurrenceKind,
+                          }))
+                        }
+                        className="input-base mt-1 w-full py-1.5"
+                      >
+                        <option value="daily">Every X days</option>
+                        <option value="weekly">Every X weeks</option>
+                        <option value="monthly">Every X months (same date)</option>
+                        <option value="monthly_day">Day X of each month</option>
+                      </select>
+                    </label>
+
+                    <label className="block text-xs font-medium text-slate-600">
+                      {draft.recurrenceKind === "daily"
+                        ? "Every (days)"
+                        : draft.recurrenceKind === "weekly"
+                          ? "Every (weeks)"
+                          : draft.recurrenceKind === "monthly"
+                            ? "Every (months)"
+                            : "Every (months)"}
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={draft.recurrenceInterval}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            recurrenceInterval: normalizeRecurrenceInterval(e.target.value),
+                          }))
+                        }
+                        className="input-base mt-1 w-full py-1.5"
+                      />
+                    </label>
+
+                    {draft.recurrenceKind === "monthly_day" && (
+                      <label className="block text-xs font-medium text-slate-600">
+                        Day of month
+                        <input
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={draft.recurrenceDayOfMonth}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              recurrenceDayOfMonth: normalizeRecurrenceDayOfMonth(e.target.value),
+                            }))
+                          }
+                          className="input-base mt-1 w-full py-1.5"
+                        />
+                      </label>
+                    )}
+
+                    <label className="block text-xs font-medium text-slate-600">
+                      Number of meetings
+                      <input
+                        type="number"
+                        min={MIN_RECURRENCE_COUNT}
+                        max={MAX_RECURRENCE_COUNT}
+                        value={draft.recurrenceCount}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            recurrenceCount: normalizeRecurrenceCount(e.target.value),
+                          }))
+                        }
+                        className="input-base mt-1 w-full py-1.5"
+                      />
+                    </label>
+
+                    <p className="text-[11px] text-slate-500 sm:col-span-2">
+                      {formatRecurrenceSummary(
+                        {
+                          kind: draft.recurrenceKind,
+                          interval: normalizeRecurrenceInterval(draft.recurrenceInterval),
+                          ...(draft.recurrenceKind === "monthly_day"
+                            ? {
+                                dayOfMonth: normalizeRecurrenceDayOfMonth(draft.recurrenceDayOfMonth),
+                              }
+                            : {}),
+                        },
+                        normalizeRecurrenceCount(draft.recurrenceCount)
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
               Participants
               <div className="mt-1">
@@ -1009,7 +1273,14 @@ export function AppointmentsTab({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="font-medium text-slate-900">{apt.title || "Untitled"}</div>
+                          <div className="font-medium text-slate-900">
+                            {apt.title || "Untitled"}
+                            {apt.recurrenceSeriesId && (
+                              <span className="ml-2 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                Recurring
+                              </span>
+                            )}
+                          </div>
                           <div className="mt-0.5 text-xs text-slate-600">
                             {dateLabel}
                             {formatAppointmentTimeRange(apt) ? ` · ${formatAppointmentTimeRange(apt)}` : ""}
@@ -1049,6 +1320,11 @@ export function AppointmentsTab({
                     ? ` – ${formatInOrgTime(selected.endsAt, { hour: "numeric", minute: "2-digit" })}`
                     : ""}
                 </p>
+                {selected.recurrenceRule && (
+                  <p className="mt-1 text-xs text-indigo-700">
+                    {formatRecurrenceSummary(selected.recurrenceRule, selected.recurrenceCount)}
+                  </p>
+                )}
               </div>
 
               <dl className="space-y-2 text-sm">
@@ -1158,14 +1434,27 @@ export function AppointmentsTab({
                   >
                     Edit
                   </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleCancel(selected.id)}
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                  >
-                    Cancel appointment
-                  </button>
+                  {cancelConfirmId === selected.id ? (
+                    <div className="w-full">
+                      <ConfirmPanel
+                        message="Cancel this appointment? It will move to the Canceled tab for everyone."
+                        yesLabel="Yes, cancel appointment"
+                        noLabel="Keep scheduled"
+                        yesEmphasis
+                        onYes={() => void handleCancel(selected.id)}
+                        onNo={() => setCancelConfirmId("")}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setCancelConfirmId(selected.id)}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
+                    >
+                      Cancel appointment
+                    </button>
+                  )}
                 </div>
               )}
             </div>

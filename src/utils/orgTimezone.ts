@@ -29,11 +29,12 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
+function wallParts(d: Date, timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatPart[] {
+  return new Intl.DateTimeFormat(ORG_LOCALE, { timeZone, ...options }).formatToParts(d);
+}
+
 function orgParts(d: Date, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatPart[] {
-  return new Intl.DateTimeFormat(ORG_LOCALE, {
-    timeZone: getActiveTimezone(),
-    ...options,
-  }).formatToParts(d);
+  return wallParts(d, getActiveTimezone(), options);
 }
 
 function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
@@ -87,10 +88,10 @@ export function toDatetimeLocalValue(iso: string): string {
 
 type WallTime = { year: number; month: number; day: number; hour: number; minute: number };
 
-function wallTimeInOrg(ms: number): WallTime | null {
+function wallTimeInZone(ms: number, timeZone: string): WallTime | null {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return null;
-  const parts = orgParts(d, {
+  const parts = wallParts(d, timeZone, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -107,6 +108,11 @@ function wallTimeInOrg(ms: number): WallTime | null {
   };
 }
 
+/** Org system wall time (Europe/Athens) — used for recurrence regardless of user display timezone. */
+export function wallTimeAtOrgSystem(ms: number): WallTime | null {
+  return wallTimeInZone(ms, ORG_TIMEZONE);
+}
+
 function cmpWall(a: WallTime, b: WallTime): number {
   if (a.year !== b.year) return a.year - b.year;
   if (a.month !== b.month) return a.month - b.month;
@@ -115,8 +121,8 @@ function cmpWall(a: WallTime, b: WallTime): number {
   return a.minute - b.minute;
 }
 
-/** Parse a datetime-local value (active timezone wall time) to UTC ISO. */
-export function datetimeLocalToIso(local: string): string {
+/** Parse a datetime-local value (wall time in `timeZone`) to UTC ISO. */
+export function datetimeLocalToIsoInZone(local: string, timeZone: string): string {
   const trimmed = local.trim();
   if (!trimmed) return "";
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(trimmed);
@@ -137,7 +143,7 @@ export function datetimeLocalToIso(local: string): string {
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const w = wallTimeInOrg(mid);
+    const w = wallTimeInZone(mid, timeZone);
     if (!w) return "";
     const c = cmpWall(w, target);
     if (c === 0) return new Date(mid).toISOString();
@@ -145,6 +151,17 @@ export function datetimeLocalToIso(local: string): string {
     else high = mid - 1;
   }
   return "";
+}
+
+/** UTC ISO from org system wall clock (recurrence / org scheduling). */
+export function isoFromOrgSystemWall(w: WallTime): string {
+  const local = `${w.year}-${pad2(w.month)}-${pad2(w.day)}T${pad2(w.hour)}:${pad2(w.minute)}`;
+  return datetimeLocalToIsoInZone(local, ORG_TIMEZONE);
+}
+
+/** Parse a datetime-local value (active timezone wall time) to UTC ISO. */
+export function datetimeLocalToIso(local: string): string {
+  return datetimeLocalToIsoInZone(local, getActiveTimezone());
 }
 
 export function orgWeekday(year: number, monthIndex: number, day: number): number {
@@ -162,12 +179,45 @@ export function orgYmdAddDays(
   year: number,
   monthIndex: number,
   day: number,
-  delta: number
+  delta: number,
+  timeZone: string = getActiveTimezone()
 ): { year: number; monthIndex: number; day: number } {
-  const iso = datetimeLocalToIso(`${year}-${pad2(monthIndex + 1)}-${pad2(day)}T12:00`);
+  const iso = datetimeLocalToIsoInZone(
+    `${year}-${pad2(monthIndex + 1)}-${pad2(day)}T12:00`,
+    timeZone
+  );
   const ms = new Date(iso).getTime() + delta * 86400000;
-  const [y, m, d] = orgDateKey(ms).split("-").map(Number);
+  const parts = wallParts(new Date(ms), timeZone, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const y = Number(part(parts, "year"));
+  const m = Number(part(parts, "month"));
+  const d = Number(part(parts, "day"));
   return { year: y, monthIndex: m - 1, day: d };
+}
+
+function lastDayOfOrgMonthYear(year: number, monthIndex: number, timeZone: string): number {
+  if (monthIndex === 11) {
+    return orgYmdAddDays(year + 1, 0, 1, -1, timeZone).day;
+  }
+  return orgYmdAddDays(year, monthIndex + 1, 1, -1, timeZone).day;
+}
+
+/** Add calendar months in org system time (monthIndex 0 = January). */
+export function orgYmdAddMonths(
+  year: number,
+  monthIndex: number,
+  day: number,
+  deltaMonths: number,
+  timeZone: string = ORG_TIMEZONE
+): { year: number; monthIndex: number; day: number } {
+  const total = year * 12 + monthIndex + deltaMonths;
+  const newYear = Math.floor(total / 12);
+  const newMonthIndex = ((total % 12) + 12) % 12;
+  const lastDay = lastDayOfOrgMonthYear(newYear, newMonthIndex, timeZone);
+  return { year: newYear, monthIndex: newMonthIndex, day: Math.min(day, lastDay) };
 }
 
 export function addDaysToOrgDateKey(dateKey: string, days: number): string {
