@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Person } from "../types";
-import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { TEAM_DEPARTMENTS, departmentPickerChipClass } from "../types";
 import { useI18n } from "../contexts/I18nContext";
 import { translateDepartment } from "../i18n/helpers";
 
@@ -148,7 +148,7 @@ export function NotifyRecipientPicker({
                       className="rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentPickerChipClass(d, departmentIds.includes(d))}`}
                     >
                       {translateDepartment(locale, d)}
                     </span>

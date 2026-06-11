@@ -3,7 +3,7 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import type { Person, Project, Task } from "../types";
-import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { TEAM_DEPARTMENTS, departmentChipClass, departmentPickerChipClass } from "../types";
 import { isTaskOpen } from "../utils/personTaskStats";
 import { orgTodayDateKey } from "../utils/orgTimezone";
 import {
@@ -13,8 +13,9 @@ import {
 } from "../utils/projectColors";
 import { NewTaskForm, PriorityUrgencyIcon } from "./TasksTab";
 import { ConfirmPanel } from "./TaskWorkerActions";
+import { MobileDetailBack } from "./MobileDetailBack";
 import { useI18n, useT } from "../contexts/I18nContext";
-import { translatePriority, translateTaskStatus } from "../i18n/helpers";
+import { translatePriority, translateTaskStatus, translateDepartment } from "../i18n/helpers";
 
 function ProjectDepartmentPicker({
   value,
@@ -24,6 +25,7 @@ function ProjectDepartmentPicker({
   onChange: (departments: string[]) => void;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const selected = value.filter((d) => TEAM_DEPARTMENTS.includes(d as (typeof TEAM_DEPARTMENTS)[number]));
   return (
     <div className="space-y-2">
@@ -39,10 +41,10 @@ function ProjectDepartmentPicker({
                 onChange(active ? selected.filter((d) => d !== dept) : [...selected, dept])
               }
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-                active ? departmentChipClass(dept) : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
+                departmentPickerChipClass(dept, active)
               }`}
             >
-              {dept}
+              {translateDepartment(locale, dept)}
             </button>
           );
         })}
@@ -117,8 +119,6 @@ function SidebarSectionHeader({
 
 const PROJECTS_VIEW_DEFAULTS = {
   selectedId: "",
-  openSectionExpanded: false,
-  completeSectionExpanded: false,
 };
 
 const PROJECTS_CREATE_DRAFT_KEY = "projects:create";
@@ -162,7 +162,10 @@ export function ProjectsTab({
   onCreateProject: (payload: Omit<Project, "id" | "createdAt" | "completed">) => void | Promise<void>;
   onUpdateProject: (id: string, patch: Partial<Project>) => void | Promise<void>;
   onRemoveProject: (id: string) => void | Promise<void>;
-  onAddTask: (t: Omit<Task, "id" | "createdAt">) => void | Promise<string | void>;
+  onAddTask: (
+    t: Omit<Task, "id" | "createdAt">,
+    options?: { taskId?: string }
+  ) => void | Promise<string | void>;
   onOpenTask: (taskId: string) => void;
 }) {
   const t = useT();
@@ -190,12 +193,10 @@ export function ProjectsTab({
   const [createDepartments, setCreateDepartments] = useState<string[]>(
     () => savedCreate?.data.departments ?? []
   );
-  const [openSectionExpanded, setOpenSectionExpanded] = useState(() => saved.openSectionExpanded);
-  const [completeSectionExpanded, setCompleteSectionExpanded] = useState(
-    () => saved.completeSectionExpanded
-  );
+  const [openSectionExpanded, setOpenSectionExpanded] = useState(true);
+  const [completeSectionExpanded, setCompleteSectionExpanded] = useState(false);
 
-  usePersistedTabState("projects", { selectedId, openSectionExpanded, completeSectionExpanded });
+  usePersistedTabState("projects", { selectedId });
 
   const createDraftData: ProjectCreateDraft = {
     name: createName,
@@ -250,13 +251,6 @@ export function ProjectsTab({
     setEditing(false);
     setShowTaskForm(false);
   }, [selectedId]);
-
-  useEffect(() => {
-    const p = projects.find((x) => x.id === selectedId);
-    if (!p) return;
-    if (p.completed) setCompleteSectionExpanded(true);
-    else setOpenSectionExpanded(true);
-  }, [selectedId, projects]);
 
   const projectTasks = useMemo(() => {
     if (!selected) return [];
@@ -344,7 +338,7 @@ export function ProjectsTab({
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,300px)_1fr]">
-      <aside className="space-y-3">
+      <aside className={`space-y-3 ${selected ? "hidden lg:block" : ""}`}>
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-display text-base font-semibold text-slate-900">{t("projects.title")}</h2>
           {canManageProjects && (
@@ -498,6 +492,7 @@ export function ProjectsTab({
 
       {selected ? (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <MobileDetailBack onBack={() => setSelectedId("")} />
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {editing ? (
@@ -553,13 +548,13 @@ export function ProjectsTab({
                           key={d}
                           className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
                         >
-                          {d}
+                          {translateDepartment(locale, d)}
                         </span>
                       ))}
                     </div>
-                  ) : canManageProjects ? (
-                    <p className="mt-2 text-xs text-slate-500">{t("projects.foundersOnlyHint")}</p>
-                  ) : null}
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">{t("projects.orgWideHint")}</p>
+                  )}
                 </>
               )}
             </div>
@@ -650,8 +645,8 @@ export function ProjectsTab({
                 lockProject
                 draftKey={projectTaskDraftKey(selected.id)}
                 formOpen={showTaskForm}
-                onSubmit={async (payload) => {
-                  await onAddTask(payload);
+                onSubmit={async (payload, { taskId }) => {
+                  await onAddTask(payload, { taskId });
                   clearFormDraft(projectTaskDraftKey(selected.id));
                   clearFormDraft(PROJECTS_TASK_FORM_KEY);
                   setShowTaskForm(false);
@@ -701,7 +696,7 @@ export function ProjectsTab({
           </div>
         </section>
       ) : (
-        <div className="glass-strong flex min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500">
+        <div className="glass-strong hidden min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500 lg:flex">
           —
         </div>
       )}

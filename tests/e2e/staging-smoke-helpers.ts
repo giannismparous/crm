@@ -29,7 +29,7 @@ export function futureDatetimeLocal(daysAhead = 14, hour = 10): string {
 
 export async function assignNewTaskToDepartment(page: Page, dept: string) {
   const form = page.locator("form").filter({ hasText: el.newTask });
-  await form.getByRole("button").filter({ hasText: /Ανοιχτ|Μηχανική|Πωλήσεις|άτομα|τμήμα|Open|Engineering|Sales|people|dept/ }).first().click();
+  await form.getByRole("button").filter({ hasText: /Ανοιχτ|Αρχιτεκτονική|Πωλήσεις|άτομα|τμήμα|Open|Engineering|Sales|people|dept/ }).first().click();
   const listbox = page.getByRole("listbox", { name: el.chooseAssignees });
   const deptLabel = dept === "Engineering" ? el.deptEngineering : dept === "Sales" ? el.deptSales : dept;
   await listbox.getByRole("checkbox", { name: deptLabel, exact: true }).check();

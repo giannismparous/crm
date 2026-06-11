@@ -2,13 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { X, Copy, Check, Sun, Moon, Type, ChevronDown } from "lucide-react";
 import { SEED_ASSIGNABLE_ROLES, type OrgRole } from "../auth/roles";
 import { APP_LOCALES, LOCALE_LABELS, useI18n, useT } from "../contexts/I18nContext";
-import type { TFunction } from "../i18n/helpers";
 import { translateDepartment, translateRole } from "../i18n/helpers";
 import { InfoTooltip } from "./InfoTooltip";
 import { RoleInfoTip } from "./RoleInfoTip";
 import type { CreateRegistrationSeedInput, Person, RegistrationSeed } from "../types";
 import { PARTNER_ACCOUNT_MONTH_OPTIONS, SEED_VALID_DAYS_MAX, isSeedExpired } from "../utils/accountExpiry";
-import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { TEAM_DEPARTMENTS, departmentPickerChipClass } from "../types";
 import { formatInOrgTime } from "../utils/orgTimezone";
 import { useAppearance } from "../hooks/useAppearance";
 import type { useTimezone } from "../hooks/useTimezone";
@@ -32,13 +31,6 @@ function formatWhen(iso: string): string {
     minute: "2-digit",
   });
   return formatted || iso;
-}
-
-function seedCodeExpiryText(t: TFunction, used: boolean, expiresAt: string): string {
-  const date = formatWhen(expiresAt);
-  if (used) return `${t("settings.seeds.codeWasValid")} ${date}`;
-  const codeLabel = t("settings.seeds.codeWasValid").replace(/\s+(was valid until|ήταν έγκυρος έως)$/u, "");
-  return `${codeLabel} ${t("settings.seeds.codeExpires")} ${date}`;
 }
 
 function SectionInfoTip({ text, label }: { text: string; label: string }) {
@@ -181,7 +173,7 @@ function SeedDepartmentPicker({
               onChange(active ? selected.filter((d) => d !== dept) : [...selected, dept])
             }
             className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-              active ? departmentChipClass(dept) : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
+              departmentPickerChipClass(dept, active)
             }`}
           >
             {translateDepartment(locale, dept)}
@@ -235,7 +227,9 @@ export function SettingsModal({
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [lastCode, setLastCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedSeedId, setCopiedSeedId] = useState<string | null>(null);
   const [codesExpanded, setCodesExpanded] = useState(false);
+  const [partnerOptionsExpanded, setPartnerOptionsExpanded] = useState(false);
 
   const sortedSeeds = useMemo(
     () => [...seeds].sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
@@ -270,15 +264,28 @@ export function SettingsModal({
     }
   }
 
-  async function copyCode() {
-    if (!lastCode) return;
+  async function copySeedText(code: string, onCopied?: () => void) {
     try {
-      await navigator.clipboard.writeText(lastCode);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(code);
+      onCopied?.();
     } catch {
       setMessage({ text: t("settings.seeds.copyFailed"), error: true });
     }
+  }
+
+  async function copyCode() {
+    if (!lastCode) return;
+    await copySeedText(lastCode, () => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  async function copyIssuedSeedCode(seedId: string) {
+    await copySeedText(seedId, () => {
+      setCopiedSeedId(seedId);
+      window.setTimeout(() => setCopiedSeedId(null), 2000);
+    });
   }
 
   const fontScalePct = Math.round(fontScale * 100);
@@ -320,35 +327,49 @@ export function SettingsModal({
               <label className="block text-xs font-medium text-slate-600 settings-muted">
                 {t("settings.seeds.role")}
                 <div className="mt-1">
-                  <RoleSelect value={seedRole} onChange={setSeedRole} />
+                  <RoleSelect
+                    value={seedRole}
+                    onChange={(role) => {
+                      setSeedRole(role);
+                      if (role !== "partner") setPartnerOptionsExpanded(false);
+                    }}
+                  />
                 </div>
               </label>
 
               {seedRole === "partner" && (
                 <div>
-                  <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">
-                    {t("settings.seeds.departments")}
-                  </span>
-                  <SeedDepartmentPicker value={seedDepartments} onChange={setSeedDepartments} />
-                </div>
-              )}
-
-              {seedRole === "partner" && (
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                  <span className="shrink-0 text-xs font-medium text-slate-600 settings-muted">
-                    {t("settings.seeds.accountAccess")}
-                  </span>
-                  <select
-                    value={accountValidMonths}
-                    onChange={(e) => setAccountValidMonths(Number(e.target.value))}
-                    className="input-base !inline-block !w-auto max-w-full cursor-pointer whitespace-nowrap py-1.5 pl-3 pr-10 text-sm"
-                  >
-                    {PARTNER_ACCOUNT_MONTH_OPTIONS.map((months) => (
-                      <option key={months} value={months}>
-                        {t("common.month", { count: months })}
-                      </option>
-                    ))}
-                  </select>
+                  <CollapseHeader
+                    title={t("settings.seeds.partnerOptions")}
+                    expanded={partnerOptionsExpanded}
+                    onToggle={() => setPartnerOptionsExpanded((v) => !v)}
+                  />
+                  {partnerOptionsExpanded && (
+                    <div className="mt-2 space-y-3 pl-1">
+                      <div>
+                        <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">
+                          {t("settings.seeds.departments")}
+                        </span>
+                        <SeedDepartmentPicker value={seedDepartments} onChange={setSeedDepartments} />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                        <span className="shrink-0 text-xs font-medium text-slate-600 settings-muted">
+                          {t("settings.seeds.accountAccess")}
+                        </span>
+                        <select
+                          value={accountValidMonths}
+                          onChange={(e) => setAccountValidMonths(Number(e.target.value))}
+                          className="input-base !inline-block !w-auto max-w-full cursor-pointer whitespace-nowrap py-1.5 pl-3 pr-10 text-sm"
+                        >
+                          {PARTNER_ACCOUNT_MONTH_OPTIONS.map((months) => (
+                            <option key={months} value={months}>
+                              {t("common.month", { count: months })}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -393,7 +414,28 @@ export function SettingsModal({
                   <ul className="mt-1 space-y-1.5 pl-1 text-xs text-slate-600">
                     {sortedSeeds.map((s) => (
                       <li key={s.id} className="settings-card rounded-xl border border-slate-200 bg-white px-3 py-2">
-                        <p className="font-mono text-[10px] text-slate-400">{s.id.slice(0, 8)}…</p>
+                        {!s.used && !isSeedExpired(s) ? (
+                          <div className="flex items-start gap-2">
+                            <code className="min-w-0 flex-1 break-all font-mono text-[10px] text-slate-700">
+                              {s.id}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => void copyIssuedSeedCode(s.id)}
+                              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-100"
+                              title={t("settings.seeds.copyCode")}
+                            >
+                              {copiedSeedId === s.id ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                              {copiedSeedId === s.id ? t("common.copied") : t("common.copy")}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="font-mono text-[10px] text-slate-400">{s.id.slice(0, 8)}…</p>
+                        )}
                         <p className="mt-0.5 text-slate-800">{translateRole(locale, s.orgRole)}</p>
                         {s.orgRole === "partner" && (
                           <p className="mt-0.5 text-slate-600 settings-muted">
@@ -406,10 +448,6 @@ export function SettingsModal({
                             ? seedPersonLabel(people, s.usedById ?? "", s.usedByEmail ?? "", t("common.unknown"))
                             : t("settings.seeds.unclaimed")}{" "}
                           · {formatWhen(s.issuedAt)}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-slate-500 settings-muted">
-                          {seedCodeExpiryText(t, s.used, s.expiresAt)}
-                          {!s.used && isSeedExpired(s) ? ` · ${t("settings.seeds.expired")}` : ""}
                         </p>
                         {s.orgRole === "partner" && s.accountValidMonths ? (
                           <p className="mt-0.5 text-[10px] text-slate-500 settings-muted">

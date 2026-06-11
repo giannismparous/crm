@@ -67,6 +67,18 @@ describe.skipIf(!emulatorUp && allowSkip)("partner task list with cross-dept dat
       assigneeIds: [],
       assigneeDepartmentIds: ["Sales"],
     });
+    await seedDoc(`organizations/${ORG}/tasks/task-general`, {
+      ...taskBase,
+      title: "General task",
+      assigneeIds: [],
+      assigneeDepartmentIds: ["General"],
+    });
+    await seedDoc(`organizations/${ORG}/tasks/task-open`, {
+      ...taskBase,
+      title: "Open task",
+      assigneeIds: [],
+      assigneeDepartmentIds: [],
+    });
 
     const engDb = await authedDb(ENG);
     const founderDb = await authedDb(FOUNDER);
@@ -78,6 +90,8 @@ describe.skipIf(!emulatorUp && allowSkip)("partner task list with cross-dept dat
       for (const d of snap.docs) engIds.add(d.id);
     }
     expect(engIds.has("task-eng")).toBe(true);
+    expect(engIds.has("task-general")).toBe(true);
+    expect(engIds.has("task-open")).toBe(true);
     expect(engIds.has("task-sales")).toBe(false);
 
     const founderSnap = await getDocs(collection(founderDb, `organizations/${ORG}/tasks`));

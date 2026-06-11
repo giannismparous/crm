@@ -58,10 +58,14 @@ export async function loadOrgContext(db: Firestore): Promise<OrgContext> {
   return { people, projects };
 }
 
+function projectOrgWide(departmentIds: string[] | undefined): boolean {
+  const depts = normalizeDepts(departmentIds);
+  return depts.length === 0 || depts.includes("General");
+}
+
 function projectVisibleToPartner(project: CrmProject, person: CrmPerson): boolean {
-  const depts = normalizeDepts(project.departmentIds);
-  if (depts.length === 0) return false;
-  return departmentsOverlap(depts, person.departments ?? []);
+  if (projectOrgWide(project.departmentIds)) return true;
+  return departmentsOverlap(normalizeDepts(project.departmentIds), person.departments ?? []);
 }
 
 function personForAuthUid(ctx: OrgContext, uid: string): CrmPerson | undefined {
@@ -71,6 +75,11 @@ function personForAuthUid(ctx: OrgContext, uid: string): CrmPerson | undefined {
     if (person.authUid === uid) return person;
   }
   return undefined;
+}
+
+function taskOrgWide(task: CrmTask): boolean {
+  const depts = normalizeDepts(task.assigneeDepartmentIds);
+  return depts.length === 0 || depts.includes("General");
 }
 
 function taskVisibleToUser(
@@ -86,10 +95,12 @@ function taskVisibleToUser(
     return true;
   }
 
+  const projectId = String(task.projectId ?? "").trim();
+  if (taskOrgWide(task) && !projectId) return true;
+
   const taskDepts = normalizeDepts(task.assigneeDepartmentIds);
   if (departmentsOverlap(taskDepts, person.departments ?? [])) return true;
 
-  const projectId = String(task.projectId ?? "").trim();
   if (projectId) {
     const project = ctx.projects.get(projectId);
     if (project && projectVisibleToPartner(project, person)) return true;

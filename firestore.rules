@@ -20,25 +20,35 @@ service cloud.firestore {
       return orgPerson(orgId).data.get('departments', []);
     }
 
+    function projectOrgWide(data) {
+      let depts = data.get('departmentIds', []);
+      return depts.size() == 0 || depts.hasAny(['General']);
+    }
+
     function projectDeptOverlap(orgId, projectId) {
       let p = get(/databases/$(database)/documents/organizations/$(orgId)/projects/$(projectId)).data;
-      return p.get('departmentIds', []).hasAny(viewerDepts(orgId));
+      return projectOrgWide(p)
+        || p.get('departmentIds', []).hasAny(viewerDepts(orgId));
+    }
+
+    function taskOrgWide(data) {
+      let depts = data.get('assigneeDepartmentIds', []);
+      return depts.size() == 0 || depts.hasAny(['General']);
     }
 
     function taskPartnerCanRead(orgId) {
       let t = resource.data;
+      let hasProject = t.keys().hasAll(['projectId'])
+        && t.projectId is string
+        && t.projectId != '';
       return t.assigneeIds.hasAny([request.auth.uid])
+        || (taskOrgWide(t) && !hasProject)
         || t.get('assigneeDepartmentIds', []).hasAny(viewerDepts(orgId))
-        || (t.keys().hasAll(['projectId'])
-            && t.projectId is string
-            && t.projectId != ''
-            && projectDeptOverlap(orgId, t.projectId));
+        || (hasProject && projectDeptOverlap(orgId, t.projectId));
     }
 
     function taskPartnerCanCreate(orgId) {
-      let t = request.resource.data;
-      return t.assigneeIds.hasAny([request.auth.uid])
-        || t.get('assigneeDepartmentIds', []).hasAny(viewerDepts(orgId));
+      return signedIn();
     }
 
     function appointmentPartnerCanRead(orgId) {
@@ -49,10 +59,7 @@ service cloud.firestore {
     }
 
     function appointmentPartnerCanCreate(orgId) {
-      let a = request.resource.data;
-      return a.createdById == request.auth.uid
-        || a.participantIds.hasAny([request.auth.uid])
-        || a.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+      return signedIn();
     }
 
     function reminderPartnerCanRead(orgId) {
@@ -63,10 +70,7 @@ service cloud.firestore {
     }
 
     function reminderPartnerCanCreate(orgId) {
-      let r = request.resource.data;
-      return r.get('ownerId', '') == request.auth.uid
-        || r.get('participantIds', []).hasAny([request.auth.uid])
-        || r.get('participantDepartmentIds', []).hasAny(viewerDepts(orgId));
+      return signedIn();
     }
 
     function registrationSeedRef(orgId, seedId) {
@@ -130,12 +134,8 @@ service cloud.firestore {
     }
 
     match /organizations/{orgId}/people/{personId} {
-      allow read: if signedIn()
-        && (
-          isFounder(orgId)
-          || personId == request.auth.uid
-          || resource.data.get('departments', []).hasAny(viewerDepts(orgId))
-        );
+      // Team directory — any signed-in member can browse all teammates.
+      allow read: if signedIn();
       allow create: if signedIn()
         && personId == request.auth.uid
         && (registrationPersonCreate(orgId, personId) || founderPersonCreate(personId));
@@ -158,6 +158,7 @@ service cloud.firestore {
       allow read: if signedIn()
         && (
           isFounder(orgId)
+          || projectOrgWide(resource.data)
           || resource.data.get('departmentIds', []).hasAny(viewerDepts(orgId))
         );
       allow create, update, delete: if isFounder(orgId);
@@ -177,12 +178,16 @@ service cloud.firestore {
       allow delete: if signedIn() && (isFounder(orgId) || reminderPartnerCanRead(orgId));
     }
 
+    function salesPartnerCanAccessContacts(orgId) {
+      return !isFounder(orgId) && viewerDepts(orgId).hasAny(['Sales']);
+    }
+
     match /organizations/{orgId}/contacts/{contactId} {
-      allow read, write: if isFounder(orgId);
+      allow read, write: if isFounder(orgId) || salesPartnerCanAccessContacts(orgId);
     }
 
     match /organizations/{orgId}/contacts/{contactId}/reminders/{reminderId} {
-      allow read, write: if isFounder(orgId);
+      allow read, write: if isFounder(orgId) || salesPartnerCanAccessContacts(orgId);
     }
 
     match /organizations/{orgId}/notifications/{notificationId} {

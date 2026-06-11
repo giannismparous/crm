@@ -545,8 +545,11 @@ export async function createNotificationsForNewMember(
       authorId: memberId,
       authorName: fullName,
       bodyPreview: deptLabel
-        ? translate(locale, "data.member.joinPreview", { role: roleLabel, departments: deptLabel })
-        : roleLabel,
+        ? `${translate(locale, "data.member.joinWelcome")} · ${translate(locale, "data.member.joinDetail", {
+            role: roleLabel,
+            departments: deptLabel,
+          })}`
+        : `${translate(locale, "data.member.joinWelcome")} · ${roleLabel}`,
       read: false,
       createdAt,
     });

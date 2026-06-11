@@ -1,5 +1,5 @@
 import type { OrgRole } from "./auth/roles";
-import { translateDepartment } from "./i18n/helpers";
+import { normalizeDepartmentId, translateDepartment } from "./i18n/helpers";
 import { loadLocale } from "./i18n/localeStorage";
 import { translate } from "./i18n/translate";
 
@@ -71,10 +71,12 @@ export type CreateRegistrationSeedInput = {
 
 export function normalizeDepartments(value: unknown, legacySingle?: unknown): string[] {
   if (Array.isArray(value)) {
-    const list = [...new Set(value.map((x) => String(x).trim()).filter(Boolean))];
+    const list = [
+      ...new Set(value.map((x) => normalizeDepartmentId(String(x).trim())).filter(Boolean)),
+    ];
     if (list.length > 0) return list;
   }
-  const legacy = String(legacySingle ?? value ?? "").trim();
+  const legacy = normalizeDepartmentId(String(legacySingle ?? value ?? "").trim());
   return legacy ? [legacy] : [];
 }
 
@@ -126,8 +128,35 @@ export const DEPARTMENT_CHIP_CLASS: Record<string, string> = {
   General: "bg-slate-400/22 text-slate-800 ring-1 ring-slate-500/35",
 };
 
+/** Muted tint per department — unselected picker chips stay recognizable. */
+export const DEPARTMENT_CHIP_INACTIVE_CLASS: Record<string, string> = {
+  Sales: "bg-amber-400/14 text-amber-950/85 ring-1 ring-amber-500/28 hover:bg-amber-400/22",
+  Marketing: "bg-fuchsia-400/12 text-fuchsia-950/85 ring-1 ring-fuchsia-500/25 hover:bg-fuchsia-400/20",
+  Product: "bg-violet-400/12 text-violet-950/85 ring-1 ring-violet-500/25 hover:bg-violet-400/20",
+  Engineering: "bg-sky-400/14 text-sky-950/85 ring-1 ring-sky-500/30 hover:bg-sky-400/22",
+  Operations: "bg-teal-400/14 text-teal-950/85 ring-1 ring-teal-500/28 hover:bg-teal-400/22",
+  Finance: "bg-emerald-400/12 text-emerald-950/85 ring-1 ring-emerald-500/25 hover:bg-emerald-400/20",
+  Legal: "bg-slate-500/12 text-slate-900/85 ring-1 ring-slate-600/28 hover:bg-slate-500/18",
+  General: "bg-slate-400/14 text-slate-800/85 ring-1 ring-slate-500/28 hover:bg-slate-400/22",
+};
+
+const DEPARTMENT_CHIP_FALLBACK =
+  "bg-slate-400/22 text-slate-800 ring-1 ring-slate-500/35";
+const DEPARTMENT_CHIP_INACTIVE_FALLBACK =
+  "bg-slate-400/14 text-slate-800/85 ring-1 ring-slate-500/28 hover:bg-slate-400/22";
+
 export function departmentChipClass(department: string): string {
-  return DEPARTMENT_CHIP_CLASS[department] ?? "bg-slate-400/22 text-slate-800 ring-1 ring-slate-500/35";
+  const id = normalizeDepartmentId(department);
+  return DEPARTMENT_CHIP_CLASS[id] ?? DEPARTMENT_CHIP_FALLBACK;
+}
+
+/** Toggle chips (seed dept, project visibility, assignee dept) — selected state is obvious. */
+export function departmentPickerChipClass(department: string, selected: boolean): string {
+  const id = normalizeDepartmentId(department);
+  if (selected) {
+    return `${DEPARTMENT_CHIP_CLASS[id] ?? DEPARTMENT_CHIP_FALLBACK} ring-2 ring-offset-1 shadow-sm`;
+  }
+  return DEPARTMENT_CHIP_INACTIVE_CLASS[id] ?? DEPARTMENT_CHIP_INACTIVE_FALLBACK;
 }
 
 export type TabId =

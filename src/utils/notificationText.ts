@@ -63,11 +63,14 @@ export function notificationHeadline(n: AppNotification): string {
 export function notificationTaskLine(n: AppNotification): string {
   const locale = loadLocale();
   if (n.kind === "member_joined") {
-    return (
-      n.bodyPreview.trim() ||
-      n.mentionLabel?.trim() ||
-      translate(locale, "notifications.line.newTeammate")
-    );
+    const welcome = translate(locale, "data.member.joinWelcome");
+    const preview = n.bodyPreview.trim();
+    if (!preview) return welcome;
+    const parts = preview.split("·").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return `${welcome} · ${parts.slice(1).join(" · ")}`;
+    }
+    return `${welcome} · ${preview}`;
   }
   if (n.kind === "chat_message") {
     return n.taskTitle.trim() || translate(locale, "notifications.line.conversation");

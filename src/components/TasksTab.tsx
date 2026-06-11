@@ -18,7 +18,7 @@ import { reportActionError } from "../utils/actionFeedback";
 import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTaskStats";
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
-import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { TEAM_DEPARTMENTS, departmentPickerChipClass } from "../types";
 import {
   PERSON_AVATAR_INLINE_SIZE,
   PersonAvatarStack,
@@ -27,8 +27,10 @@ import {
 } from "./PersonAvatar";
 import { TaskCommentsSection } from "./TaskCommentsSection";
 import { TaskUpdatesSection } from "./TaskUpdatesSection";
+import { BufferedTextInput } from "./BufferedTextInput";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 import { richTextHasContent } from "../utils/richTextImages";
+import { newTaskDocId } from "../firebase/firestoreIds";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "../utils/sanitizeRichText";
 import {
   mergedTaskUpdatesPlainText,
@@ -57,7 +59,7 @@ import {
   UNASSIGNED_PROJECT_ID,
 } from "../utils/projectColors";
 import { useI18n, useT } from "../contexts/I18nContext";
-import { translatePriority } from "../i18n/helpers";
+import { translatePriority, translateDepartment, departmentMatchesSearch } from "../i18n/helpers";
 
 const PRIORITY_ORDER: TaskPriority[] = ["urgent", "high", "medium", "low"];
 
@@ -73,6 +75,7 @@ type NewTaskDraftData = {
   dueDate: string;
   priority: TaskPriority;
   projectId: string;
+  draftTaskId: string;
 };
 
 function isNewTaskDraftEmpty(data: NewTaskDraftData): boolean {
@@ -425,6 +428,7 @@ function AssigneeNamesForFooter({
   currentUserId: string;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) {
     return <span className="font-medium text-slate-500">{t("common.open")}</span>;
   }
@@ -447,7 +451,7 @@ function AssigneeNamesForFooter({
                 ,{" "}
               </span>
             )}
-            <span className="font-medium text-violet-900">{dept}</span>
+            <span className="font-medium text-violet-900">{translateDepartment(locale, dept)}</span>
             <span className="text-slate-500"> {t("common.deptSuffix")}</span>
           </span>
         ))}
@@ -473,6 +477,7 @@ function InvolvedFilterMultiSelect({
   onChangeDepartments: (ids: string[]) => void;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -491,10 +496,8 @@ function InvolvedFilterMultiSelect({
     [people, search]
   );
   const filteredDepts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [...TEAM_DEPARTMENTS];
-    return TEAM_DEPARTMENTS.filter((d) => d.toLowerCase().includes(q));
-  }, [search]);
+    return TEAM_DEPARTMENTS.filter((d) => departmentMatchesSearch(d, search, locale));
+  }, [search, locale]);
 
   function togglePerson(id: string) {
     onChangePeople(personIds.includes(id) ? personIds.filter((x) => x !== id) : [...personIds, id]);
@@ -512,10 +515,10 @@ function InvolvedFilterMultiSelect({
     if (personIds.length === 1) {
       bits.push(people.find((p) => p.id === personIds[0])?.name ?? t("common.onePerson"));
     } else if (personIds.length > 1) bits.push(t("common.nPeople", { count: personIds.length }));
-    if (departmentIds.length === 1) bits.push(departmentIds[0]!);
+    if (departmentIds.length === 1) bits.push(translateDepartment(locale, departmentIds[0]!));
     else if (departmentIds.length > 1) bits.push(t("common.nDepts", { count: departmentIds.length }));
     return bits.join(", ");
-  }, [personIds, departmentIds, people, t]);
+  }, [personIds, departmentIds, people, locale, t]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -586,9 +589,9 @@ function InvolvedFilterMultiSelect({
                       className="rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(dept)}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentPickerChipClass(dept, departmentIds.includes(dept))}`}
                     >
-                      {dept}
+                      {translateDepartment(locale, dept)}
                     </span>
                   </label>
                 ))}
@@ -628,6 +631,7 @@ function AssigneeMultiSelect({
   onChange: (assigneeIds: string[], assigneeDepartmentIds: string[]) => void;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -646,10 +650,8 @@ function AssigneeMultiSelect({
     [people, search]
   );
   const filteredDepts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [...TEAM_DEPARTMENTS];
-    return TEAM_DEPARTMENTS.filter((d) => d.toLowerCase().includes(q));
-  }, [search]);
+    return TEAM_DEPARTMENTS.filter((d) => departmentMatchesSearch(d, search, locale));
+  }, [search, locale]);
 
   function togglePerson(id: string) {
     if (assigneeIds.includes(id)) onChange(assigneeIds.filter((x) => x !== id), assigneeDepartmentIds);
@@ -668,10 +670,10 @@ function AssigneeMultiSelect({
     if (assigneeIds.length === 1) {
       bits.push(people.find((p) => p.id === assigneeIds[0])?.name ?? t("common.onePerson"));
     } else if (assigneeIds.length > 1) bits.push(t("common.nPeople", { count: assigneeIds.length }));
-    if (assigneeDepartmentIds.length === 1) bits.push(assigneeDepartmentIds[0]!);
+    if (assigneeDepartmentIds.length === 1) bits.push(translateDepartment(locale, assigneeDepartmentIds[0]!));
     else if (assigneeDepartmentIds.length > 1) bits.push(t("common.nDepts", { count: assigneeDepartmentIds.length }));
     return bits.join(", ");
-  }, [assigneeIds, assigneeDepartmentIds, people, t]);
+  }, [assigneeIds, assigneeDepartmentIds, people, locale, t]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -739,9 +741,9 @@ function AssigneeMultiSelect({
                       className="rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentPickerChipClass(d, assigneeDepartmentIds.includes(d))}`}
                     >
-                      {d}
+                      {translateDepartment(locale, d)}
                     </span>
                   </label>
                 ))}
@@ -786,7 +788,10 @@ export function TasksTab({
   people: Person[];
   projects: Project[];
   tasks: Task[];
-  onAddTask: (t: Omit<Task, "id" | "createdAt">) => Promise<string | void>;
+  onAddTask: (
+    t: Omit<Task, "id" | "createdAt">,
+    options?: { taskId?: string }
+  ) => Promise<string | void>;
   onUpdateTask: (
     id: string,
     patch: Partial<Task>,
@@ -927,8 +932,8 @@ export function TasksTab({
     return { openTasks, overdue, completed, canceled };
   }, [tasks]);
 
-  async function addTask(payload: Omit<Task, "id" | "createdAt">) {
-    await onAddTask(payload);
+  async function addTask(payload: Omit<Task, "id" | "createdAt">, options?: { taskId?: string }) {
+    await onAddTask(payload, options);
     clearFormDraft(TASKS_NEW_DRAFT_KEY);
     setShowForm(false);
   }
@@ -968,7 +973,7 @@ export function TasksTab({
             currentUserId={currentUserId}
             draftKey={TASKS_NEW_DRAFT_KEY}
             formOpen={showForm}
-            onSubmit={(p) => void addTask(p)}
+            onSubmit={(p, opts) => void addTask(p, opts)}
           />
         </>
       ) : (
@@ -1212,15 +1217,20 @@ export function NewTaskForm({
   lockProject?: boolean;
   draftKey?: string;
   formOpen?: boolean;
-  onSubmit: (t: Omit<Task, "id" | "createdAt">) => void | Promise<void>;
+  onSubmit: (
+    t: Omit<Task, "id" | "createdAt">,
+    options: { taskId: string }
+  ) => void | Promise<void>;
 }) {
   const t = useT();
   const saved = useMemo(
     () => (draftKey ? readFormDraft<NewTaskDraftData>(draftKey) : null),
     [draftKey]
   );
+  const [draftTaskId] = useState(() => saved?.data.draftTaskId ?? newTaskDocId());
   const [title, setTitle] = useState(() => saved?.data.title ?? "");
   const [description, setDescription] = useState(() => saved?.data.description ?? "");
+  const [descriptionUploading, setDescriptionUploading] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>(() => saved?.data.assigneeIds ?? []);
   const [assigneeDepartmentIds, setAssigneeDepartmentIds] = useState<string[]>(
     () => saved?.data.assigneeDepartmentIds ?? []
@@ -1239,6 +1249,7 @@ export function NewTaskForm({
     dueDate,
     priority,
     projectId: lockProject ? defaultProjectId : projectId,
+    draftTaskId,
   };
 
   usePersistedFormDraft(
@@ -1280,7 +1291,7 @@ export function NewTaskForm({
     };
     const pid = (lockProject ? defaultProjectId : projectId).trim();
     if (pid) payload.projectId = pid;
-    await onSubmit(payload);
+    await onSubmit(payload, { taskId: draftTaskId });
   }
 
   return (
@@ -1344,8 +1355,14 @@ export function NewTaskForm({
             <SimpleRichText
               value={description}
               onChange={setDescription}
+              authorId={currentUserId}
               collapsible
-              collapseKey="new-task-desc"
+              collapseKey={`new-task-desc-${draftTaskId}`}
+              taskId={draftTaskId}
+              inlineImageStorageDir={`tasks/${draftTaskId}/description`}
+              enableGenericFileAttach
+              onImagesUploadingChange={setDescriptionUploading}
+              autoMigratePersisted={false}
               placeholder={t("tasks.form.descriptionPlaceholder")}
             />
           </Field>
@@ -1354,9 +1371,10 @@ export function NewTaskForm({
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="submit"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
+          disabled={descriptionUploading}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:opacity-50"
         >
-          {t("common.create")}
+          {descriptionUploading ? t("common.uploading") : t("common.create")}
         </button>
       </div>
     </form>
@@ -1540,9 +1558,10 @@ function TaskCard({
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 pr-1 sm:pr-2">
           <div className="flex flex-wrap items-start gap-2">
-            <input
+            <BufferedTextInput
+              entityKey={`${task.id}:title`}
               value={task.title}
-              onChange={(e) => onChange({ title: e.target.value })}
+              onCommit={(title) => onChange({ title })}
               className="min-w-0 flex-1 bg-transparent text-base font-semibold text-slate-900 outline-none"
             />
           </div>
@@ -1588,36 +1607,60 @@ function TaskCard({
         </div>
 
         <div
-          className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-2"
+          className="flex w-full max-w-full shrink-0 items-center gap-x-2 gap-y-2 sm:w-auto"
           aria-live="polite"
         >
           {!completed && !canceled ? (
             <>
-              {isWorker && workerFlow === null && !task.finishedByIds.includes(currentUserId) && (
-                <TaskWorkerActionButtons
-                  task={task}
-                  people={people}
-                  currentUserId={currentUserId}
-                  onFinish={() => setWorkerFlow("finish")}
-                  onFeedback={() => setWorkerFlow("feedback")}
-                />
-              )}
-              {hasFeedbackHistory && (
-                <span
-                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
-                    hasOpenFeedback
-                      ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
-                      : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
-                  }`}
-                  title={
-                    hasOpenFeedback
-                      ? t("tasks.card.needsFeedbackOpenTip")
-                      : t("tasks.card.needsFeedbackDoneTip")
-                  }
-                >
-                  {t("tasks.card.needsFeedback")}
-                </span>
-              )}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-2 gap-y-2">
+                {isWorker && workerFlow === null && !task.finishedByIds.includes(currentUserId) && (
+                  <TaskWorkerActionButtons
+                    task={task}
+                    people={people}
+                    currentUserId={currentUserId}
+                    onFinish={() => setWorkerFlow("finish")}
+                    onFeedback={() => setWorkerFlow("feedback")}
+                  />
+                )}
+                {hasFeedbackHistory && (
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
+                      hasOpenFeedback
+                        ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
+                        : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
+                    }`}
+                    title={
+                      hasOpenFeedback
+                        ? t("tasks.card.needsFeedbackOpenTip")
+                        : t("tasks.card.needsFeedbackDoneTip")
+                    }
+                  >
+                    {t("tasks.card.needsFeedback")}
+                  </span>
+                )}
+                {isAssigner && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void (async () => {
+                        try {
+                          await onChange({ status: "done" }, "mark_complete");
+                          await onBroadcastTaskEvent?.(
+                            task,
+                            "task_marked_complete",
+                            t("tasks.notify.markedComplete", { actor: actorLabel, title: taskTitle })
+                          );
+                        } catch (e) {
+                          reportActionError(e instanceof Error ? e.message : t("tasks.card.error.markComplete"));
+                        }
+                      })()
+                    }
+                    className="task-action-complete"
+                  >
+                    {t("common.markComplete")}
+                  </button>
+                )}
+              </div>
               <span
                 className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm priority-badge-ring ${PRIORITY_BADGE[task.priority].pill}`}
                 title={t(priorityTipKey(task.priority))}
@@ -1626,56 +1669,36 @@ function TaskCard({
               >
                 <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </span>
-              {isAssigner && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void (async () => {
-                      try {
-                        await onChange({ status: "done" }, "mark_complete");
-                        await onBroadcastTaskEvent?.(
-                          task,
-                          "task_marked_complete",
-                          t("tasks.notify.markedComplete", { actor: actorLabel, title: taskTitle })
-                        );
-                      } catch (e) {
-                        reportActionError(e instanceof Error ? e.message : t("tasks.card.error.markComplete"));
-                      }
-                    })()
-                  }
-                  className="task-action-complete"
-                >
-                  {t("common.markComplete")}
-                </button>
-              )}
             </>
           ) : (
             <>
-              {canReopen && completed && !reopenOpen && (
-                <button
-                  type="button"
-                  onClick={() => setReopenOpen(true)}
-                  className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  {t("common.reopen")}
-                </button>
-              )}
-              {completed && hasFeedbackHistory && (
-                <span
-                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
-                    hasOpenFeedback
-                      ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
-                      : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
-                  }`}
-                  title={
-                    hasOpenFeedback
-                      ? t("tasks.card.needsFeedbackOpenTip")
-                      : t("tasks.card.needsFeedbackDoneTip")
-                  }
-                >
-                  {t("tasks.card.needsFeedback")}
-                </span>
-              )}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-2 gap-y-2">
+                {canReopen && completed && !reopenOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setReopenOpen(true)}
+                    className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    {t("common.reopen")}
+                  </button>
+                )}
+                {completed && hasFeedbackHistory && (
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-0.5 text-center text-[10px] font-semibold leading-tight shadow-sm sm:text-[11px] ${
+                      hasOpenFeedback
+                        ? "border-amber-400/90 bg-amber-50 text-amber-950 ring-1 ring-amber-300/65"
+                        : "border-amber-300/80 bg-amber-50/90 text-amber-900 ring-1 ring-amber-200/70"
+                    }`}
+                    title={
+                      hasOpenFeedback
+                        ? t("tasks.card.needsFeedbackOpenTip")
+                        : t("tasks.card.needsFeedbackDoneTip")
+                    }
+                  >
+                    {t("tasks.card.needsFeedback")}
+                  </span>
+                )}
+              </div>
             </>
           )}
         </div>

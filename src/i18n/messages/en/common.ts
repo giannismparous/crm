@@ -62,7 +62,7 @@ export const commonEn = {
   "common.everyone": "Everyone",
   "common.canceled": "Canceled",
   "common.completed": "Completed",
-  "common.markComplete": "Mark complete",
+  "common.markComplete": "Mark as completed",
   "common.markDone": "Mark done",
   "common.no": "No",
   "common.yes": "Yes",

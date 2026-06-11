@@ -9,10 +9,12 @@ export function AppBrand({ size = "nav" }: { size?: "nav" | "auth" }) {
       <span className="font-bold tracking-tight text-slate-900">
         Simasia<span className="text-accent">AI</span>
       </span>
-      <span className="font-normal text-slate-300" aria-hidden>
-        ·
+      <span className="hidden items-baseline gap-1 min-[400px]:inline-flex">
+        <span className="font-normal text-slate-300" aria-hidden>
+          ·
+        </span>
+        <span className={`font-semibold text-slate-600 ${isAuth ? "" : "text-xs sm:text-sm"}`}>CRM</span>
       </span>
-      <span className={`font-semibold text-slate-600 ${isAuth ? "" : "text-xs sm:text-sm"}`}>CRM</span>
     </span>
   );
 }

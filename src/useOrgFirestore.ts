@@ -20,7 +20,6 @@ import {
 } from "firebase/firestore";
 import {
   partnerAppointmentQueries,
-  partnerPeopleQueries,
   partnerPersonalReminderQueries,
   partnerProjectQueries,
   partnerTaskQueries,
@@ -40,7 +39,9 @@ import { getFirebaseAuth, getFirestoreDb, SIMASIA_AI_ORG_ID } from "./firebase/c
 import { syncCrmItemToGoogleCalendar } from "./firebase/googleCalendar";
 import { canSeeAllOrgData, hasPrivilege, normalizeOrgRole, type OrgRole } from "./auth/roles";
 import { ensureUserProfile } from "./firebase/ensureUserProfile";
-import { consumeUserProfileSynchronized } from "./firebase/profileSync";
+import { isRegistrationInProgress } from "./firebase/registerWithSeed";
+import { clearProfileSetupPending, consumeUserProfileSynchronized } from "./firebase/profileSync";
+import { needsProfileSetup } from "./utils/profileSetup";
 import {
   normalizeAppointment,
   normalizeContact,
@@ -55,7 +56,7 @@ import { registeredPeopleFromOrg } from "./firebase/userProfiles";
 import { normalizeAssigneeDepartments } from "./utils/taskAssignees";
 import {
   appointmentVisibleToViewer,
-  personVisibleToViewer,
+  canAccessContacts,
   projectVisibleToViewer,
   reminderVisibleToViewer,
   taskVisibleToViewer,
@@ -84,7 +85,7 @@ import { NOTIFICATION_INBOX_LIMIT } from "./types";
 import { loadLocale } from "./i18n/localeStorage";
 import { translate } from "./i18n/translate";
 import { richTextHasContent } from "./utils/richTextImages";
-import { normalizeContactIdentity } from "./utils/contactMerge";
+import { normalizeContactIdentity, trimContactTextFields } from "./utils/contactMerge";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./utils/sanitizeRichText";
 import { normalizeTaskComments, taskCommentsForFirestore } from "./utils/taskComments";
 import { normalizeTaskUpdateEntries, taskUpdateEntriesForFirestore } from "./utils/taskUpdateEntries";
@@ -169,9 +170,15 @@ export function useOrgFirestore() {
     departments: string[];
     ready: boolean;
   } | null>(null);
+  const [selfPersonDoc, setSelfPersonDoc] = useState<{ loaded: boolean; person: Person | null }>({
+    loaded: false,
+    person: null,
+  });
 
   const contactsReq = useRef(0);
   const profileSync = useRef<string | null>(null);
+  /** Avoid restarting the sync bar when listeners re-subscribe for the same user (e.g. StrictMode). */
+  const dataReadyForUser = useRef<string | null>(null);
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
   const appointmentsRef = useRef<Appointment[]>([]);
@@ -195,6 +202,7 @@ export function useOrgFirestore() {
   useEffect(() => {
     if (!user) {
       setAccessProfile(null);
+      setSelfPersonDoc({ loaded: false, person: null });
       return;
     }
 
@@ -225,12 +233,20 @@ export function useOrgFirestore() {
     const unPerson = onSnapshot(
       doc(db, "organizations", ORG, "people", user.uid),
       (snap) => {
+        const person = snap.exists()
+          ? normalizePerson(snap.id, snap.data() as Record<string, unknown>)
+          : null;
+        setSelfPersonDoc({ loaded: true, person });
+        if (person && person.profileSetupComplete !== false) {
+          clearProfileSetupPending(user.uid);
+        }
         const raw = snap.data()?.departments;
         departments = Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
         deptsReady = true;
         maybeSetProfile();
       },
       () => {
+        setSelfPersonDoc({ loaded: true, person: null });
         departments = [];
         deptsReady = true;
         maybeSetProfile();
@@ -241,6 +257,7 @@ export function useOrgFirestore() {
       unUser();
       unPerson();
       setAccessProfile(null);
+      setSelfPersonDoc({ loaded: false, person: null });
     };
   }, [user, db]);
 
@@ -254,6 +271,7 @@ export function useOrgFirestore() {
       setPersonalReminders([]);
       setNotifications([]);
       setRegistrationSeeds([]);
+      dataReadyForUser.current = null;
       // Keep dataLoading true while auth is still resolving so the sync bar doesn't restart.
       if (!authLoading) setDataLoading(false);
       setError(null);
@@ -263,34 +281,47 @@ export function useOrgFirestore() {
 
     if (!accessProfile?.ready) return;
 
-    setDataLoading(true);
+    const needsInitialLoad = dataReadyForUser.current !== user.uid;
+    if (needsInitialLoad) setDataLoading(true);
     setError(null);
 
     const fail = (msg: string) => {
+      if (/permission/i.test(msg)) {
+        console.error("org data sync (permission)", msg);
+        setError(translate(loadLocale(), "sync.permissionError"));
+        markDataReady();
+        return;
+      }
       setError(msg);
+      dataReadyForUser.current = user.uid;
+      setDataLoading(false);
+    };
+
+    const markDataReady = () => {
+      dataReadyForUser.current = user.uid;
       setDataLoading(false);
     };
 
     if (profileSync.current !== user.uid) {
       if (consumeUserProfileSynchronized(user.uid)) {
         profileSync.current = user.uid;
-      } else {
-      void ensureUserProfile(user)
-        .then(() => {
-          profileSync.current = user.uid;
-        })
-        .catch(async (e) => {
-          profileSync.current = null;
-          const msg = e instanceof Error ? e.message : "Could not verify your team account";
-          console.error("ensureUserProfile", e);
-          try {
-            const { signOutUser } = await import("./firebase/config");
-            await signOutUser();
-          } catch (signOutErr) {
-            console.error("signOut after profile failure", signOutErr);
-          }
-          fail(msg);
-        });
+      } else if (!isRegistrationInProgress()) {
+        void ensureUserProfile(user)
+          .then(() => {
+            profileSync.current = user.uid;
+          })
+          .catch(async (e) => {
+            profileSync.current = null;
+            const msg = e instanceof Error ? e.message : "Could not verify your team account";
+            console.error("ensureUserProfile", e);
+            try {
+              const { signOutUser } = await import("./firebase/config");
+              await signOutUser();
+            } catch (signOutErr) {
+              console.error("signOut after profile failure", signOutErr);
+            }
+            fail(msg);
+          });
       }
     }
 
@@ -306,60 +337,17 @@ export function useOrgFirestore() {
 
     const unsubs: Array<() => void> = [];
 
-    if (seesAll) {
-      unsubs.push(
-        onSnapshot(
-          peopleCol,
-          (snap) => {
-            const list = snap.docs.map((d) => normalizePerson(d.id, d.data() as Record<string, unknown>));
-            list.sort((a, b) => a.name.localeCompare(b.name));
-            setPeopleRaw(list);
-          },
-          (e) => fail(e.message)
-        )
-      );
-    } else {
-      let selfPerson: Person | null = null;
-      let deptPeople: Person[] = [];
-
-      const emitPartnerPeople = () => {
-        const byId = new Map<string, Person>();
-        if (selfPerson) byId.set(selfPerson.id, selfPerson);
-        for (const p of deptPeople) byId.set(p.id, p);
-        const list = Array.from(byId.values());
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setPeopleRaw(list);
-      };
-
-      unsubs.push(
-        onSnapshot(
-          doc(peopleCol, uid),
-          (snap) => {
-            selfPerson = snap.exists()
-              ? normalizePerson(snap.id, snap.data() as Record<string, unknown>)
-              : null;
-            emitPartnerPeople();
-          },
-          (e) => fail(e.message)
-        )
-      );
-
-      if (departments.length > 0) {
-        unsubs.push(
-          subscribeMergedQueries(
-            partnerPeopleQueries(db, ORG, departments),
-            {
-              normalize: (id, data) => normalizePerson(id, data),
-              onData: (list) => {
-                deptPeople = list;
-                emitPartnerPeople();
-              },
-              onError: fail,
-            }
-          )
-        );
-      }
-    }
+    unsubs.push(
+      onSnapshot(
+        peopleCol,
+        (snap) => {
+          const list = snap.docs.map((d) => normalizePerson(d.id, d.data() as Record<string, unknown>));
+          list.sort((a, b) => a.name.localeCompare(b.name));
+          setPeopleRaw(list);
+        },
+        (e) => fail(e.message)
+      )
+    );
 
     let unPartnerTasks: (() => void) | null = null;
     let partnerProjectIdsKey = "";
@@ -372,7 +360,7 @@ export function useOrgFirestore() {
           normalize: (id, data) => normalizeTask(id, data),
           onData: (list) => {
             setTasks(list);
-            setDataLoading(false);
+            markDataReady();
           },
           onError: fail,
         }
@@ -386,7 +374,7 @@ export function useOrgFirestore() {
           (snap) => {
             const list = snap.docs.map((d) => normalizeTask(d.id, d.data() as Record<string, unknown>));
             setTasks(list);
-            setDataLoading(false);
+            markDataReady();
           },
           (e) => fail(e.message)
         )
@@ -515,16 +503,28 @@ export function useOrgFirestore() {
     [people, currentUserPersonId]
   );
 
+  const profileSetupPerson = useMemo(() => {
+    if (!user) return null;
+    const fromPeople = people.find((p) => p.id === user.uid || p.authUid === user.uid);
+    return fromPeople ?? selfPersonDoc.person;
+  }, [user, people, selfPersonDoc.person]);
+
+  const profileGateLoading = Boolean(
+    user && (!selfPersonDoc.loaded || isRegistrationInProgress())
+  );
+
+  const requiresProfileSetup = Boolean(
+    user && selfPersonDoc.loaded && profileSetupPerson && needsProfileSetup(profileSetupPerson)
+  );
+
   const seesAllOrgData = canSeeAllOrgData(currentUserOrgRole);
   const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
   const canManageProjects = hasPrivilege(currentUserOrgRole, "manageProjects");
+  const canSeeContacts = canAccessContacts(currentUserPerson, currentUserOrgRole);
 
-  const visiblePeople = useMemo(() => {
-    if (seesAllOrgData) return people;
-    return people.filter((p) => personVisibleToViewer(p, currentUserPerson, currentUserOrgRole));
-  }, [people, currentUserPerson, currentUserOrgRole, seesAllOrgData]);
+  const visiblePeople = people;
 
-  const chatEnabled = Boolean(user && currentUserPersonId);
+  const chatEnabled = Boolean(user && currentUserPersonId && !isRegistrationInProgress());
   const orgChat = useOrgChat({
     db,
     orgId: ORG,
@@ -561,10 +561,10 @@ export function useOrgFirestore() {
     );
   }, [personalReminders, people, currentUserPersonId, currentUserOrgRole, seesAllOrgData]);
 
-  const visibleContacts = seesAllOrgData ? contacts : [];
+  const visibleContacts = canSeeContacts ? contacts : [];
 
   useEffect(() => {
-    if (!user || !seesAllOrgData) {
+    if (!user || !canSeeContacts) {
       setContacts([]);
       return;
     }
@@ -573,21 +573,45 @@ export function useOrgFirestore() {
     const unContacts = onSnapshot(
       contactsCol,
       async (snap) => {
+        const prevById = new Map(contactsRef.current.map((c) => [c.id, c]));
+
+        const list = snap.docs.map((d) => {
+          const prev = prevById.get(d.id);
+          return normalizeContact(
+            d.id,
+            d.data() as Record<string, unknown>,
+            prev?.reminders ?? []
+          );
+        });
+        list.sort((a, b) => a.lastName.localeCompare(b.lastName));
+        setContacts(list);
+
+        const needsReminders = snap.docs.filter((d) => !prevById.has(d.id)).map((d) => d.id);
+        if (needsReminders.length === 0) return;
+
         const my = ++contactsReq.current;
         try {
-          const list = await Promise.all(
-            snap.docs.map(async (d) => {
-              const remSnap = await getDocs(collection(db, "organizations", ORG, "contacts", d.id, "reminders"));
-              const reminders = remSnap.docs.map((r) =>
-                normalizeReminder(r.id, r.data() as Record<string, unknown>)
+          const reminderByContact = new Map<string, ContactReminder[]>();
+          await Promise.all(
+            needsReminders.map(async (contactId) => {
+              const remSnap = await getDocs(
+                collection(db, "organizations", ORG, "contacts", contactId, "reminders")
               );
-              reminders.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-              return normalizeContact(d.id, d.data() as Record<string, unknown>, reminders);
+              const reminders = remSnap.docs
+                .map((r) => normalizeReminder(r.id, r.data() as Record<string, unknown>))
+                .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+              reminderByContact.set(contactId, reminders);
             })
           );
           if (my !== contactsReq.current) return;
-          list.sort((a, b) => a.lastName.localeCompare(b.lastName));
-          setContacts(list);
+          setContacts((prev) => {
+            const next = prev.map((c) => {
+              const reminders = reminderByContact.get(c.id);
+              return reminders ? { ...c, reminders } : c;
+            });
+            next.sort((a, b) => a.lastName.localeCompare(b.lastName));
+            return next;
+          });
         } catch (e) {
           if (my === contactsReq.current) {
             setError(e instanceof Error ? e.message : String(e));
@@ -598,7 +622,7 @@ export function useOrgFirestore() {
     );
 
     return () => unContacts();
-  }, [user, seesAllOrgData, db]);
+  }, [user, canSeeContacts, db]);
 
   useEffect(() => {
     if (!user || !currentUserPersonId) {
@@ -1039,9 +1063,16 @@ export function useOrgFirestore() {
   const createTask = useCallback(
     async (
       payload: Omit<Task, "id" | "createdAt">,
-      options?: { skipCalendarSync?: boolean; skipNotifications?: boolean; skipStats?: boolean }
+      options?: {
+        skipCalendarSync?: boolean;
+        skipNotifications?: boolean;
+        skipStats?: boolean;
+        taskId?: string;
+      }
     ): Promise<string> => {
-      const ref = doc(collection(db, "organizations", ORG, "tasks"));
+      const ref = options?.taskId
+        ? doc(db, "organizations", ORG, "tasks", options.taskId)
+        : doc(collection(db, "organizations", ORG, "tasks"));
       const id = ref.id;
       const assigneeIds = [...new Set((payload.assigneeIds ?? []).filter(Boolean))];
       const assigneeDepartmentIds = [...new Set((payload.assigneeDepartmentIds ?? []).filter(Boolean))];
@@ -1141,7 +1172,7 @@ export function useOrgFirestore() {
         color: payload.color,
         completed: false,
         createdAt: new Date().toISOString(),
-        ...(departmentIds.length > 0 ? { departmentIds } : {}),
+        departmentIds,
       };
       await setDoc(ref, scrub(row as unknown as Record<string, unknown>));
     },
@@ -1158,9 +1189,7 @@ export function useOrgFirestore() {
       if (typeof body.name === "string") body.name = body.name.trim();
       if (typeof body.description === "string") body.description = body.description.trim();
       if (patch.departmentIds !== undefined) {
-        const departmentIds = normalizeAssigneeDepartments(patch.departmentIds);
-        if (departmentIds.length > 0) body.departmentIds = departmentIds;
-        else body.departmentIds = deleteField();
+        body.departmentIds = normalizeAssigneeDepartments(patch.departmentIds);
       }
       if (patch.completed === true && patch.completedAt === undefined) {
         body.completedAt = new Date().toISOString();
@@ -1226,15 +1255,25 @@ export function useOrgFirestore() {
 
   const updateContact = useCallback(async (id: string, patch: Partial<SalesContact>) => {
     const { reminders: _reminders, id: _patchId, ...fields } = patch;
-    if (typeof fields.generalNotes === "string") {
-      fields.generalNotes = sanitizeTaskUpdates(fields.generalNotes);
+    const trimmed = trimContactTextFields(fields);
+    if (typeof trimmed.generalNotes === "string") {
+      trimmed.generalNotes = sanitizeTaskUpdates(trimmed.generalNotes);
     }
-    if ("lastContactedAt" in fields && !String(fields.lastContactedAt ?? "").trim()) {
-      fields.lastContactedAt = deleteField() as unknown as string;
+    if ("lastContactedAt" in trimmed && !String(trimmed.lastContactedAt ?? "").trim()) {
+      trimmed.lastContactedAt = deleteField() as unknown as string;
     }
     const ref = doc(db, "organizations", ORG, "contacts", id);
-    const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);
+    const body = scrub({ ...trimmed, id } as unknown as Record<string, unknown>);
     if (Object.keys(body).length === 0) return;
+
+    const localPatch = { ...trimmed };
+    if ("lastContactedAt" in localPatch && typeof localPatch.lastContactedAt !== "string") {
+      localPatch.lastContactedAt = "";
+    }
+    setContacts((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...localPatch } : c))
+    );
+
     await updateDoc(ref, body as DocumentData);
   }, [db]);
 
@@ -1379,6 +1418,7 @@ export function useOrgFirestore() {
         displayName: name,
         updatedAt: new Date().toISOString(),
       });
+      clearProfileSetupPending(currentUserPersonId);
       try {
         await createNotificationsForNewMember(
           db,
@@ -1830,6 +1870,8 @@ export function useOrgFirestore() {
       if (fields.departments !== undefined && !isFounder) {
         delete fields.departments;
       }
+      if (typeof fields.name === "string") fields.name = fields.name.trim();
+      if (typeof fields.title === "string") fields.title = fields.title.trim();
       const ref = doc(db, "organizations", ORG, "people", id);
       const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);
       if (Array.isArray(fields.departments)) {
@@ -1861,8 +1903,12 @@ export function useOrgFirestore() {
     registrationSeeds,
     currentUserPersonId,
     currentUserOrgRole,
+    profileGateLoading,
+    requiresProfileSetup,
+    profileSetupPerson,
     canAccessSettings,
     canManageProjects,
+    canAccessContacts: canSeeContacts,
     seesAllOrgData,
     markNotificationRead,
     markChatNotificationsRead,

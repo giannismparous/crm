@@ -120,7 +120,7 @@ export function NotificationsBell({
                       <span className="shrink-0 text-[10px] text-slate-400">{formatWhen(n.createdAt, t)}</span>
                     </span>
                     <span className="text-[11px] font-semibold text-accent">{notificationTaskLine(n)}</span>
-                    {n.bodyPreview && (
+                    {n.bodyPreview && n.kind !== "member_joined" && (
                       <span className="line-clamp-2 text-[11px] leading-relaxed text-slate-600">
                         “{n.bodyPreview}”
                       </span>

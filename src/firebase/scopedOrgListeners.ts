@@ -60,7 +60,17 @@ export function subscribeMergedQueries<T>(
         buckets.set(index, bucket);
         emit();
       },
-      (e) => options.onError(e.message)
+      (e) => {
+        const code = (e as { code?: string }).code;
+        const msg = e.message ?? String(e);
+        if (code === "permission-denied") {
+          console.warn("scoped query permission denied", index, msg);
+          buckets.set(index, new Map());
+          emit();
+          return;
+        }
+        options.onError(msg);
+      }
     )
   );
 
@@ -79,7 +89,11 @@ export function partnerTaskQueries(
   visibleProjectIds: string[]
 ): Query[] {
   const col = collection(db, "organizations", orgId, "tasks");
-  const queries: Query[] = [query(col, where("assigneeIds", "array-contains", uid))];
+  const queries: Query[] = [
+    query(col, where("assigneeIds", "array-contains", uid)),
+    query(col, where("assigneeDepartmentIds", "array-contains", "General")),
+    query(col, where("assigneeDepartmentIds", "==", [])),
+  ];
   if (departments.length > 0) {
     queries.push(query(col, where("assigneeDepartmentIds", "array-contains-any", departments)));
   }
@@ -97,9 +111,15 @@ export function partnerProjectQueries(
   orgId: string,
   departments: string[]
 ): Query[] {
-  if (departments.length === 0) return [];
   const col = collection(db, "organizations", orgId, "projects");
-  return [query(col, where("departmentIds", "array-contains-any", departments))];
+  const queries: Query[] = [
+    query(col, where("departmentIds", "array-contains", "General")),
+    query(col, where("departmentIds", "==", [])),
+  ];
+  if (departments.length > 0) {
+    queries.push(query(col, where("departmentIds", "array-contains-any", departments)));
+  }
+  return queries;
 }
 
 export function partnerAppointmentQueries(

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { File as FileIcon, ImagePlus, Music, Video } from "lucide-react";
 import { looksLikeHtml, sanitizeTaskUpdates } from "../utils/sanitizeRichText";
+import { isKeyboardComposing } from "../utils/keyboardComposition";
 import {
   deleteImagesFromStorage,
   mediaKindForFile,
@@ -916,6 +917,7 @@ export function SimpleRichText({
         onInput={onEditInput}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
+            if (isKeyboardComposing(e)) return;
             e.preventDefault();
             setEditing(true);
             const el = ref.current;

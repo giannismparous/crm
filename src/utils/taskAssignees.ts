@@ -1,11 +1,16 @@
 import type { Person, Task } from "../types";
 import { TEAM_DEPARTMENTS } from "../types";
+import { normalizeDepartmentId } from "../i18n/helpers";
 
 const DEPT_SET = new Set<string>(TEAM_DEPARTMENTS);
 
 export function normalizeAssigneeDepartments(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((x) => String(x).trim()).filter((d) => DEPT_SET.has(d)))];
+  return [...new Set(value.map((x) => normalizeDepartmentId(String(x).trim())).filter((d) => DEPT_SET.has(d)))];
+}
+
+export function personInDepartment(person: Person, dept: string): boolean {
+  return person.departments.includes(dept);
 }
 
 export function normalizeIdList(value: unknown): string[] {
@@ -18,7 +23,7 @@ export function getTaskWorkerIds(task: Task, people: Person[]): string[] {
   const ids = new Set(task.assigneeIds);
   for (const dept of task.assigneeDepartmentIds) {
     for (const p of people) {
-      if (p.departments.includes(dept)) ids.add(p.id);
+      if (personInDepartment(p, dept)) ids.add(p.id);
     }
   }
   return [...ids];

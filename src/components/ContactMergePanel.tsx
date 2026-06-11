@@ -121,7 +121,13 @@ function MergeFieldInput({
 
   if (field === "company") {
     return (
-      <CompanySuggestInput value={value} onChange={onChange} suggestions={companySuggestions} className="input-base" />
+      <CompanySuggestInput
+        entityKey={`merge:${field}`}
+        value={value}
+        onChange={onChange}
+        suggestions={companySuggestions}
+        className="input-base"
+      />
     );
   }
   if (field === "stage") {

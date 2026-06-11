@@ -9,7 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { OrgRole } from "../auth/roles";
+import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
 import {
   chatMessagePreview,
   conversationDisplayTitle,
@@ -62,9 +62,13 @@ export function useOrgChat({
   );
 
   useEffect(() => {
-    if (!db || !enabled) return;
-    void ensureFoundersChat(db, orgId, people);
-  }, [db, orgId, people, enabled]);
+    if (!db || !enabled || !canSeeAllOrgData(currentUserOrgRole)) return;
+    void ensureFoundersChat(db, orgId, people).catch((e) => {
+      const code = (e as { code?: string })?.code;
+      if (code === "permission-denied") return;
+      console.error("ensureFoundersChat", e);
+    });
+  }, [db, orgId, people, enabled, currentUserOrgRole]);
 
   useEffect(() => {
     if (!db || !enabled || !currentUserId) {

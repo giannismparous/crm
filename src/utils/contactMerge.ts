@@ -16,6 +16,22 @@ export function contactHasSaveableIdentity(
   return Boolean(firstName.trim() || lastName.trim() || company.trim());
 }
 
+const CONTACT_TEXT_TRIM_KEYS = ["firstName", "lastName", "company", "jobTitle"] as const;
+
+/** Trim leading/trailing whitespace on contact name-like text fields before save. */
+export function trimContactTextFields(
+  patch: Partial<SalesContact>
+): Partial<SalesContact> {
+  const out = { ...patch };
+  for (const key of CONTACT_TEXT_TRIM_KEYS) {
+    const value = out[key];
+    if (typeof value === "string") {
+      out[key] = value.trim();
+    }
+  }
+  return out;
+}
+
 export function normalizeContactIdentity(fields: {
   firstName: string;
   lastName: string;

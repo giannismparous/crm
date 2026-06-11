@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { useT } from "../contexts/I18nContext";
+import { useT, useI18n } from "../contexts/I18nContext";
 import type { Person } from "../types";
 import { departmentChipClass, personDepartmentsLabel } from "../types";
+import { translateDepartment } from "../i18n/helpers";
 import { AppBrand } from "./AppBrand";
 import { OrgRoleWithInfo } from "./OrgRoleWithInfo";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
+import { compositionFormKeyDown } from "../utils/keyboardComposition";
 
 export function ProfileSetupScreen({
   person,
@@ -16,6 +18,7 @@ export function ProfileSetupScreen({
   onComplete: (patch: { name: string; title: string }) => Promise<void>;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const [name, setName] = useState(person.name.trim() || person.email.split("@")[0] || "");
   const [title, setTitle] = useState(person.title.trim());
   const [busy, setBusy] = useState(false);
@@ -62,13 +65,18 @@ export function ProfileSetupScreen({
               <p className="truncate font-display text-2xl font-semibold text-slate-900 sm:text-3xl">
                 {name.trim() || person.email}
               </p>
-              <OrgRoleWithInfo role={person.orgRole} size="sm" />
+              <OrgRoleWithInfo role={person.orgRole} size="sm" showInfo={false} />
             </div>
             <p className="truncate text-sm text-slate-500 sm:text-base">{person.email}</p>
           </div>
         </header>
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="mt-6 space-y-4" noValidate>
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          onKeyDown={compositionFormKeyDown}
+          className="mt-6 space-y-4"
+          noValidate
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600">{t("profileSetup.displayName")}</span>
             <input
@@ -111,7 +119,7 @@ export function ProfileSetupScreen({
                       key={d}
                       className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
                     >
-                      {d}
+                      {translateDepartment(locale, d)}
                     </span>
                   ))}
                 </div>

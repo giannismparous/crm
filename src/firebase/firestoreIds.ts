@@ -10,6 +10,10 @@ export function newAppointmentDocId(): string {
   return doc(collection(getFirestoreDb(), "organizations", SIMASIA_AI_ORG_ID, "appointments")).id;
 }
 
+export function newTaskDocId(): string {
+  return doc(collection(getFirestoreDb(), "organizations", SIMASIA_AI_ORG_ID, "tasks")).id;
+}
+
 export function newPersonalReminderDocId(): string {
   return doc(
     collection(getFirestoreDb(), "organizations", SIMASIA_AI_ORG_ID, "personalReminders")

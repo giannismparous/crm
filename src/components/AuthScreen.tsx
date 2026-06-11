@@ -79,20 +79,23 @@ export function AuthScreen() {
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3" noValidate>
           {mode === "register" && (
-            <label className="block text-xs font-medium text-slate-600">
-              {t("auth.registrationSeed")}
-              <input
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                inputMode="text"
-                value={seedCode}
-                onChange={(e) => setSeedCode(normalizeSeedCode(e.target.value))}
-                placeholder={t("auth.seedPlaceholder")}
-                className="input-base mt-1 w-full py-2 font-mono text-sm"
-                disabled={busy}
-              />
-            </label>
+            <div>
+              <label className="block text-xs font-medium text-slate-600">
+                {t("auth.registrationSeed")}
+                <input
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="text"
+                  value={seedCode}
+                  onChange={(e) => setSeedCode(normalizeSeedCode(e.target.value))}
+                  placeholder={t("auth.seedPlaceholder")}
+                  className="input-base mt-1 w-full py-2 font-mono text-sm"
+                  disabled={busy}
+                />
+              </label>
+              <p className="mt-1 text-[10px] leading-snug text-slate-500">{t("auth.seedHint")}</p>
+            </div>
           )}
           <label className="block text-xs font-medium text-slate-600">
             {t("common.email")}

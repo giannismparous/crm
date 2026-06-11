@@ -491,12 +491,19 @@ export function CalendarTab({
               const visible = items.slice(0, MAX_CHIPS_PER_CELL);
               const more = items.length - visible.length;
               return (
-                <button
+                <div
                   key={cell.key}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedKey(cell.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedKey(cell.key);
+                    }
+                  }}
                   title={t("calendar.cellTitle", { date: cell.key, count: String(items.length) })}
-                  className={`flex min-h-[5.5rem] flex-col border-t border-slate-200 p-1 text-left transition sm:min-h-[7rem] sm:p-1.5 lg:min-h-[8.5rem] ${colStart ? "" : "border-l"} ${
+                  className={`flex min-h-[5.5rem] cursor-pointer flex-col border-t border-slate-200 p-1 text-left transition sm:min-h-[7rem] sm:p-1.5 lg:min-h-[8.5rem] ${colStart ? "" : "border-l"} ${
                     cell.inMonth ? "bg-white" : "bg-slate-100/90"
                   } ${isSelected ? "z-[1] ring-2 ring-inset ring-indigo-400" : cell.inMonth ? "hover:bg-slate-50/80" : "hover:bg-slate-100"} ${
                     isToday && !isSelected && cell.inMonth ? "bg-indigo-50/40" : ""
@@ -592,13 +599,13 @@ export function CalendarTab({
                       </div>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
         </div>
 
-        <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <aside className="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
           <h2 className="font-display text-base font-semibold text-slate-900">
             {selectedKey
               ? formatInOrgTime(datetimeLocalToIso(`${selectedKey}T12:00`), {

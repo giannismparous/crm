@@ -17,7 +17,7 @@ export const el = {
   due: "Προθεσμία",
   create: "Δημιουργία",
   chooseAssignees: "Επιλογή υπεύθυνων",
-  deptEngineering: "Μηχανική",
+  deptEngineering: "Αρχιτεκτονική",
   deptSales: "Πωλήσεις",
   iFinished: "Τελείωσα",
   yesSubmit: "Ναι, υποβολή",

@@ -19,16 +19,27 @@ export function projectDepartmentIds(project: Project): string[] {
   return normalizeAssigneeDepartments(project.departmentIds ?? []);
 }
 
-/** Founders see all projects; partners only see projects scoped to their department(s). */
+/** Empty departments or General means the whole org can see the project. */
+export function isOrgWideProject(project: Project): boolean {
+  const depts = projectDepartmentIds(project);
+  return depts.length === 0 || depts.includes("General");
+}
+
+/** Founders see all projects; partners see org-wide projects or ones scoped to their department(s). */
 export function projectVisibleToViewer(
   project: Project,
   viewer: Person | undefined,
   role: OrgRole
 ): boolean {
   if (canSeeAllOrgData(role)) return true;
-  const depts = projectDepartmentIds(project);
-  if (depts.length === 0) return false;
-  return departmentsOverlap(depts, viewerDepartments(viewer));
+  if (isOrgWideProject(project)) return true;
+  return departmentsOverlap(projectDepartmentIds(project), viewerDepartments(viewer));
+}
+
+/** Empty assignee departments or General means the whole org can see the task (when not gated by a restricted project). */
+export function isOrgWideTask(task: Task): boolean {
+  const depts = normalizeAssigneeDepartments(task.assigneeDepartmentIds);
+  return depts.length === 0 || depts.includes("General");
 }
 
 /** Task belongs to a partner's department via assignee departments or direct assignment. */
@@ -41,7 +52,7 @@ export function taskInViewerDepartment(task: Task, viewer: Person | undefined): 
   return departmentsOverlap(taskDepts, viewerDepts);
 }
 
-/** Founders see all tasks; partners see dept tasks or everything inside a visible project. */
+/** Founders see all tasks; partners see org-wide, dept, assigned, or visible-project tasks. */
 export function taskVisibleToViewer(
   task: Task,
   viewer: Person | undefined,
@@ -51,13 +62,20 @@ export function taskVisibleToViewer(
   role: OrgRole
 ): boolean {
   if (canSeeAllOrgData(role)) return true;
+  if (viewerId && task.assigneeIds.includes(viewerId)) return true;
+  if (isOrgWideTask(task) && !task.projectId?.trim()) return true;
   if (task.projectId) {
     const project = projects.find((p) => p.id === task.projectId);
     if (project && projectVisibleToViewer(project, viewer, role)) return true;
   }
   void people;
-  void viewerId;
   return taskInViewerDepartment(task, viewer);
+}
+
+/** Founders and Sales department partners manage CRM contacts. */
+export function canAccessContacts(viewer: Person | undefined, role: OrgRole): boolean {
+  if (canSeeAllOrgData(role)) return true;
+  return viewerDepartments(viewer).includes("Sales");
 }
 
 export function appointmentVisibleToViewer(
@@ -80,15 +98,16 @@ export function reminderVisibleToViewer(
   return isPersonalReminderRelevantToPerson(reminder, viewerId, people);
 }
 
-/** Partners see teammates who share at least one department (for assignee pickers, team tab). */
+/** All org members are visible in the team directory (Firestore allows org-wide read). */
 export function personVisibleToViewer(
   person: Person,
   viewer: Person | undefined,
   role: OrgRole
 ): boolean {
+  if (!person.id?.trim()) return false;
   if (canSeeAllOrgData(role)) return true;
   if (viewer && person.id === viewer.id) return true;
-  return departmentsOverlap(person.departments, viewerDepartments(viewer));
+  return true;
 }
 
 /** Founders + anyone who can see or is tied to this task (assigner, assignee, dept, project). */

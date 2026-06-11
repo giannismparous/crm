@@ -29,6 +29,7 @@ export const appEl = {
   "auth.password": "Κωδικός πρόσβασης",
   "auth.createAccount": "Δημιουργία λογαριασμού",
   "auth.seedPlaceholder": "Επικολλήστε τον εφάπαξ κωδικό",
+  "auth.seedHint": "Ο κωδικός έχει 32 χαρακτήρες (γράμματα και αριθμούς). Αντιγράψτε τον ολόκληρο από το πράσινο πλαίσιο ή το κουμπί «Αντιγραφή» — όχι τα πρώτα 8 γράμματα από τη λίστα.",
   "auth.error.emailInUse": "Υπάρχει ήδη λογαριασμός με αυτό το email. Συνδεθείτε αντί για εγγραφή.",
   "auth.error.invalidEmail": "Εισάγετε έγκυρη διεύθυνση email.",
   "auth.error.wrongCredentials": "Λάθος email ή κωδικός πρόσβασης.",
@@ -50,9 +51,11 @@ export const appEl = {
     "Η εγγραφή δεν ολοκληρώθηκε. Ζητήστε νέο κωδικό από τον διαχειριστή και δοκιμάστε ξανά.",
   "auth.error.notRegistered":
     "Αυτός ο λογαριασμός δεν είναι εγγεγραμμένος στην ομάδα. Δημιουργήστε λογαριασμό με έγκυρο εφάπαξ κωδικό ή επικοινωνήστε με τον διαχειριστή.",
-  "auth.error.seedUsed": "Ο κωδικός έχει ήδη χρησιμοποιηθεί.",
+  "auth.error.seedUsed":
+    "Ο κωδικός έχει ήδη χρησιμοποιηθεί. Ζητήστε νέο από τον διαχειριστή.",
   "auth.error.seedVerifyFailed": "Δεν ήταν δυνατή η επαλήθευση του κωδικού. Ελέγξτε τον ή ζητήστε νέο.",
-  "auth.error.seedInvalid": "Μη έγκυρος κωδικός.",
+  "auth.error.seedInvalid":
+    "Μη έγκυρος κωδικός. Βεβαιωθείτε ότι επικολλήσατε τον πλήρη κωδικό 32 χαρακτήρων.",
   "auth.error.seedWrongAccount": "Αυτός ο λογαριασμός είναι ήδη εγγεγραμμένος με διαφορετικό κωδικό.",
   "auth.error.seedExpired": "Ο κωδικός έληξε.",
   "auth.error.accountExpired": "Ο λογαριασμός σας έληξε.",
@@ -67,7 +70,7 @@ export const appEl = {
   "departments.sales": "Πωλήσεις",
   "departments.marketing": "Marketing",
   "departments.product": "Προϊόν",
-  "departments.engineering": "Μηχανική",
+  "departments.engineering": "Αρχιτεκτονική",
   "departments.operations": "Λειτουργίες",
   "departments.finance": "Οικονομικά",
   "departments.legal": "Νομικά",

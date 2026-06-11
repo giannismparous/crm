@@ -14,9 +14,29 @@ const DEPT_KEYS: Record<string, string> = {
   General: "departments.general",
 };
 
+/** Legacy/alternate stored ids → canonical TEAM_DEPARTMENTS id. */
+const DEPT_ID_ALIASES: Record<string, string> = {
+  Architecture: "Engineering",
+  architecture: "Engineering",
+  Αρχιτεκτονική: "Engineering",
+};
+
+export function normalizeDepartmentId(dept: string): string {
+  const trimmed = dept.trim();
+  return DEPT_ID_ALIASES[trimmed] ?? trimmed;
+}
+
 export function translateDepartment(locale: AppLocale, dept: string): string {
-  const key = DEPT_KEYS[dept];
+  const id = normalizeDepartmentId(dept);
+  const key = DEPT_KEYS[id];
   return key ? translate(locale, key) : dept;
+}
+
+export function departmentMatchesSearch(dept: string, query: string, locale: AppLocale): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (dept.toLowerCase().includes(q)) return true;
+  return translateDepartment(locale, dept).toLowerCase().includes(q);
 }
 
 export function translateRole(locale: AppLocale, role: OrgRole): string {

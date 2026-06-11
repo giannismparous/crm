@@ -21,6 +21,7 @@ import {
 } from "../utils/contactDuplicates";
 import { isReminderOverdue, nextOpenReminderMs, urgencyLabel } from "../utils/salesUrgency";
 import { CompanySuggestInput } from "./CompanySuggestInput";
+import { BufferedTextArea, BufferedTextInput } from "./BufferedTextInput";
 import { ContactDuplicateNotice } from "./ContactDuplicateNotice";
 import { ContactMergePanel } from "./ContactMergePanel";
 import {
@@ -38,6 +39,7 @@ import {
 import { datetimeLocalToIso, defaultOrgDatetimeLocal, formatInOrgTime } from "../utils/orgTimezone";
 import { useI18n, useT } from "../contexts/I18nContext";
 import { translateContactStage } from "../i18n/helpers";
+import { MobileDetailBack } from "./MobileDetailBack";
 
 const STAGE_STYLES: Record<ContactStage, string> = {
   lead: "bg-slate-100 text-slate-800 ring-slate-200",
@@ -161,10 +163,10 @@ export function ContactsTab({
 
   useEffect(() => {
     if (!selectedId) return;
-    if (!sortedList.some((c) => c.id === selectedId)) {
+    if (!contacts.some((c) => c.id === selectedId)) {
       setSelectedId("");
     }
-  }, [sortedList, selectedId]);
+  }, [contacts, selectedId]);
 
   useEffect(() => {
     if (!focusContactId) return;
@@ -307,9 +309,11 @@ export function ContactsTab({
     });
   }
 
+  const mobileDetailOpen = showForm || Boolean(selected);
+
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,340px)_1fr]">
-      <aside className="space-y-4">
+      <aside className={`space-y-4 ${mobileDetailOpen ? "hidden lg:block" : ""}`}>
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="font-display text-base font-semibold text-slate-900">{t("contacts.title")}</h2>
@@ -405,7 +409,9 @@ export function ContactsTab({
       </aside>
 
       {showForm ? (
-        <NewContactForm
+        <div>
+          <MobileDetailBack onBack={closeNewContactForm} />
+          <NewContactForm
           draft={newContactDraft}
           draftContactId={newContactDraftId}
           onDraftChange={patchNewContactDraft}
@@ -423,8 +429,11 @@ export function ContactsTab({
             })
           }
         />
+        </div>
       ) : selected ? (
-        <ContactDetail
+        <div>
+          <MobileDetailBack onBack={() => setSelectedId("")} />
+          <ContactDetail
           contact={selected}
           allContacts={contacts}
           companySuggestions={companySuggestions}
@@ -440,9 +449,10 @@ export function ContactsTab({
             })
           }
         />
+        </div>
       ) : (
         <div
-          className="flex min-h-[min(420px,55vh)] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center"
+          className="hidden min-h-[min(420px,55vh)] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center lg:flex"
           aria-label={t("contacts.noSelectedAria")}
         >
           <p className="text-sm font-medium text-slate-700">{t("contacts.noSelected")}</p>
@@ -592,6 +602,7 @@ function NewContactForm({
           </Labeled>
         <Labeled label={t("contacts.company")}>
           <CompanySuggestInput
+            entityKey={`${draftContactId}:company`}
             value={draft.company}
             onChange={(company) => onDraftChange({ company })}
             suggestions={companySuggestions}
@@ -840,9 +851,10 @@ function ReminderCard({
     <li className="rounded-xl border border-accent/30 bg-white px-4 py-3 shadow-sm ring-1 ring-accent/15">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <input
+          <BufferedTextInput
+            entityKey={`${contactId}:reminder:${r.id}:title`}
             value={r.title}
-            onChange={(e) => onUpdateReminder(r.id, { title: e.target.value })}
+            onCommit={(title) => onUpdateReminder(r.id, { title })}
             className="w-full bg-transparent font-medium text-slate-900 outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
@@ -869,9 +881,10 @@ function ReminderCard({
       </div>
       <label className="mt-2 block">
         <span className="mb-1 block text-[10px] font-medium text-slate-500">{t("contacts.reminders.shortNotes")}</span>
-        <textarea
+        <BufferedTextArea
+          entityKey={`${contactId}:reminder:${r.id}:notes`}
           value={r.notes}
-          onChange={(e) => onUpdateReminder(r.id, { notes: e.target.value })}
+          onCommit={(notes) => onUpdateReminder(r.id, { notes })}
           rows={3}
           className="input-base min-h-[72px] resize-y text-xs"
           placeholder={t("contacts.reminders.contextPlaceholder")}
@@ -1115,21 +1128,26 @@ function ContactDetail({
 
       <div className="mt-4 grid gap-4 pt-2 sm:mt-5 sm:grid-cols-2 sm:pt-3">
         <Labeled label={t("contacts.firstName")}>
-          <input
+          <BufferedTextInput
+            entityKey={`${contact.id}:firstName`}
             value={contact.firstName}
-            onChange={(e) => onChange({ firstName: e.target.value })}
+            onCommit={(firstName) => onChange({ firstName })}
+            trim
             className="input-base"
           />
         </Labeled>
         <Labeled label={t("contacts.lastName")}>
-          <input
+          <BufferedTextInput
+            entityKey={`${contact.id}:lastName`}
             value={contact.lastName}
-            onChange={(e) => onChange({ lastName: e.target.value })}
+            onCommit={(lastName) => onChange({ lastName })}
+            trim
             className="input-base"
           />
         </Labeled>
         <Labeled label={t("contacts.company")}>
           <CompanySuggestInput
+            entityKey={`${contact.id}:company`}
             value={contact.company}
             onChange={(company) => onChange({ company })}
             suggestions={companySuggestions}
@@ -1137,13 +1155,30 @@ function ContactDetail({
           />
         </Labeled>
         <Labeled label={t("contacts.jobTitle")}>
-          <input value={contact.jobTitle} onChange={(e) => onChange({ jobTitle: e.target.value })} className="input-base" />
+          <BufferedTextInput
+            entityKey={`${contact.id}:jobTitle`}
+            value={contact.jobTitle}
+            onCommit={(jobTitle) => onChange({ jobTitle })}
+            trim
+            className="input-base"
+          />
         </Labeled>
         <Labeled label={t("common.email")}>
-          <input type="email" value={contact.email} onChange={(e) => onChange({ email: e.target.value })} className="input-base" />
+          <BufferedTextInput
+            entityKey={`${contact.id}:email`}
+            type="email"
+            value={contact.email}
+            onCommit={(email) => onChange({ email })}
+            className="input-base"
+          />
         </Labeled>
         <Labeled label={t("contacts.phone")}>
-          <input value={contact.phone} onChange={(e) => onChange({ phone: e.target.value })} className="input-base" />
+          <BufferedTextInput
+            entityKey={`${contact.id}:phone`}
+            value={contact.phone}
+            onCommit={(phone) => onChange({ phone })}
+            className="input-base"
+          />
         </Labeled>
         {duplicateMatches.length > 0 && (
           <div className="sm:col-span-2">
@@ -1159,7 +1194,12 @@ function ContactDetail({
           </div>
         )}
         <Labeled label={t("contacts.website")} className="sm:col-span-2">
-          <input value={contact.website} onChange={(e) => onChange({ website: e.target.value })} className="input-base" />
+          <BufferedTextInput
+            entityKey={`${contact.id}:website`}
+            value={contact.website}
+            onCommit={(website) => onChange({ website })}
+            className="input-base"
+          />
         </Labeled>
         <Labeled label={t("contacts.stage")}>
           <select

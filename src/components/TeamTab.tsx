@@ -5,14 +5,17 @@ import { PersonPresenceAvatar } from "./PersonPresenceAvatar";
 import { useOnlinePersonIds, usePresenceTick } from "../hooks/usePresence";
 import type { PersonPresence } from "../types";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
+import { BufferedTextInput } from "./BufferedTextInput";
 import { EMPTY_PERSON_TASK_STATS } from "../utils/personTaskStats";
 import { hasPrivilege, type OrgRole } from "../auth/roles";
 import { OrgRoleWithInfo } from "./OrgRoleWithInfo";
 import { useI18n, useT } from "../contexts/I18nContext";
 import { translateDepartment } from "../i18n/helpers";
+import { MobileDetailBack } from "./MobileDetailBack";
 import {
   TEAM_DEPARTMENTS,
   departmentChipClass,
+  departmentPickerChipClass,
   personSortKey,
 } from "../types";
 
@@ -129,7 +132,7 @@ export function TeamTab({
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,340px)_1fr]">
-      <aside className="space-y-4">
+      <aside className={`space-y-4 ${selected ? "hidden lg:block" : ""}`}>
         <h2 className="font-display text-base font-semibold text-slate-900">{t("team.title")}</h2>
 
         <input
@@ -158,8 +161,8 @@ export function TeamTab({
               onClick={() => setDeptFilter(deptFilter === dept ? "" : dept)}
               className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset transition ${
                 deptFilter === dept
-                  ? departmentChipClass(dept)
-                  : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
+                  ? departmentPickerChipClass(dept, true)
+                  : departmentPickerChipClass(dept, false)
               }`}
             >
               {dept === "Unassigned"
@@ -214,7 +217,9 @@ export function TeamTab({
       </aside>
 
       {selected ? (
-        <PersonDetail
+        <div>
+          <MobileDetailBack onBack={() => setSelectedId("")} />
+          <PersonDetail
           person={selected}
           isYou={selected.id === currentUserId}
           canEditDetails={selected.id === currentUserId || currentUserOrgRole === "founder"}
@@ -223,8 +228,9 @@ export function TeamTab({
           locale={locale}
           t={t}
         />
+        </div>
       ) : (
-        <div className="glass-strong flex min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500">
+        <div className="glass-strong hidden min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500 lg:flex">
           {t("team.selectMember")}
         </div>
       )}
@@ -348,7 +354,7 @@ function DepartmentMultiSelect({
                     className="rounded border-slate-300 text-accent focus:ring-accent/30"
                   />
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${departmentPickerChipClass(d, selected.includes(d))}`}
                   >
                     {translateDepartment(locale, d)}
                   </span>
@@ -417,17 +423,21 @@ function PersonDetail({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Labeled label={t("team.displayName")}>
-          <input
+          <BufferedTextInput
+            entityKey={`${person.id}:name`}
             value={person.name}
-            onChange={(e) => onChange({ name: e.target.value })}
+            onCommit={(name) => onChange({ name })}
+            trim
             readOnly={!canEditDetails}
             className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}
           />
         </Labeled>
         <Labeled label={t("team.titleField")}>
-          <input
+          <BufferedTextInput
+            entityKey={`${person.id}:title`}
             value={person.title}
-            onChange={(e) => onChange({ title: e.target.value })}
+            onCommit={(title) => onChange({ title })}
+            trim
             placeholder={t("team.titlePlaceholder")}
             readOnly={!canEditDetails}
             className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}

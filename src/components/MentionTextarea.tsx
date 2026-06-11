@@ -7,9 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import type { ImageAttachment, Person } from "../types";
+import { isKeyboardComposing } from "../utils/keyboardComposition";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import type { UpdateMentionOption } from "../utils/mentions";
-import { useT } from "../contexts/I18nContext";
+import { useT, useI18n } from "../contexts/I18nContext";
+import { translateDepartment } from "../i18n/helpers";
 import { InlineImageAttachments } from "./InlineImageAttachments";
 
 export type MentionSuggestion =
@@ -111,6 +113,7 @@ export function MentionTextarea({
   imageUploadingIndices?: ReadonlySet<number>;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const imagesEnabled =
     onImageFilesChange !== undefined || onImageAttachmentsChange !== undefined;
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -165,6 +168,7 @@ export function MentionTextarea({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isKeyboardComposing(e)) return;
     if (!open || items.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -303,7 +307,7 @@ export function MentionTextarea({
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(item.label)}`}
                     >
-                      {item.label}
+                      {translateDepartment(locale, item.label)}
                     </span>
                   </button>
                 );

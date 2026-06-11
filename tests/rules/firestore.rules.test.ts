@@ -78,13 +78,14 @@ describe.skipIf(!emulatorUp && allowSkip)("Firestore security rules", () => {
   });
 
   describe("people", () => {
-    it("founder reads all; partner reads self and same-dept", async () => {
+    it("founder and partner can read the full team directory", async () => {
       await seedPeople();
       const founderDb = await authedDb(FOUNDER);
       const engDb = await authedDb(ENG);
       await expect(getDoc(doc(founderDb, `organizations/${ORG}/people/${SALES}`))).resolves.toBeDefined();
       await expect(getDoc(doc(engDb, `organizations/${ORG}/people/${ENG}`))).resolves.toBeDefined();
-      await expect(getDoc(doc(engDb, `organizations/${ORG}/people/${FOUNDER}`))).rejects.toThrow();
+      await expect(getDoc(doc(engDb, `organizations/${ORG}/people/${FOUNDER}`))).resolves.toBeDefined();
+      await expect(getDoc(doc(engDb, `organizations/${ORG}/people/${SALES}`))).resolves.toBeDefined();
     });
 
     it("partner cannot change own role or departments", async () => {
@@ -297,6 +298,22 @@ describe.skipIf(!emulatorUp && allowSkip)("Firestore security rules", () => {
       await expect(setDoc(doc(engDb, `organizations/${ORG}/projects/p2`), { name: "x" })).rejects.toThrow();
     });
 
+    it("partner reads org-wide projects (General or empty departments)", async () => {
+      const generalPath = `organizations/${ORG}/projects/p-general`;
+      const openPath = `organizations/${ORG}/projects/p-open`;
+      const base = {
+        description: "",
+        color: "#000",
+        completed: false,
+        createdAt: new Date().toISOString(),
+      };
+      await seedDoc(generalPath, { ...base, name: "General project", departmentIds: ["General"] });
+      await seedDoc(openPath, { ...base, name: "Open project", departmentIds: [] });
+      const salesDb = await authedDb(SALES);
+      await expect(getDoc(doc(salesDb, generalPath))).resolves.toBeDefined();
+      await expect(getDoc(doc(salesDb, openPath))).resolves.toBeDefined();
+    });
+
     it("founder can create/update/delete", async () => {
       const founderDb = await authedDb(FOUNDER);
       const p2 = `organizations/${ORG}/projects/p2`;
@@ -349,10 +366,11 @@ describe.skipIf(!emulatorUp && allowSkip)("Firestore security rules", () => {
   });
 
   describe("contacts", () => {
-    it("founder CRUD; partner denied", async () => {
+    it("founder and Sales partner CRUD; other partners denied", async () => {
       await seedPeople();
       const founderDb = await authedDb(FOUNDER);
       const engDb = await authedDb(ENG);
+      const salesDb = await authedDb(SALES);
       const path = `organizations/${ORG}/contacts/c1`;
       await expect(
         setDoc(doc(founderDb, path), {
@@ -363,6 +381,8 @@ describe.skipIf(!emulatorUp && allowSkip)("Firestore security rules", () => {
           createdAt: new Date().toISOString(),
         })
       ).resolves.toBeUndefined();
+      await expect(getDoc(doc(salesDb, path))).resolves.toBeDefined();
+      await expect(getDocs(collection(salesDb, `organizations/${ORG}/contacts`))).resolves.toBeDefined();
       await expect(getDoc(doc(engDb, path))).rejects.toThrow();
       await expect(getDocs(collection(engDb, `organizations/${ORG}/contacts`))).rejects.toThrow();
     });

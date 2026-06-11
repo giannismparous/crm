@@ -34,13 +34,15 @@ export function UserAccountMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex max-w-[9rem] items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/60 px-1.5 py-1 hover:bg-slate-50 sm:max-w-[12rem] sm:gap-2 sm:px-2"
+        className="flex max-w-[9rem] items-center gap-1 rounded-lg border border-slate-200/80 bg-white/60 px-1 py-1 hover:bg-slate-50 sm:max-w-[12rem] sm:gap-2 sm:px-2"
         aria-expanded={open}
         aria-haspopup="menu"
         title={email ?? name}
       >
         <PersonAvatar person={person} name={name} size="sm" className="ring-1 ring-slate-200/80" />
-        <span className="truncate text-[10px] font-semibold text-indigo-700 sm:text-xs">{name}</span>
+        <span className="hidden max-w-[5rem] truncate text-[10px] font-semibold text-indigo-700 min-[420px]:inline sm:max-w-[8rem] sm:text-xs">
+          {name}
+        </span>
         <ChevronDown
           className={`h-3 w-3 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden

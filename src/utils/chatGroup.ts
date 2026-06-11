@@ -1,5 +1,5 @@
 import type { Person } from "../types";
-import { normalizeAssigneeDepartments } from "./taskAssignees";
+import { normalizeAssigneeDepartments, personInDepartment } from "./taskAssignees";
 
 /** Stable key from explicit people + department picks (not expanded membership). */
 export function groupKeyForSelection(
@@ -26,7 +26,7 @@ export function resolveGroupMemberIds(
   }
   for (const dept of normalizeAssigneeDepartments(departmentIds)) {
     for (const person of people) {
-      if (person.id && person.departments.includes(dept)) ids.add(person.id);
+      if (person.id && personInDepartment(person, dept)) ids.add(person.id);
     }
   }
   return [...ids].sort();

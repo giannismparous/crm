@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TabId } from "./types";
 import { AppBrand } from "./components/AppBrand";
-import { TabNav } from "./components/TabNav";
+import { TabNav, TabNavMenu } from "./components/TabNav";
 import { TasksTab } from "./components/TasksTab";
 import { AppointmentsTab } from "./components/AppointmentsTab";
 import { ContactsTab } from "./components/ContactsTab";
@@ -21,7 +21,6 @@ import { useOrgFirestore } from "./useOrgFirestore";
 import type { AppNotification } from "./types";
 import { ActionFeedbackBanner } from "./components/ActionFeedbackBanner";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
-import { needsProfileSetup } from "./utils/profileSetup";
 import { useUserAppearance } from "./hooks/useAppearance";
 import { useTimezone } from "./hooks/useTimezone";
 import { useScrollRestoration } from "./hooks/useScrollRestoration";
@@ -81,9 +80,13 @@ function App() {
     registrationSeeds,
     canAccessSettings,
     canManageProjects,
+    canAccessContacts,
     seesAllOrgData,
     issueRegistrationSeed,
     completeProfileSetup,
+    profileGateLoading,
+    requiresProfileSetup,
+    profileSetupPerson,
     chatConversations,
     markChatConversationRead,
     chatMyMemberState,
@@ -118,8 +121,8 @@ function App() {
   } | null>(null);
 
   useEffect(() => {
-    if (!seesAllOrgData && tab === "contacts") setTab("tasks");
-  }, [seesAllOrgData, tab, setTab]);
+    if (!canAccessContacts && tab === "contacts") setTab("tasks");
+  }, [canAccessContacts, tab, setTab]);
 
   useEffect(() => {
     writeTabToLocation(tab);
@@ -194,6 +197,10 @@ function App() {
       setTab("reminders");
       return;
     }
+    if (n.kind === "member_joined" && n.taskId) {
+      openTeamMember(n.taskId);
+      return;
+    }
     setTab("tasks");
     setFocusTaskId(n.taskId);
   }
@@ -248,24 +255,32 @@ function App() {
     return t("app.signedIn");
   }, [currentUserPerson, user, t]);
 
-  const syncing = authLoading || Boolean(user && dataLoading);
-  const showProfileSetup = Boolean(user && currentUserPerson && needsProfileSetup(currentUserPerson));
+  const syncing = authLoading || profileGateLoading || Boolean(user && dataLoading && !requiresProfileSetup);
+
+  const appContentReady = Boolean(
+    user && !authLoading && !profileGateLoading && !requiresProfileSetup && !dataLoading
+  );
 
   useScrollRestoration(
     tab,
-    Boolean(user && !authLoading && !dataLoading && !showProfileSetup)
+    Boolean(user && !authLoading && !dataLoading && !profileGateLoading && !requiresProfileSetup)
   );
+
+  if (authLoading && !user) {
+    return <SyncingProgressBar active />;
+  }
 
   if (!authLoading && !user) {
     return <AuthScreen />;
   }
 
-  if (showProfileSetup && currentUserPerson) {
+  if (requiresProfileSetup && profileSetupPerson) {
     return (
       <>
         <SyncingProgressBar active={syncing} />
         <ProfileSetupScreen
-          person={currentUserPerson}
+          key={profileSetupPerson.id}
+          person={profileSetupPerson}
           onUpdatePerson={updatePerson}
           onComplete={completeProfileSetup}
         />
@@ -273,43 +288,50 @@ function App() {
     );
   }
 
+  const headerActions = (
+    <>
+      <span className="hidden text-right text-[10px] text-slate-400 md:inline" aria-live="polite">
+        {syncing ? t("common.syncing") : ""}
+      </span>
+      <span
+        className="hidden max-w-[10rem] truncate text-right text-[10px] text-rose-600 md:inline lg:max-w-[12rem]"
+        title={error ?? undefined}
+      >
+        {error && !syncing ? error : ""}
+      </span>
+      <NotificationsBell
+        notifications={bellNotifications}
+        onSelect={openNotification}
+        onMarkRead={markNotificationRead}
+        onMarkAllRead={markAllNotificationsRead}
+      />
+      <UserAccountMenu
+        name={currentUserName}
+        person={currentUserPerson}
+        email={user?.email}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+    </>
+  );
+
   return (
     <PersonNavProvider onOpenTeamMember={openTeamMember}>
     <div className="min-h-screen pb-12">
       <SyncingProgressBar active={syncing} />
       <header className="app-header">
-        <div className="relative mx-auto flex h-11 max-w-7xl items-center justify-between gap-2 px-3 sm:h-12 sm:gap-4 sm:px-6 lg:px-8">
-          <span className="relative z-10 shrink-0">
+        <div className="mx-auto grid h-11 max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-4 px-3 sm:h-12 sm:gap-6 sm:px-6 lg:gap-8 lg:px-8">
+          <span className="shrink-0">
             <AppBrand />
           </span>
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="pointer-events-auto">
-              <TabNav active={tab} onChange={setTab} seesAllOrgData={seesAllOrgData} />
+          <div className="flex min-w-0 justify-center">
+            <div className="xl:hidden">
+              <TabNavMenu active={tab} onChange={setTab} showContactsTab={canAccessContacts} />
+            </div>
+            <div className="nav-scroll hidden min-w-0 max-w-full xl:block">
+              <TabNav active={tab} onChange={setTab} showContactsTab={canAccessContacts} />
             </div>
           </div>
-          <div className="relative z-10 flex shrink-0 items-center gap-2 sm:gap-3">
-            <span className="hidden min-w-[3.25rem] text-right text-[10px] text-slate-400 sm:inline" aria-live="polite">
-              {syncing ? t("common.syncing") : ""}
-            </span>
-            <span
-              className="max-w-[140px] truncate text-right text-[10px] text-rose-600 sm:max-w-[8rem]"
-              title={error ?? undefined}
-            >
-              {error ?? ""}
-            </span>
-            <NotificationsBell
-              notifications={bellNotifications}
-              onSelect={openNotification}
-              onMarkRead={markNotificationRead}
-              onMarkAllRead={markAllNotificationsRead}
-            />
-            <UserAccountMenu
-              name={currentUserName}
-              person={currentUserPerson}
-              email={user?.email}
-              onOpenSettings={() => setSettingsOpen(true)}
-            />
-          </div>
+          <div className="flex shrink-0 items-center justify-self-end gap-1 sm:gap-2">{headerActions}</div>
         </div>
       </header>
 
@@ -317,7 +339,8 @@ function App() {
         key={timezone.effectiveTimezone}
         className="mx-auto max-w-7xl px-4 pb-8 pt-[calc(2.75rem+1rem)] sm:px-6 sm:pt-[calc(3rem+1.25rem)] lg:px-8"
       >
-        {authLoading ? null : tab === "tasks" ? (
+        {appContentReady ? (
+          tab === "tasks" ? (
           <TasksTab
             people={people}
             projects={projects}
@@ -422,7 +445,8 @@ function App() {
             onUpdatePersonalReminder={updatePersonalReminder}
             onOpenPersonalReminder={() => setTab("reminders")}
           />
-        )}
+        )
+        ) : null}
       </main>
 
       <MessagesChatStack

@@ -1,5 +1,5 @@
 import type { Appointment, Person } from "../types";
-import { normalizeAssigneeDepartments, normalizeIdList } from "./taskAssignees";
+import { normalizeAssigneeDepartments, normalizeIdList, personInDepartment } from "./taskAssignees";
 import { recipientIdsFromSelection } from "./notifyRecipients";
 
 /** Person ids already represented by selected departments. */
@@ -10,7 +10,7 @@ export function participantIdsCoveredByDepartments(
   const covered = new Set<string>();
   for (const dept of departmentIds) {
     for (const person of people) {
-      if (person.departments.includes(dept)) covered.add(person.id);
+      if (personInDepartment(person, dept)) covered.add(person.id);
     }
   }
   return covered;

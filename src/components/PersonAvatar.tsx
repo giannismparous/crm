@@ -1,5 +1,6 @@
-import type { CSSProperties, MouseEvent } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import type { Person } from "../types";
+import { isKeyboardComposing } from "../utils/keyboardComposition";
 import { useOpenTeamMember } from "../contexts/PersonNavContext";
 import { personAvatarGradient, personInitials } from "../utils/personAvatar";
 import { LoadableImage } from "./LoadableImage";
@@ -81,6 +82,56 @@ function openPersonProfile(
   openTeam(personId);
 }
 
+/** Person link — span when nested inside another button (e.g. update card header). */
+function PersonNavControl({
+  personId,
+  name,
+  stopPropagation = false,
+  className = "",
+  style,
+  children,
+}: {
+  personId: string;
+  name: string;
+  stopPropagation?: boolean;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const openTeam = useOpenTeamMember();
+  const onClick = (e: MouseEvent) => openPersonProfile(e, openTeam, personId, stopPropagation);
+  const title = t("team.viewMember", { name });
+
+  if (stopPropagation) {
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (isKeyboardComposing(e)) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick(e as unknown as MouseEvent);
+          }
+        }}
+        className={`cursor-pointer ${className}`}
+        style={style}
+        title={title}
+      >
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={className} style={style} title={title}>
+      {children}
+    </button>
+  );
+}
+
 /** Name + avatar for inline task footers, comments, etc. */
 export function PersonNameInline({
   person,
@@ -132,14 +183,14 @@ export function PersonNameInline({
   }
 
   return (
-    <button
-      type="button"
-      onClick={(e) => openPersonProfile(e, openTeam, resolvedId, stopPropagation)}
+    <PersonNavControl
+      personId={resolvedId!}
+      name={displayName}
+      stopPropagation={stopPropagation}
       className={`${personNavButtonClass("gap-1.5 align-middle")} ${className}`}
-      title={t("team.viewMember", { name: displayName })}
     >
       {inner}
-    </button>
+    </PersonNavControl>
   );
 }
 
@@ -173,14 +224,14 @@ export function PersonNamesInline({
           <span key={person.id} className="inline-flex items-center">
             {index > 0 && <span className="text-slate-500">, </span>}
             {canNavigate ? (
-              <button
-                type="button"
-                onClick={(e) => openPersonProfile(e, openTeam, person.id, stopPropagation)}
+              <PersonNavControl
+                personId={person.id}
+                name={name}
+                stopPropagation={stopPropagation}
                 className={personNavButtonClass(`px-0.5 ${nameClass}`)}
-                title={t("team.viewMember", { name })}
               >
                 {name}
-              </button>
+              </PersonNavControl>
             ) : (
               <span className={nameClass}>{name}</span>
             )}
@@ -239,17 +290,18 @@ export function PersonAvatarStack({
         if (!person.id || !openTeam) {
           return <span key={person.id}>{avatar}</span>;
         }
+        const memberName = person.name.trim() || t("common.member");
         return (
-          <button
+          <PersonNavControl
             key={person.id}
-            type="button"
-            onClick={(e) => openPersonProfile(e, openTeam, person.id, stopPropagation)}
+            personId={person.id}
+            name={memberName}
+            stopPropagation={stopPropagation}
             className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-            title={t("team.viewMember", { name: person.name.trim() || t("common.member") })}
             style={{ zIndex: i + 1 }}
           >
             {avatar}
-          </button>
+          </PersonNavControl>
         );
       })}
       {showCount && (

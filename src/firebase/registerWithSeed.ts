@@ -5,11 +5,19 @@ import { translate } from "../i18n/translate";
 import { formatAuthError } from "./authErrors";
 import { validateRegistrationCredentials } from "./authValidation";
 import { getFirebaseAuth, getFirestoreDb, signOutUser } from "./config";
-import { ensureUserProfile } from "./ensureUserProfile";
-import { markUserProfileSynchronized } from "./profileSync";
+import {
+  clearProfileSetupPending,
+  clearUserProfileSynchronized,
+  markProfileSetupPending,
+  markUserProfileSynchronized,
+} from "./profileSync";
 import { assertRegistrationSeedAvailable, consumeRegistrationSeed } from "./registrationSeeds";
 
 let registrationInFlight = false;
+
+export function isRegistrationInProgress(): boolean {
+  return registrationInFlight;
+}
 
 const SEED_SETUP_ERROR_KEYS = [
   "auth.error.seedUsed",
@@ -29,7 +37,7 @@ function isSeedSetupError(err: unknown): boolean {
 
 /**
  * Register with email/password using a one-time seed.
- * Rolls back the Auth user if Firestore setup fails so no orphan accounts remain.
+ * `consumeRegistrationSeed` writes org profile docs; rolls back Auth if that step fails.
  */
 export async function registerWithSeed(
   email: string,
@@ -51,11 +59,13 @@ export async function registerWithSeed(
     await assertRegistrationSeedAvailable(db, creds.seedCode);
 
     const cred = await createUserWithEmailAndPassword(auth, creds.email, creds.password);
+    markUserProfileSynchronized(cred.user.uid);
+    markProfileSetupPending(cred.user.uid);
     try {
       await consumeRegistrationSeed(db, cred.user, creds.seedCode);
-      await ensureUserProfile(cred.user);
-      markUserProfileSynchronized(cred.user.uid);
     } catch (setupErr) {
+      clearProfileSetupPending(cred.user.uid);
+      clearUserProfileSynchronized(cred.user.uid);
       try {
         await deleteUser(cred.user);
       } catch {

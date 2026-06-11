@@ -1,15 +1,19 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useBufferedTextField } from "../hooks/useBufferedTextField";
 import { filterCompanySuggestions } from "../utils/contactDuplicates";
+import { isKeyboardComposing } from "../utils/keyboardComposition";
 
 export function CompanySuggestInput({
   value,
   onChange,
+  entityKey,
   suggestions,
   className = "input-base py-2",
   placeholder,
 }: {
   value: string;
   onChange: (value: string) => void;
+  entityKey: string;
   suggestions: string[];
   className?: string;
   placeholder?: string;
@@ -17,10 +21,11 @@ export function CompanySuggestInput({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const field = useBufferedTextField(value, onChange, entityKey, { trim: true });
 
   const matches = useMemo(
-    () => filterCompanySuggestions(suggestions, value),
-    [suggestions, value]
+    () => filterCompanySuggestions(suggestions, field.value),
+    [suggestions, field.value]
   );
 
   const showList = open && matches.length > 0;
@@ -33,7 +38,8 @@ export function CompanySuggestInput({
   }
 
   function pick(name: string) {
-    onChange(name);
+    field.setDraft(name);
+    void onChange(name);
     setOpen(false);
     setActiveIndex(-1);
   }
@@ -42,6 +48,7 @@ export function CompanySuggestInput({
     clearBlurTimer();
     setOpen(true);
     setActiveIndex(-1);
+    field.onFocus();
   }
 
   function handleBlur() {
@@ -50,9 +57,12 @@ export function CompanySuggestInput({
       setOpen(false);
       setActiveIndex(-1);
     }, 120);
+    field.onBlur();
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (isKeyboardComposing(e)) return;
+
     if (!showList) {
       if (e.key === "ArrowDown" && matches.length > 0) {
         e.preventDefault();
@@ -81,12 +91,14 @@ export function CompanySuggestInput({
   return (
     <div className="relative">
       <input
-        value={value}
+        value={field.value}
         onChange={(e) => {
-          onChange(e.target.value);
+          field.onChange(e);
           setOpen(true);
           setActiveIndex(-1);
         }}
+        onCompositionStart={field.onCompositionStart}
+        onCompositionEnd={field.onCompositionEnd}
         onFocus={handleFocus}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}

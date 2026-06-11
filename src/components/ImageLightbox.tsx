@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isTypingOrComposingTarget } from "../utils/keyboardComposition";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { useT } from "../contexts/I18nContext";
@@ -33,6 +34,7 @@ export function ImageLightbox({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
+      if (isTypingOrComposingTarget()) return;
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft" && hasPrev) onNavigate(safeIndex - 1);
       if (e.key === "ArrowRight" && hasNext) onNavigate(safeIndex + 1);

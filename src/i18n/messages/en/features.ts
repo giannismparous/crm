@@ -38,8 +38,8 @@ export const featuresEn = {
   "projects.description": "Description",
   "projects.departmentVisibility": "Department visibility",
   "projects.deptVisibilityHint":
-    "Partners in selected departments can see this project and all of its tasks. Leave empty for founders only.",
-  "projects.foundersOnlyHint": "Founders only — no department visibility set.",
+    "Empty or General = all partners see this project. Otherwise only the selected departments.",
+  "projects.orgWideHint": "Visible to everyone on the team.",
   "projects.empty": "No projects yet.",
   "projects.deleteConfirm": "Delete “{{name}}”? This cannot be undone.",
   "projects.yesDelete": "Yes, delete project",

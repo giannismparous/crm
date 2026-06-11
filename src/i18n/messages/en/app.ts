@@ -29,6 +29,8 @@ export const appEn = {
   "auth.password": "Password",
   "auth.createAccount": "Create account",
   "auth.seedPlaceholder": "Paste one-time code",
+  "auth.seedHint":
+    "The code is 32 characters (letters and numbers). Copy the full code from the green box or Copy button — not just the first 8 characters from the list.",
   "auth.error.emailInUse": "An account with this email already exists. Sign in instead.",
   "auth.error.invalidEmail": "Enter a valid email address.",
   "auth.error.wrongCredentials": "Incorrect email or password.",
@@ -50,9 +52,9 @@ export const appEn = {
     "Registration could not be completed. Ask your admin for a new seed and try again.",
   "auth.error.notRegistered":
     "This account is not registered with your team. Create an account with a valid one-time seed, or contact your admin.",
-  "auth.error.seedUsed": "Seed already used.",
+  "auth.error.seedUsed": "This code was already used. Ask your admin for a new one.",
   "auth.error.seedVerifyFailed": "Could not verify seed. Check the code or ask for a new one.",
-  "auth.error.seedInvalid": "Invalid seed.",
+  "auth.error.seedInvalid": "Invalid code. Make sure you pasted the full 32-character code.",
   "auth.error.seedWrongAccount": "This account is already registered with a different seed.",
   "auth.error.seedExpired": "Expired seed.",
   "auth.error.accountExpired": "Your account has expired.",

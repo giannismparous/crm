@@ -7,6 +7,7 @@ import {
 } from "../../firebase/chat";
 import { useChatPeerReadStates } from "../../hooks/useChatPeerReadStates";
 import { useChatWindowMessages } from "../../hooks/useChatWindowMessages";
+import { isKeyboardComposing } from "../../utils/keyboardComposition";
 import { isPresenceOnline, usePresenceTick } from "../../hooks/usePresence";
 import type {
   ChatConversation,
@@ -441,6 +442,7 @@ export function ChatBubbleWindow({
             className="input-base min-h-[40px] w-full resize-none pb-9 text-sm"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
+                if (isKeyboardComposing(e)) return;
                 e.preventDefault();
                 void handleSend(e);
               }

@@ -58,11 +58,11 @@ export const commonEl = {
   "common.exclusiveTitle":
     "Μη επιλεγμένο: ταιριάζει με οποιοδήποτε επιλεγμένο άτομο ή τμήμα. Επιλεγμένο: πρέπει να ταιριάζουν όλα.",
   "common.filter": "Φίλτρο",
-  "common.sortBy": "Ταξινόμηση",
+  "common.sortBy": "Ταξινόμηση ανά",
   "common.everyone": "Όλοι",
   "common.canceled": "Ακυρωμένα",
   "common.completed": "Ολοκληρωμένα",
-  "common.markComplete": "Σήμανση ως ολοκληρωμένη",
+  "common.markComplete": "Σήμανση ως ολοκληρωμένο",
   "common.markDone": "Σήμανση ως έτοιμη",
   "common.no": "Όχι",
   "common.yes": "Ναι",

@@ -38,8 +38,8 @@ export const featuresEl = {
   "projects.description": "Περιγραφή",
   "projects.departmentVisibility": "Ορατότητα τμήματος",
   "projects.deptVisibilityHint":
-    "Οι συνεργάτες στα επιλεγμένα τμήματα βλέπουν αυτό το έργο και όλες τις εργασίες του. Αφήστε κενό μόνο για ιδρυτές.",
-  "projects.foundersOnlyHint": "Μόνο ιδρυτές — δεν έχει οριστεί ορατότητα τμήματος.",
+    "Κενό ή «Γενικό» = όλοι οι συνεργάτες βλέπουν το έργο. Αλλιώς μόνο τα επιλεγμένα τμήματα.",
+  "projects.orgWideHint": "Ορατό σε όλη την ομάδα.",
   "projects.empty": "Δεν υπάρχουν ακόμη έργα.",
   "projects.deleteConfirm": "Διαγραφή «{{name}}»; Δεν μπορεί να αναιρεθεί.",
   "projects.yesDelete": "Ναι, διαγραφή έργου",

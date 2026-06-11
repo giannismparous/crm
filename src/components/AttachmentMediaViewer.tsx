@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, File as FileIcon, Music, X } from "lucide-react";
 import type { InlineMediaKind } from "../types";
 import { useT } from "../contexts/I18nContext";
+import { isTypingOrComposingTarget } from "../utils/keyboardComposition";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 
 export type MediaViewerItem = {
@@ -45,6 +46,7 @@ export function AttachmentMediaViewer({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
+      if (isTypingOrComposingTarget()) return;
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft" && hasPrev) onNavigate(safeIndex - 1);
       if (e.key === "ArrowRight" && hasNext) onNavigate(safeIndex + 1);
