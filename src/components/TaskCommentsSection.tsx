@@ -37,6 +37,7 @@ import {
   readTaskCommentDraft,
   writeTaskCommentDraft,
 } from "../utils/taskCommentDraftStorage";
+import { useT } from "../contexts/I18nContext";
 
 const COMMENTS_PAGE_SIZE = 10;
 
@@ -62,19 +63,28 @@ function FeedbackRequestCard({
   currentUserId: string;
   onReply: (requestId: string, body: string) => void | Promise<void>;
 }) {
+  const t = useT();
   const [replyHtml, setReplyHtml] = useState("");
   const [posting, setPosting] = useState(false);
   const replyHtmlRef = useRef("");
   const replySubmittedRef = useRef(false);
   replyHtmlRef.current = replyHtml;
-  const requester = people.find((p) => p.id === request.requestedById)?.name ?? "Someone";
+  const requester = people.find((p) => p.id === request.requestedById)?.name ?? t("common.someone");
   const asked = askedPersonNames(request, people);
   const resolved = request.status === "resolved";
   const canReply = canReplyToFeedbackRequest(request, currentUserId);
 
   const line = resolved
-    ? `Feedback given · from ${requester} · for ${asked || "—"} · ${formatTime(request.createdAt)}`
-    : `Feedback requested · from ${requester} · for ${asked || "—"} · ${formatTime(request.createdAt)}`;
+    ? t("tasks.feedback.givenLine", {
+        requester,
+        asked: asked || "—",
+        time: formatTime(request.createdAt),
+      })
+    : t("tasks.feedback.requestedLine", {
+        requester,
+        asked: asked || "—",
+        time: formatTime(request.createdAt),
+      });
 
   useEffect(() => {
     replySubmittedRef.current = false;
@@ -119,7 +129,7 @@ function FeedbackRequestCard({
                 <p className="flex flex-wrap items-center gap-x-1 text-[10px] font-medium text-amber-900">
                   <PersonNameInline
                     person={person}
-                    name={person?.name ?? "Someone"}
+                    name={person?.name ?? t("common.someone")}
                     className="[&>span:first-child]:text-amber-900 [&>span:first-child]:font-medium"
                   />
                   <span className="font-normal text-amber-800/80">· {formatTime(res.createdAt)}</span>
@@ -147,11 +157,11 @@ function FeedbackRequestCard({
 
       {canReply && (
         <div className="relative z-30 mt-2 border-t border-amber-300/50 pt-2">
-          <p className="mb-1.5 text-[11px] font-medium text-amber-950">Your feedback</p>
+          <p className="mb-1.5 text-[11px] font-medium text-amber-950">{t("tasks.feedback.yourFeedback")}</p>
           <SimpleRichText
             value={replyHtml}
             onChange={setReplyHtml}
-            placeholder="Write feedback…"
+            placeholder={t("tasks.feedback.placeholder")}
             className="border-amber-200/80"
             collapseKey={`feedback-reply-${request.id}`}
             inlineImageStorageDir={`tasks/${taskId}/feedback`}
@@ -162,7 +172,7 @@ function FeedbackRequestCard({
             onClick={() => void sendReply()}
             className="mt-3 w-full rounded-lg border border-indigo-700/30 bg-accent px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-accent-dim focus-visible:outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-800 disabled:shadow-none"
           >
-            {posting ? "Sending…" : "Submit feedback"}
+            {posting ? t("common.sending") : t("tasks.feedback.submit")}
           </button>
         </div>
       )}
@@ -185,6 +195,7 @@ function CommentItem({
   updateMentions: ReturnType<typeof updateMentionLabels>;
   onUpdateMentionClick?: (updateId: string) => void;
 }) {
+  const t = useT();
   const author = people.find((p) => p.id === c.authorId);
   const isMe = c.authorId === currentUserId;
   const likes = c.reactions?.likes ?? [];
@@ -207,9 +218,13 @@ function CommentItem({
         >
           <button
             type="button"
-            title={likes.length ? `${likes.length} like${likes.length === 1 ? "" : "s"}` : "Like"}
+            title={
+              likes.length
+                ? t("tasks.comments.likeCount", { count: likes.length })
+                : t("tasks.comments.like")
+            }
             aria-pressed={liked}
-            aria-label={liked ? "Remove like" : "Like"}
+            aria-label={liked ? t("tasks.comments.removeLike") : t("tasks.comments.like")}
             onClick={() => onVote(c.id, "like")}
             className={`items-center gap-0.5 rounded px-1 py-px text-sm leading-none transition-colors ${
               hasReactions && likes.length > 0
@@ -230,9 +245,13 @@ function CommentItem({
           </button>
           <button
             type="button"
-            title={dislikes.length ? `${dislikes.length} dislike${dislikes.length === 1 ? "" : "s"}` : "Dislike"}
+            title={
+              dislikes.length
+                ? t("tasks.comments.dislikeCount", { count: dislikes.length })
+                : t("tasks.comments.dislike")
+            }
             aria-pressed={disliked}
-            aria-label={disliked ? "Remove dislike" : "Dislike"}
+            aria-label={disliked ? t("tasks.comments.removeDislike") : t("tasks.comments.dislike")}
             onClick={() => onVote(c.id, "dislike")}
             className={`items-center gap-0.5 rounded px-1 py-px text-sm leading-none transition-colors ${
               hasReactions && dislikes.length > 0
@@ -257,11 +276,11 @@ function CommentItem({
       <p className="flex min-w-0 flex-wrap items-center gap-x-1 pr-[4.5rem] text-[11px] font-medium text-slate-600">
         <PersonNameInline
           person={author}
-          name={author?.name ?? "Unknown"}
+          name={author?.name ?? t("common.unknown")}
           highlight={isMe}
           className="[&>span:first-child]:text-slate-600"
         />
-        {isMe && <span className="font-normal text-slate-400">· you</span>}
+        {isMe && <span className="font-normal text-slate-400">· {t("common.youLower")}</span>}
         <span className="font-normal text-slate-400">· {formatTime(c.createdAt)}</span>
       </p>
       {c.body && (
@@ -309,6 +328,7 @@ export function TaskCommentsSection({
     updated: Task
   ) => void | Promise<void>;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(() => readTaskCommentDraft(task.id, currentUserId)?.body ?? "");
   const [draftAttachments, setDraftAttachments] = useState<ImageAttachment[]>([]);
   const [draftImagesUploading, setDraftImagesUploading] = useState(false);
@@ -438,7 +458,7 @@ export function TaskCommentsSection({
           className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${sectionOpen ? "rotate-180" : ""}`}
           aria-hidden
         />
-        <span>Comments</span>
+        <span>{t("tasks.comments.title")}</span>
         {totalItems > 0 && (
           <span className="font-normal tabular-nums text-slate-400">({totalItems})</span>
         )}
@@ -473,7 +493,7 @@ export function TaskCommentsSection({
                   }
                   className="w-full rounded-lg border border-dashed border-slate-200 py-1.5 text-center text-[11px] font-medium text-accent hover:border-accent/40 hover:bg-accent/5"
                 >
-                  Show {olderBatch} older comment{olderBatch === 1 ? "" : "s"}
+                  {t("tasks.comments.showOlder", { count: olderBatch })}
                 </button>
               )}
               <ul className="space-y-2">
@@ -496,7 +516,7 @@ export function TaskCommentsSection({
             <MentionTextarea
               value={draft}
               onChange={setDraft}
-              placeholder="Add a comment… (@ person, department, or update)"
+              placeholder={t("tasks.comments.placeholder")}
               people={mentionablePeople}
               excludePersonId={currentUserId}
               departmentOptions={mentionableDepartments}
@@ -517,7 +537,7 @@ export function TaskCommentsSection({
               }
               className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {posting ? "Posting…" : "Post comment"}
+              {posting ? t("common.posting") : t("tasks.comments.post")}
             </button>
           </form>
         </div>

@@ -56,6 +56,8 @@ import {
   UNASSIGNED_PROJECT_COLOR,
   UNASSIGNED_PROJECT_ID,
 } from "../utils/projectColors";
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translatePriority } from "../i18n/helpers";
 
 const PRIORITY_ORDER: TaskPriority[] = ["urgent", "high", "medium", "low"];
 
@@ -126,7 +128,7 @@ function compareTasksByUrgency(a: Task, b: Task, listTab: TaskListTab): number {
   return prioRank(a.priority) - prioRank(b.priority);
 }
 
-function buildProjectTaskGroups(tasks: Task[], projects: Project[]): TaskProjectGroup[] {
+function buildProjectTaskGroups(tasks: Task[], projects: Project[], unassignedLabel: string): TaskProjectGroup[] {
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const buckets = new Map<string, Task[]>();
 
@@ -163,7 +165,7 @@ function buildProjectTaskGroups(tasks: Task[], projects: Project[]): TaskProject
   if (unassigned && unassigned.length > 0) {
     groups.push({
       id: UNASSIGNED_PROJECT_ID,
-      label: "Unassigned",
+      label: unassignedLabel,
       color: UNASSIGNED_PROJECT_COLOR,
       completed: false,
       tasks: unassigned,
@@ -184,6 +186,7 @@ function ProjectGroupHeader({
   count: number;
   isFirst?: boolean;
 }) {
+  const t = useT();
   return (
     <div
       className={`flex items-center gap-2 border-b-4 pb-2 ${isFirst ? "pt-0" : "pt-4"}`}
@@ -193,27 +196,14 @@ function ProjectGroupHeader({
       <h3 className="text-sm font-semibold" style={{ color }}>
         {label}
       </h3>
-      <span className="text-xs tabular-nums text-slate-500">
-        {count} {count === 1 ? "task" : "tasks"}
-      </span>
+      <span className="text-xs tabular-nums text-slate-500">{t("common.taskCount", { count })}</span>
     </div>
   );
 }
 
-export const PRIORITY_SHORT_LABEL: Record<TaskPriority, string> = {
-  urgent: "Urgent",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-};
-
-/** Shown on hover (native tooltip) for priority and segmented control. */
-export const PRIORITY_TOOLTIPS: Record<TaskPriority, string> = {
-  urgent: "Critical — treat as top priority; do before other work when possible.",
-  high: "High — should be done ASAP; ahead of the normal queue.",
-  medium: "Medium — normal priority; schedule with everyday work.",
-  low: "Low — no rush; pick up when there is spare capacity.",
-};
+function priorityTipKey(p: TaskPriority): string {
+  return `tasks.priority.${p}Tip`;
+}
 
 const PRIORITY_BADGE: Record<TaskPriority, { pill: string; iconColor: string }> = {
   urgent: {
@@ -304,22 +294,26 @@ export function PriorityFilter({
   value: TaskPriority[];
   onChange: (priorities: TaskPriority[]) => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
+
   function toggle(p: TaskPriority) {
     if (value.includes(p)) onChange(value.filter((x) => x !== p));
     else onChange([...value, p]);
   }
 
   return (
-    <div className="segment-track shrink-0" role="group" aria-label="Filter by urgency">
+    <div className="segment-track shrink-0" role="group" aria-label={t("tasks.priority.filterAria")}>
       {PRIORITY_ORDER.map((p) => {
         const on = value.includes(p);
+        const priorityLabel = translatePriority(locale, p);
         return (
           <button
             key={p}
             type="button"
             onClick={() => toggle(p)}
-            title={`${on ? "Hide" : "Show"} ${PRIORITY_SHORT_LABEL[p]} — ${PRIORITY_TOOLTIPS[p]}`}
-            aria-label={`${PRIORITY_SHORT_LABEL[p]} urgency`}
+            title={`${on ? t("common.hide") : t("common.view")} ${priorityLabel} — ${t(priorityTipKey(p))}`}
+            aria-label={priorityLabel}
             aria-pressed={on}
             className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition sm:h-8 sm:w-8 ${
               on ? `${PRIORITY_BADGE[p].pill} priority-filter-on` : "priority-filter-off"
@@ -342,13 +336,15 @@ export function PrioritySegmented({
   onChange: (p: TaskPriority) => void;
   size?: "sm" | "md";
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const btn =
     size === "sm"
       ? "h-7 min-w-[2rem] px-1 py-0.5 sm:h-8 sm:min-w-[2.25rem]"
       : "h-8 min-w-[2.25rem] px-1 py-0.5 sm:h-9 sm:min-w-[2.5rem]";
   const icon = size === "sm" ? "h-3.5 w-3.5 sm:h-4 sm:w-4" : "h-4 w-4 sm:h-[18px] sm:w-[18px]";
   return (
-    <div className="flex flex-wrap gap-1" role="group" aria-label="Priority">
+    <div className="flex flex-wrap gap-1" role="group" aria-label={t("tasks.priority.aria")}>
       {PRIORITY_ORDER.map((p) => {
         const selected = value === p;
         return (
@@ -356,8 +352,8 @@ export function PrioritySegmented({
             key={p}
             type="button"
             onClick={() => onChange(p)}
-            title={PRIORITY_TOOLTIPS[p]}
-            aria-label={PRIORITY_SHORT_LABEL[p]}
+            title={t(priorityTipKey(p))}
+            aria-label={translatePriority(locale, p)}
             aria-pressed={selected}
             className={`inline-flex ${btn} shrink-0 items-center justify-center rounded-md border transition ${PRIORITY_BADGE[p].pill} ${
               selected ? "priority-filter-on" : "priority-filter-off"
@@ -428,8 +424,9 @@ function AssigneeNamesForFooter({
   people: Person[];
   currentUserId: string;
 }) {
+  const t = useT();
   if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) {
-    return <span className="font-medium text-slate-500">Open</span>;
+    return <span className="font-medium text-slate-500">{t("common.open")}</span>;
   }
 
   const assigneePeople = assigneeIds
@@ -451,7 +448,7 @@ function AssigneeNamesForFooter({
               </span>
             )}
             <span className="font-medium text-violet-900">{dept}</span>
-            <span className="text-slate-500"> (dept)</span>
+            <span className="text-slate-500"> {t("common.deptSuffix")}</span>
           </span>
         ))}
       </span>
@@ -475,6 +472,7 @@ function InvolvedFilterMultiSelect({
   onChangePeople: (ids: string[]) => void;
   onChangeDepartments: (ids: string[]) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -509,15 +507,15 @@ function InvolvedFilterMultiSelect({
   }
 
   const summary = useMemo(() => {
-    if (personIds.length === 0 && departmentIds.length === 0) return "All";
+    if (personIds.length === 0 && departmentIds.length === 0) return t("common.all");
     const bits: string[] = [];
     if (personIds.length === 1) {
-      bits.push(people.find((p) => p.id === personIds[0])?.name ?? "1 person");
-    } else if (personIds.length > 1) bits.push(`${personIds.length} people`);
+      bits.push(people.find((p) => p.id === personIds[0])?.name ?? t("common.onePerson"));
+    } else if (personIds.length > 1) bits.push(t("common.nPeople", { count: personIds.length }));
     if (departmentIds.length === 1) bits.push(departmentIds[0]!);
-    else if (departmentIds.length > 1) bits.push(`${departmentIds.length} depts`);
+    else if (departmentIds.length > 1) bits.push(t("common.nDepts", { count: departmentIds.length }));
     return bits.join(", ");
-  }, [personIds, departmentIds, people]);
+  }, [personIds, departmentIds, people, t]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -529,7 +527,7 @@ function InvolvedFilterMultiSelect({
         aria-haspopup="listbox"
       >
         <span className="min-w-0 flex-1 truncate">
-          <span className="text-slate-400">Filter </span>
+          <span className="text-slate-400">{t("common.filter")} </span>
           <span className="font-medium text-slate-800">{summary}</span>
         </span>
         <span className="shrink-0 text-slate-400" aria-hidden>
@@ -540,11 +538,11 @@ function InvolvedFilterMultiSelect({
         <div
           className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
           role="listbox"
-          aria-label="Filter by people and department"
+          aria-label={t("tasks.filterAria")}
         >
           <input
             type="search"
-            placeholder="Search…"
+            placeholder={t("common.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
@@ -553,7 +551,7 @@ function InvolvedFilterMultiSelect({
             {filteredPeople.length > 0 && (
               <>
                 <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  People
+                  {t("common.people")}
                 </p>
                 {filteredPeople.map((p) => (
                   <label
@@ -574,7 +572,7 @@ function InvolvedFilterMultiSelect({
             {filteredDepts.length > 0 && (
               <>
                 <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Departments
+                  {t("common.departments")}
                 </p>
                 {filteredDepts.map((dept) => (
                   <label
@@ -597,7 +595,7 @@ function InvolvedFilterMultiSelect({
               </>
             )}
             {filteredPeople.length === 0 && filteredDepts.length === 0 && (
-              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
+              <p className="px-1 py-2 text-center text-slate-500">{t("common.noMatches")}</p>
             )}
           </div>
           {(personIds.length > 0 || departmentIds.length > 0) && (
@@ -609,7 +607,7 @@ function InvolvedFilterMultiSelect({
                 onChangeDepartments([]);
               }}
             >
-              Clear
+              {t("common.clear")}
             </button>
           )}
         </div>
@@ -629,6 +627,7 @@ function AssigneeMultiSelect({
   assigneeDepartmentIds: string[];
   onChange: (assigneeIds: string[], assigneeDepartmentIds: string[]) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -664,15 +663,15 @@ function AssigneeMultiSelect({
   }
 
   const summary = useMemo(() => {
-    if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) return "Open";
+    if (assigneeIds.length === 0 && assigneeDepartmentIds.length === 0) return t("common.open");
     const bits: string[] = [];
     if (assigneeIds.length === 1) {
-      bits.push(people.find((p) => p.id === assigneeIds[0])?.name ?? "1 person");
-    } else if (assigneeIds.length > 1) bits.push(`${assigneeIds.length} people`);
+      bits.push(people.find((p) => p.id === assigneeIds[0])?.name ?? t("common.onePerson"));
+    } else if (assigneeIds.length > 1) bits.push(t("common.nPeople", { count: assigneeIds.length }));
     if (assigneeDepartmentIds.length === 1) bits.push(assigneeDepartmentIds[0]!);
-    else if (assigneeDepartmentIds.length > 1) bits.push(`${assigneeDepartmentIds.length} depts`);
+    else if (assigneeDepartmentIds.length > 1) bits.push(t("common.nDepts", { count: assigneeDepartmentIds.length }));
     return bits.join(", ");
-  }, [assigneeIds, assigneeDepartmentIds, people]);
+  }, [assigneeIds, assigneeDepartmentIds, people, t]);
 
   return (
     <div className="relative shrink-0" ref={rootRef}>
@@ -692,11 +691,11 @@ function AssigneeMultiSelect({
         <div
           className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
           role="listbox"
-          aria-label="Choose assignees"
+          aria-label={t("tasks.assigneesAria")}
         >
           <input
             type="search"
-            placeholder="Search people or departments…"
+            placeholder={t("common.searchPeopleDepts")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
@@ -705,7 +704,7 @@ function AssigneeMultiSelect({
             {filteredPeople.length > 0 && (
               <>
                 <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  People
+                  {t("common.people")}
                 </p>
                 {filteredPeople.map((p) => (
                   <label
@@ -726,7 +725,7 @@ function AssigneeMultiSelect({
             {filteredDepts.length > 0 && (
               <>
                 <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Departments
+                  {t("common.departments")}
                 </p>
                 {filteredDepts.map((d) => (
                   <label
@@ -749,7 +748,7 @@ function AssigneeMultiSelect({
               </>
             )}
             {filteredPeople.length === 0 && filteredDepts.length === 0 && (
-              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
+              <p className="px-1 py-2 text-center text-slate-500">{t("common.noMatches")}</p>
             )}
           </div>
           {(assigneeIds.length > 0 || assigneeDepartmentIds.length > 0) && (
@@ -758,7 +757,7 @@ function AssigneeMultiSelect({
               className="mt-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
               onClick={() => onChange([], [])}
             >
-              Clear
+              {t("common.clear")}
             </button>
           )}
         </div>
@@ -817,6 +816,8 @@ export function TasksTab({
   focusTaskId?: string | null;
   onFocusTaskHandled?: () => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const saved = useMemo(() => readPersistedTabState("tasks", TASKS_VIEW_DEFAULTS), []);
   const savedNewForm = useMemo(() => readFormDraft<NewTaskDraftData>(TASKS_NEW_DRAFT_KEY), []);
   const [scope, setScope] = useState<TaskListScope>(() => saved.scope);
@@ -863,17 +864,17 @@ export function TasksTab({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tasks.filter((t) => {
-      if (listTab === "open" && !isTaskOpen(t)) return false;
-      if (listTab === "completed" && !isTaskCompleted(t)) return false;
-      if (listTab === "canceled" && !isTaskCanceled(t)) return false;
+    return tasks.filter((task) => {
+      if (listTab === "open" && !isTaskOpen(task)) return false;
+      if (listTab === "completed" && !isTaskCompleted(task)) return false;
+      if (listTab === "canceled" && !isTaskCanceled(task)) return false;
       if (scope === "my" && canSeeAllOrgData(currentUserOrgRole)) {
-        if (!isTaskWorker(t, currentUserId, people)) return false;
+        if (!isTaskWorker(task, currentUserId, people)) return false;
       } else if (
         scope === "everyone" &&
         canSeeAllOrgData(currentUserOrgRole) &&
         !taskMatchesEveryoneFilter(
-          t,
+          task,
           everyoneInvolvedFilter,
           everyoneDepartmentFilter,
           everyoneFilterExclusive,
@@ -882,11 +883,11 @@ export function TasksTab({
       ) {
         return false;
       }
-      if (priorityFilter.length > 0 && !priorityFilter.includes(t.priority)) return false;
+      if (priorityFilter.length > 0 && !priorityFilter.includes(task.priority)) return false;
       if (!q) return true;
-      const projectName = projects.find((p) => p.id === t.projectId)?.name ?? "";
+      const projectName = projects.find((p) => p.id === task.projectId)?.name ?? "";
       const blob =
-        `${t.title} ${taskUpdatesToPlainText(taskDescriptionContent(t))} ${projectName} ${t.assigneeDepartmentIds.join(" ")} ${mergedTaskUpdatesPlainText(t, people)} ${taskCommentsPlainText(t.comments)} ${PRIORITY_SHORT_LABEL[t.priority]}`.toLowerCase();
+        `${task.title} ${taskUpdatesToPlainText(taskDescriptionContent(task))} ${projectName} ${task.assigneeDepartmentIds.join(" ")} ${mergedTaskUpdatesPlainText(task, people)} ${taskCommentsPlainText(task.comments)} ${translatePriority(locale, task.priority)}`.toLowerCase();
       return blob.includes(q);
     });
   }, [
@@ -902,6 +903,7 @@ export function TasksTab({
     everyoneFilterExclusive,
     priorityFilter,
     projects,
+    locale,
   ]);
 
   const sorted = useMemo(() => {
@@ -910,11 +912,11 @@ export function TasksTab({
 
   const projectGroups = useMemo(() => {
     if (taskSortMode !== "project") return [];
-    return buildProjectTaskGroups(sorted, projects).map((g) => ({
+    return buildProjectTaskGroups(sorted, projects, t("tasks.group.unassigned")).map((g) => ({
       ...g,
       tasks: [...g.tasks].sort((a, b) => compareTasksByUrgency(a, b, listTab)),
     }));
-  }, [sorted, projects, taskSortMode, listTab]);
+  }, [sorted, projects, taskSortMode, listTab, t]);
 
   const taskStats = useMemo(() => {
     const today = orgTodayDateKey();
@@ -934,7 +936,7 @@ export function TasksTab({
   function updateTask(id: string, patch: Partial<Task>, intent?: TaskUpdateIntent) {
     if (intent === "reopen") setListTab("open");
     return onUpdateTask(id, patch, { intent, actorId: currentUserId }).catch((e) => {
-      reportActionError(e instanceof Error ? e.message : "Could not update task.");
+      reportActionError(e instanceof Error ? e.message : t("tasks.card.error.update"));
       throw e;
     });
   }
@@ -942,7 +944,7 @@ export function TasksTab({
   function cancelTask(id: string) {
     setListTab("canceled");
     return onCancelTask(id).catch((e) => {
-      reportActionError(e instanceof Error ? e.message : "Could not cancel task.");
+      reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
       throw e;
     });
   }
@@ -957,7 +959,7 @@ export function TasksTab({
               onClick={() => setShowForm(false)}
               className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Back
+              {t("common.back")}
             </button>
           </div>
           <NewTaskForm
@@ -974,35 +976,35 @@ export function TasksTab({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-2">
               <div>
-                <h2 className="font-display text-base font-semibold text-slate-900">Tasks</h2>
+                <h2 className="font-display text-base font-semibold text-slate-900">{t("tasks.title")}</h2>
                 <div
                   className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
-                  aria-label="Tasks summary"
+                  aria-label={t("tasks.summaryAria")}
                 >
                   <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                     <span className="tabular-nums font-semibold text-indigo-700">{taskStats.openTasks}</span>
-                    <span className="font-normal">Open</span>
+                    <span className="font-normal">{t("tasks.tab.open")}</span>
                   </span>
                   <span className="px-0.5 text-slate-300" aria-hidden>
                     |
                   </span>
                   <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                     <span className="tabular-nums font-semibold text-rose-700">{taskStats.overdue}</span>
-                    <span className="font-normal">Overdue</span>
+                    <span className="font-normal">{t("common.overdue")}</span>
                   </span>
                   <span className="px-0.5 text-slate-300" aria-hidden>
                     |
                   </span>
                   <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                     <span className="tabular-nums font-semibold text-emerald-700">{taskStats.completed}</span>
-                    <span className="font-normal">Completed</span>
+                    <span className="font-normal">{t("common.completed")}</span>
                   </span>
                   <span className="px-0.5 text-slate-300" aria-hidden>
                     |
                   </span>
                   <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                     <span className="tabular-nums font-semibold text-slate-600">{taskStats.canceled}</span>
-                    <span className="font-normal">Canceled</span>
+                    <span className="font-normal">{t("common.canceled")}</span>
                   </span>
                 </div>
               </div>
@@ -1010,11 +1012,11 @@ export function TasksTab({
                 <span className="segment-track">
                   {(
                     [
-                      ["open", "Open"],
-                      ["completed", "Completed"],
-                      ["canceled", "Canceled"],
+                      ["open", "tasks.tab.open"],
+                      ["completed", "tasks.tab.completed"],
+                      ["canceled", "tasks.tab.canceled"],
                     ] as const
-                  ).map(([tab, label]) => (
+                  ).map(([tab, labelKey]) => (
                     <button
                       key={tab}
                       type="button"
@@ -1023,7 +1025,7 @@ export function TasksTab({
                         listTab === tab ? "segment-tab-active" : "segment-tab-inactive"
                       }`}
                     >
-                      {label}
+                      {t(labelKey)}
                     </button>
                   ))}
                 </span>
@@ -1038,7 +1040,7 @@ export function TasksTab({
                     scope === "my" ? "segment-tab-active" : "segment-tab-inactive"
                   }`}
                 >
-                  My tasks
+                  {t("tasks.scope.my")}
                 </button>
                 <button
                   type="button"
@@ -1047,11 +1049,11 @@ export function TasksTab({
                     scope === "everyone" ? "segment-tab-active" : "segment-tab-inactive"
                   }`}
                 >
-                  Everyone
+                  {t("tasks.scope.everyone")}
                 </button>
               </span>
               ) : (
-                <span className="text-xs font-semibold text-slate-600">Department tasks</span>
+                <span className="text-xs font-semibold text-slate-600">{t("tasks.scope.department")}</span>
               )}
               {scope === "everyone" && canSeeAllOrgData(currentUserOrgRole) && (
                 <>
@@ -1064,7 +1066,7 @@ export function TasksTab({
                   />
                   <label
                     className="inline-flex cursor-pointer items-center gap-1 text-[10px] font-medium text-slate-500 sm:text-[11px]"
-                    title="Unchecked: match any selected person or department. Checked: must match all selected."
+                    title={t("common.exclusiveTitle")}
                   >
                     <input
                       type="checkbox"
@@ -1072,7 +1074,7 @@ export function TasksTab({
                       onChange={(e) => setEveryoneFilterExclusive(e.target.checked)}
                       className="h-3 w-3 shrink-0 rounded border-slate-300 text-accent focus:ring-accent/30"
                     />
-                    <span className="whitespace-nowrap">Exclusive</span>
+                    <span className="whitespace-nowrap">{t("common.exclusive")}</span>
                   </label>
                 </>
               )}
@@ -1083,7 +1085,7 @@ export function TasksTab({
               onClick={() => setShowForm(true)}
               className="inline-flex items-center justify-center rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-dim"
             >
-              New task
+              {t("tasks.newTask")}
             </button>
           </div>
 
@@ -1091,20 +1093,20 @@ export function TasksTab({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tasks…"
+              placeholder={t("tasks.search")}
               className="input-base min-w-0 w-full max-w-md py-2 text-sm"
             />
             <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
               <label className="inline-flex shrink-0 items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">Sort by</span>
+                <span className="whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">{t("common.sortBy")}</span>
                 <select
                   value={taskSortMode}
                   onChange={(e) => setTaskSortMode(e.target.value as TaskListSortMode)}
                   className="input-base w-auto min-w-[8.5rem] cursor-pointer py-2 pr-8 text-sm"
-                  aria-label="Sort by"
+                  aria-label={t("common.sortBy")}
                 >
-                  <option value="urgency">Urgency</option>
-                  <option value="project">Project</option>
+                  <option value="urgency">{t("tasks.sort.urgency")}</option>
+                  <option value="project">{t("tasks.sort.project")}</option>
                 </select>
               </label>
               <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
@@ -1181,10 +1183,10 @@ export function TasksTab({
           {sorted.length === 0 && (
             <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
               {listTab === "open"
-                ? "No open tasks. Switch tab, scope, or create a task."
+                ? t("tasks.empty.open")
                 : listTab === "completed"
-                  ? "No completed tasks yet."
-                  : "No canceled tasks."}
+                  ? t("tasks.empty.completed")
+                  : t("tasks.empty.canceled")}
             </p>
           )}
         </>
@@ -1212,6 +1214,7 @@ export function NewTaskForm({
   formOpen?: boolean;
   onSubmit: (t: Omit<Task, "id" | "createdAt">) => void | Promise<void>;
 }) {
+  const t = useT();
   const saved = useMemo(
     () => (draftKey ? readFormDraft<NewTaskDraftData>(draftKey) : null),
     [draftKey]
@@ -1285,9 +1288,9 @@ export function NewTaskForm({
       onSubmit={handleSubmit}
       className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
     >
-      <p className="text-sm font-semibold text-slate-900">New task</p>
+      <p className="text-sm font-semibold text-slate-900">{t("tasks.form.newTask")}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Field label="Title">
+        <Field label={t("common.title")}>
           <input
             required
             value={title}
@@ -1295,7 +1298,7 @@ export function NewTaskForm({
             className="input-base py-2"
           />
         </Field>
-        <Field label="Due">
+        <Field label={t("tasks.form.due")}>
           <input
             type="date"
             required
@@ -1305,7 +1308,7 @@ export function NewTaskForm({
           />
         </Field>
         <div className="flex min-w-0 flex-col">
-          <span className="mb-1 block text-xs font-medium text-slate-600">Assign to</span>
+          <span className="mb-1 block text-xs font-medium text-slate-600">{t("tasks.form.assignTo")}</span>
           <AssigneeMultiSelect
             people={people}
             assigneeIds={assigneeIds}
@@ -1317,17 +1320,17 @@ export function NewTaskForm({
           />
         </div>
         <div className="flex min-w-0 flex-col">
-          <span className="mb-1 block text-xs font-medium text-slate-600">Priority</span>
+          <span className="mb-1 block text-xs font-medium text-slate-600">{t("tasks.form.priority")}</span>
           <PrioritySegmented value={priority} onChange={setPriority} />
         </div>
         {!lockProject && (
-          <Field label="Project">
+          <Field label={t("tasks.form.project")}>
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               className="input-base py-2"
             >
-              <option value="">No project</option>
+              <option value="">{t("tasks.form.noProject")}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -1337,13 +1340,13 @@ export function NewTaskForm({
           </Field>
         )}
         <div className="sm:col-span-3">
-          <Field label="Description">
+          <Field label={t("common.description")}>
             <SimpleRichText
               value={description}
               onChange={setDescription}
               collapsible
               collapseKey="new-task-desc"
-              placeholder="Add a description…"
+              placeholder={t("tasks.form.descriptionPlaceholder")}
             />
           </Field>
         </div>
@@ -1353,7 +1356,7 @@ export function NewTaskForm({
           type="submit"
           className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
         >
-          Create
+          {t("common.create")}
         </button>
       </div>
     </form>
@@ -1378,6 +1381,7 @@ function TaskDescriptionSection({
   canEdit: boolean;
   onChange: (patch: Partial<Task>) => void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [stayExpanded, setStayExpanded] = useState(false);
   const flushSaveRef = useRef<(() => void) | null>(null);
@@ -1400,7 +1404,7 @@ function TaskDescriptionSection({
   return (
     <div className="mt-3">
       <p className="mb-1.5 text-xs font-medium text-slate-600">
-        Description
+        {t("common.description")}
         {canEdit && !editing && (
           <>
             {" "}
@@ -1409,7 +1413,7 @@ function TaskDescriptionSection({
               onClick={() => setEditing(true)}
               className="font-normal text-accent hover:underline"
             >
-              (Edit)
+              {t("common.editParen")}
             </button>
           </>
         )}
@@ -1421,7 +1425,7 @@ function TaskDescriptionSection({
               onClick={handleSave}
               className="font-normal text-accent hover:underline"
             >
-              (Save)
+              {t("common.saveParen")}
             </button>
           </>
         )}
@@ -1438,7 +1442,7 @@ function TaskDescriptionSection({
           taskId={task.id}
           inlineImageStorageDir={`tasks/${task.id}/description`}
           enableGenericFileAttach
-          placeholder="Add a description…"
+          placeholder={t("tasks.form.descriptionPlaceholder")}
         />
       ) : hasDescription ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50/80">
@@ -1449,7 +1453,7 @@ function TaskDescriptionSection({
           />
         </div>
       ) : (
-        <p className="text-sm text-slate-400">No description yet.</p>
+        <p className="text-sm text-slate-400">{t("tasks.form.noDescription")}</p>
       )}
     </div>
   );
@@ -1499,6 +1503,8 @@ function TaskCard({
     preview: string
   ) => void | Promise<void>;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const today = orgTodayDateKey();
   const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
   const canceled = isTaskCanceled(task);
@@ -1512,7 +1518,8 @@ function TaskCard({
   const isAssigner = task.assignedById === currentUserId;
   const canCancelTask = isAssigner || isWorker;
   const canReopen = currentUserOrgRole === "founder" || isTaskWorker;
-  const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? "Someone";
+  const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? t("common.someone");
+  const taskTitle = task.title.trim() || t("common.task");
   const hasOpenFeedback = taskHasOpenFeedback(task);
   const hasFeedbackHistory = taskHasFeedbackHistory(task);
   const selfAssigned = isSelfAssignedSingleWorkerTask(task, people);
@@ -1548,27 +1555,33 @@ function TaskCard({
                 <span className="text-slate-300"> · </span>
               </>
             )}
-            <span className="font-medium text-slate-700">Due {formatDue(task.dueDate)}</span>
+            <span className="font-medium text-slate-700">{t("tasks.card.due", { date: formatDue(task.dueDate) })}</span>
             {canceled && (
               <span className="text-slate-600">
-                {" · Canceled"}
+                {" · "}
+                {t("tasks.card.canceled")}
                 {task.canceledAt && ` ${formatDue(task.canceledAt.slice(0, 10))}`}
               </span>
             )}
             {completed && !canceled && task.completedAt && (
-              <span className="text-emerald-800"> · Completed {formatDue(task.completedAt.slice(0, 10))}</span>
+              <span className="text-emerald-800">
+                {" · "}
+                {t("tasks.card.completed", { date: formatDue(task.completedAt.slice(0, 10)) })}
+              </span>
             )}
-            {overdue && !canceled && <span className="text-rose-700"> · Overdue</span>}
+            {overdue && !canceled && (
+              <span className="text-rose-700"> · {t("tasks.card.overdue")}</span>
+            )}
             {postponed && !canceled && (
               <span className="text-amber-800">
                 {" · "}
                 <span className="whitespace-nowrap">
-                  Postponed
+                  {t("tasks.card.postponed")}
                   <sup className="ml-0.5 text-[0.7em] font-semibold leading-none tracking-tight">
                     {task.postponeCount}
                   </sup>
                 </span>
-                <span> (was {formatDue(task.originalDueDate)})</span>
+                <span> {t("tasks.card.postponedWas", { date: formatDue(task.originalDueDate) })}</span>
               </span>
             )}
           </p>
@@ -1598,18 +1611,18 @@ function TaskCard({
                   }`}
                   title={
                     hasOpenFeedback
-                      ? "Waiting on feedback — see Comments"
-                      : "Feedback was shared on this task — see Comments"
+                      ? t("tasks.card.needsFeedbackOpenTip")
+                      : t("tasks.card.needsFeedbackDoneTip")
                   }
                 >
-                  Needs feedback
+                  {t("tasks.card.needsFeedback")}
                 </span>
               )}
               <span
                 className={`inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/70 p-1 shadow-sm priority-badge-ring ${PRIORITY_BADGE[task.priority].pill}`}
-                title={PRIORITY_TOOLTIPS[task.priority]}
+                title={t(priorityTipKey(task.priority))}
                 role="img"
-                aria-label={`Priority: ${PRIORITY_SHORT_LABEL[task.priority]}`}
+                aria-label={t("tasks.priority.badgeAria", { priority: translatePriority(locale, task.priority) })}
               >
                 <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </span>
@@ -1618,22 +1631,21 @@ function TaskCard({
                   type="button"
                   onClick={() =>
                     void (async () => {
-                      const title = task.title.trim() || "Task";
                       try {
                         await onChange({ status: "done" }, "mark_complete");
                         await onBroadcastTaskEvent?.(
                           task,
                           "task_marked_complete",
-                          `${actorLabel} marked “${title}” complete.`
+                          t("tasks.notify.markedComplete", { actor: actorLabel, title: taskTitle })
                         );
                       } catch (e) {
-                        reportActionError(e instanceof Error ? e.message : "Could not mark task complete.");
+                        reportActionError(e instanceof Error ? e.message : t("tasks.card.error.markComplete"));
                       }
                     })()
                   }
                   className="task-action-complete"
                 >
-                  Mark complete
+                  {t("common.markComplete")}
                 </button>
               )}
             </>
@@ -1645,7 +1657,7 @@ function TaskCard({
                   onClick={() => setReopenOpen(true)}
                   className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
-                  Reopen
+                  {t("common.reopen")}
                 </button>
               )}
               {completed && hasFeedbackHistory && (
@@ -1657,11 +1669,11 @@ function TaskCard({
                   }`}
                   title={
                     hasOpenFeedback
-                      ? "Waiting on feedback — see Comments"
-                      : "Feedback was shared on this task — see Comments"
+                      ? t("tasks.card.needsFeedbackOpenTip")
+                      : t("tasks.card.needsFeedbackDoneTip")
                   }
                 >
-                  Needs feedback
+                  {t("tasks.card.needsFeedback")}
                 </span>
               )}
             </>
@@ -1672,18 +1684,21 @@ function TaskCard({
       {reopenOpen && completed && (
         <div className="mt-3 w-full">
           <ConfirmPanel
-            message="Reopen this task? It will move back to Open and clear finished status for everyone."
-            yesLabel="Yes, reopen"
-            noLabel="Keep completed"
+            message={t("tasks.card.reopenConfirm")}
+            yesLabel={t("tasks.card.yesReopen")}
+            noLabel={t("tasks.card.keepCompleted")}
             onYes={() =>
               void (async () => {
-                const title = task.title.trim() || "Task";
                 try {
                   await onChange(reopenTaskPatch(), "reopen");
-                  await onBroadcastTaskEvent?.(task, "task_reopened", `${actorLabel} reopened “${title}”.`);
+                  await onBroadcastTaskEvent?.(
+                    task,
+                    "task_reopened",
+                    t("tasks.notify.reopened", { actor: actorLabel, title: taskTitle })
+                  );
                   setReopenOpen(false);
                 } catch (e) {
-                  reportActionError(e instanceof Error ? e.message : "Could not reopen task.");
+                  reportActionError(e instanceof Error ? e.message : t("tasks.card.error.reopen"));
                 }
               })()
             }
@@ -1755,7 +1770,7 @@ function TaskCard({
             <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
               <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-tight text-slate-600">
                 <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
-                  <span className="text-slate-400">For </span>
+                  <span className="text-slate-400">{t("common.for")} </span>
                   <AssigneeNamesForFooter
                     assigneeIds={task.assigneeIds}
                     assigneeDepartmentIds={task.assigneeDepartmentIds}
@@ -1769,10 +1784,10 @@ function TaskCard({
                       ·
                     </span>
                     {selfAssigned ? (
-                      <span className="text-slate-500">(self assigned)</span>
+                      <span className="text-slate-500">{t("common.selfAssigned")}</span>
                     ) : assigner ? (
                       <span className="inline-flex min-w-0 items-center gap-1">
-                        <span className="text-slate-400">By </span>
+                        <span className="text-slate-400">{t("common.by")} </span>
                         <PersonNameInline
                           person={assigner}
                           highlight={task.assignedById === currentUserId}
@@ -1780,7 +1795,7 @@ function TaskCard({
                       </span>
                     ) : (
                       <span className="min-w-0">
-                        <span className="text-slate-400">By </span>
+                        <span className="text-slate-400">{t("common.by")} </span>
                         <span className="font-medium text-slate-800">{assignerName}</span>
                       </span>
                     )}
@@ -1793,9 +1808,9 @@ function TaskCard({
                     type="button"
                     onClick={() => setWorkerFlow("postpone")}
                     className="task-action-postpone"
-                    title="Choose a new due date"
+                    title={t("tasks.card.postponeTitle")}
                   >
-                    Postpone
+                    {t("tasks.card.postpone")}
                   </button>
                 )}
                 {!completed && !canceled && canCancelTask && (
@@ -1804,7 +1819,7 @@ function TaskCard({
                     onClick={() => setCancelOpen(true)}
                     className="rounded-md px-2 py-0.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800"
                   >
-                    Cancel
+                    {t("tasks.card.cancel")}
                   </button>
                 )}
               </div>
@@ -1812,18 +1827,7 @@ function TaskCard({
           )
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-left shadow-sm">
-            <p className="text-xs leading-relaxed text-amber-950">
-              Cancelling moves this task to the <span className="font-medium">Canceled</span> tab for everyone. Use it
-              when work was abandoned, duplicated, or created by mistake — not when the work is actually done (use{" "}
-              <span className="font-medium">Mark complete</span>
-              {isWorker ? (
-                <>
-                  {" "}
-                  or <span className="font-medium">I finished</span>
-                </>
-              ) : null}
-              ).
-            </p>
+            <p className="text-xs leading-relaxed text-amber-950">{t("tasks.card.cancelExplain")}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1833,20 +1837,20 @@ function TaskCard({
                       await onCancelTask();
                       setCancelOpen(false);
                     } catch (e) {
-                      reportActionError(e instanceof Error ? e.message : "Could not cancel task.");
+                      reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
                     }
                   })()
                 }
                 className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
               >
-                Yes, cancel
+                {t("tasks.card.yesCancel")}
               </button>
               <button
                 type="button"
                 onClick={() => setCancelOpen(false)}
                 className="btn-secondary"
               >
-                Keep
+                {t("tasks.card.keep")}
               </button>
             </div>
           </div>

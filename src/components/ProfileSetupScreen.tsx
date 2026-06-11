@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useT } from "../contexts/I18nContext";
 import type { Person } from "../types";
 import { departmentChipClass, personDepartmentsLabel } from "../types";
 import { AppBrand } from "./AppBrand";
@@ -14,6 +15,7 @@ export function ProfileSetupScreen({
   onUpdatePerson: (id: string, patch: Partial<Person>) => Promise<void>;
   onComplete: (patch: { name: string; title: string }) => Promise<void>;
 }) {
+  const t = useT();
   const [name, setName] = useState(person.name.trim() || person.email.split("@")[0] || "");
   const [title, setTitle] = useState(person.title.trim());
   const [busy, setBusy] = useState(false);
@@ -25,7 +27,7 @@ export function ProfileSetupScreen({
     e.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setMessage("Enter your display name.");
+      setMessage(t("profileSetup.error.nameRequired"));
       return;
     }
     setBusy(true);
@@ -33,7 +35,7 @@ export function ProfileSetupScreen({
     try {
       await onComplete({ name: trimmedName, title: title.trim() });
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not save your profile.");
+      setMessage(err instanceof Error ? err.message : t("profileSetup.error.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -45,7 +47,7 @@ export function ProfileSetupScreen({
         <h1>
           <AppBrand size="auth" />
         </h1>
-        <p className="mt-2 text-sm text-slate-600">Set up your profile to finish joining the team.</p>
+        <p className="mt-2 text-sm text-slate-600">{t("profileSetup.subtitle")}</p>
 
         <header className="mt-6 flex items-center gap-5 border-b border-slate-100 pb-6">
           <ProfilePhotoAvatar
@@ -68,7 +70,7 @@ export function ProfileSetupScreen({
 
         <form onSubmit={(e) => void handleSubmit(e)} className="mt-6 space-y-4" noValidate>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Display name</span>
+            <span className="mb-1 block text-xs font-medium text-slate-600">{t("profileSetup.displayName")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -79,18 +81,18 @@ export function ProfileSetupScreen({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Title</span>
+            <span className="mb-1 block text-xs font-medium text-slate-600">{t("profileSetup.title")}</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Sales Lead"
+              placeholder={t("profileSetup.titlePlaceholder")}
               className="input-base w-full"
               disabled={busy}
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Email</span>
+            <span className="mb-1 block text-xs font-medium text-slate-600">{t("common.email")}</span>
             <input
               type="email"
               value={person.email}
@@ -100,7 +102,7 @@ export function ProfileSetupScreen({
           </label>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-slate-600">Department</span>
+            <span className="mb-1 block text-xs font-medium text-slate-600">{t("profileSetup.department")}</span>
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
               {departments.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
@@ -116,7 +118,7 @@ export function ProfileSetupScreen({
               ) : (
                 <p className="text-sm text-slate-600">{personDepartmentsLabel(departments)}</p>
               )}
-              <p className="mt-1.5 text-[11px] text-slate-500">Assigned by your admin when your invite was created.</p>
+              <p className="mt-1.5 text-[11px] text-slate-500">{t("profileSetup.departmentHint")}</p>
             </div>
           </div>
 
@@ -129,7 +131,7 @@ export function ProfileSetupScreen({
             disabled={busy}
             className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-dim disabled:opacity-60"
           >
-            {busy ? "Saving…" : "Continue to workspace"}
+            {busy ? t("common.saving") : t("profileSetup.continue")}
           </button>
         </form>
       </div>

@@ -81,6 +81,8 @@ import type {
 } from "./types";
 import { feedbackRequestsForFirestore, normalizeFeedbackRequests } from "./utils/taskFeedback";
 import { NOTIFICATION_INBOX_LIMIT } from "./types";
+import { loadLocale } from "./i18n/localeStorage";
+import { translate } from "./i18n/translate";
 import { richTextHasContent } from "./utils/richTextImages";
 import { normalizeContactIdentity } from "./utils/contactMerge";
 import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./utils/sanitizeRichText";
@@ -684,8 +686,25 @@ export function useOrgFirestore() {
     [db]
   );
 
+  const markChatNotificationsRead = useCallback(
+    async (conversationId: string) => {
+      const id = conversationId.trim();
+      if (!id) return;
+      const unread = notifications.filter(
+        (n) => n.kind === "chat_message" && !n.read && n.conversationId === id
+      );
+      if (unread.length === 0) return;
+      const batch = writeBatch(db);
+      for (const n of unread) {
+        batch.update(doc(db, "organizations", ORG, "notifications", n.id), { read: true });
+      }
+      await batch.commit();
+    },
+    [db, notifications]
+  );
+
   const markAllNotificationsRead = useCallback(async () => {
-    const unread = notifications.filter((n) => !n.read);
+    const unread = notifications.filter((n) => !n.read && n.kind !== "chat_message");
     if (unread.length === 0) return;
     const batch = writeBatch(db);
     for (const n of unread) {
@@ -697,7 +716,8 @@ export function useOrgFirestore() {
   const notifyEveryoneAboutTask = useCallback(
     async (task: Task, kind: NotificationKind, preview: string) => {
       const actor = people.find((p) => p.id === currentUserPersonId);
-      const actorName = actor?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const actorName =
+        actor?.name ?? user?.email?.split("@")[0] ?? translate(loadLocale(), "common.someone");
       const recipientIds = people.map((p) => p.id).filter((id) => id && id !== currentUserPersonId);
       if (recipientIds.length === 0) return;
       try {
@@ -712,7 +732,7 @@ export function useOrgFirestore() {
           preview
         );
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Could not send notifications";
+        const msg = e instanceof Error ? e.message : translate(loadLocale(), "notifications.error.send");
         console.error("notifyEveryoneAboutTask", e);
         setError(msg);
       }
@@ -725,7 +745,7 @@ export function useOrgFirestore() {
       try {
         await createNotificationsForComment(db, ORG, task, comment, people, projects);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Could not send notifications";
+        const msg = e instanceof Error ? e.message : translate(loadLocale(), "notifications.error.send");
         console.error("notifyTaskComment", e);
         setError(msg);
       }
@@ -736,7 +756,8 @@ export function useOrgFirestore() {
   const notifyCommentReaction = useCallback(
     async (task: Task, comment: TaskComment, change: CommentReactionNotifyChange) => {
       const actor = people.find((p) => p.id === currentUserPersonId);
-      const actorName = actor?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const actorName =
+        actor?.name ?? user?.email?.split("@")[0] ?? translate(loadLocale(), "common.someone");
       try {
         if (change.kind === "cleared") {
           await deleteNotificationsForCommentReaction(
@@ -759,7 +780,7 @@ export function useOrgFirestore() {
           );
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Could not send notifications";
+        const msg = e instanceof Error ? e.message : translate(loadLocale(), "notifications.error.send");
         console.error("notifyCommentReaction", e);
         setError(msg);
       }
@@ -775,7 +796,8 @@ export function useOrgFirestore() {
       preview: string
     ) => {
       const actor = people.find((p) => p.id === currentUserPersonId);
-      const actorName = actor?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const actorName =
+        actor?.name ?? user?.email?.split("@")[0] ?? translate(loadLocale(), "common.someone");
       try {
         if (kind === "task_finished") {
           await createNotificationsForTaskFinished(
@@ -799,7 +821,7 @@ export function useOrgFirestore() {
           );
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Could not send notifications";
+        const msg = e instanceof Error ? e.message : translate(loadLocale(), "notifications.error.send");
         console.error("notifyTaskAction", e);
         setError(msg);
       }
@@ -812,7 +834,8 @@ export function useOrgFirestore() {
       const requesterId = request.requestedById;
       if (!requesterId || requesterId === currentUserPersonId) return;
       const actor = people.find((p) => p.id === currentUserPersonId);
-      const actorName = actor?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const actorName =
+        actor?.name ?? user?.email?.split("@")[0] ?? translate(loadLocale(), "common.someone");
       const plain = taskUpdatesToPlainText(sanitizeTaskUpdates(body));
       const preview =
         plain.length > 120 ? plain.slice(0, 120).trimEnd() + "…" : plain;
@@ -978,7 +1001,8 @@ export function useOrgFirestore() {
   const sendTaskCreatedNotifications = useCallback(
     async (taskIds: string[], actorId: string) => {
       const actor = people.find((p) => p.id === actorId);
-      const actorName = actor?.name ?? "Someone";
+      const locale = loadLocale();
+      const actorName = actor?.name ?? translate(locale, "common.someone");
       for (const id of taskIds) {
         const task = tasksRef.current.find((t) => t.id === id);
         if (!task) continue;
@@ -993,7 +1017,10 @@ export function useOrgFirestore() {
               actorName,
               notifyIds,
               "task_created",
-              `${actorName} created “${task.title.trim() || "Untitled task"}”.`
+              translate(locale, "data.notify.taskCreated", {
+                actor: actorName,
+                title: task.title.trim() || translate(locale, "common.untitledTask"),
+              })
             );
           } catch (e) {
             console.error("sendTaskCreatedNotifications", e);
@@ -1050,7 +1077,8 @@ export function useOrgFirestore() {
         const notifyIds = recipientsForNewTask(row, people, creatorId);
         if (notifyIds.length > 0 && creatorId) {
           const actor = people.find((p) => p.id === creatorId);
-          const actorName = actor?.name ?? "Someone";
+          const locale = loadLocale();
+          const actorName = actor?.name ?? translate(locale, "common.someone");
           try {
             await createNotificationsForTaskEvent(
               db,
@@ -1060,7 +1088,10 @@ export function useOrgFirestore() {
               actorName,
               notifyIds,
               "task_created",
-              `${actorName} created “${row.title.trim() || "Untitled task"}”.`
+              translate(locale, "data.notify.taskCreated", {
+                actor: actorName,
+                title: row.title.trim() || translate(locale, "common.untitledTask"),
+              })
             );
           } catch (e) {
             console.error("createTask notifications", e);
@@ -1642,7 +1673,7 @@ export function useOrgFirestore() {
             id,
             String(linked.title ?? payload.title),
             ownerId,
-            actor?.name?.trim() || actor?.email?.trim() || "Someone",
+            actor?.name?.trim() || actor?.email?.trim() || translate(loadLocale(), "common.someone"),
             notifyIds,
             String(linked.notes ?? payload.notes ?? "")
           );
@@ -1719,7 +1750,7 @@ export function useOrgFirestore() {
               id,
               String(linked.title ?? existing.title),
               currentUserPersonId,
-              actor?.name?.trim() || actor?.email?.trim() || "Someone",
+              actor?.name?.trim() || actor?.email?.trim() || translate(loadLocale(), "common.someone"),
               added,
               String(linked.notes ?? existing.notes ?? "")
             );
@@ -1834,6 +1865,7 @@ export function useOrgFirestore() {
     canManageProjects,
     seesAllOrgData,
     markNotificationRead,
+    markChatNotificationsRead,
     markAllNotificationsRead,
     notifyEveryoneAboutTask,
     notifyTaskComment,

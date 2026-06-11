@@ -7,7 +7,7 @@ test.describe("CRM E2E smoke", () => {
 
   test("login page loads", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /sign in|login|crm/i })).toBeVisible({
+    await expect(page.getByRole("button", { name: /Σύνδεση|Sign in/i })).toBeVisible({
       timeout: 15_000,
     });
   });

@@ -3,12 +3,13 @@ import { ImagePlus, Loader2, X } from "lucide-react";
 import { MAX_IMAGE_BYTES } from "../types";
 import { filterValidImageFiles } from "../utils/imageAttachments";
 import { LoadableImage } from "./LoadableImage";
+import { useT } from "../contexts/I18nContext";
 
 export function ImageAttachmentPicker({
   files,
   onChange,
   disabled,
-  label = "Photos",
+  label,
   uploadingIndices,
 }: {
   files: File[];
@@ -17,6 +18,8 @@ export function ImageAttachmentPicker({
   label?: string;
   uploadingIndices?: ReadonlySet<number>;
 }) {
+  const t = useT();
+  const pickerLabel = label ?? t("common.media.images");
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -33,7 +36,7 @@ export function ImageAttachmentPicker({
     );
     const merged = filterValidImageFiles([...files, ...incoming]);
     if (rejected.length > 0 && merged.length === files.length) {
-      setError(`Images only, max ${MAX_IMAGE_BYTES / (1024 * 1024)} MB each.`);
+      setError(t("attachments.imagesOnly", { mb: MAX_IMAGE_BYTES / (1024 * 1024) }));
       return;
     }
     setError(null);
@@ -57,10 +60,12 @@ export function ImageAttachmentPicker({
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
           <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-          {label}
+          {pickerLabel}
         </button>
         {files.length > 0 && (
-          <span className="text-[11px] text-slate-500">{files.length} attached</span>
+          <span className="text-[11px] text-slate-500">
+            {t("attachments.attachedCount", { count: files.length })}
+          </span>
         )}
       </div>
       <input
@@ -98,7 +103,7 @@ export function ImageAttachmentPicker({
                   disabled={disabled || fileUploading}
                   onClick={() => removeAt(i)}
                   className="absolute right-0.5 top-0.5 rounded-full bg-black/55 p-0.5 text-white hover:bg-black/75"
-                  aria-label="Remove image"
+                  aria-label={t("attachments.removeImage")}
                 >
                   <X className="h-3 w-3" />
                 </button>

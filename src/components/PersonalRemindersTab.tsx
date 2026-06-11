@@ -24,6 +24,7 @@ import {
 import { ConfirmPanel } from "./TaskWorkerActions";
 import { InlineImageAttachments } from "./InlineImageAttachments";
 import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
+import { useT } from "../contexts/I18nContext";
 
 type ReminderListTab = "open" | "done";
 
@@ -113,6 +114,7 @@ export function PersonalRemindersTab({
   focusReminderId?: string | null;
   onFocusReminderHandled?: () => void;
 }) {
+  const t = useT();
   const saved = useMemo(() => readPersistedTabState("reminders", REMINDERS_VIEW_DEFAULTS), []);
   const savedForm = useMemo(() => readFormDraft<Draft>(REMINDERS_DRAFT_KEY), []);
   const [selectedId, setSelectedId] = useState(() =>
@@ -234,23 +236,23 @@ export function PersonalRemindersTab({
   }, [focusReminderId, visible, onFocusReminderHandled]);
 
   function ownerLabel(ownerId: string) {
-    if (ownerId === currentUserId) return "you";
+    if (ownerId === currentUserId) return t("common.youLower");
     const p = people.find((x) => x.id === ownerId);
-    return p ? personDisplayName(p) : "Unknown";
+    return p ? personDisplayName(p) : t("common.unknown");
   }
 
   function contactLabel(id: string) {
     const c = contacts.find((x) => x.id === id);
-    return c ? contactDisplayName(c) : "Contact";
+    return c ? contactDisplayName(c) : t("reminders.fallback.contact");
   }
 
   function taskLabel(id: string) {
-    return tasks.find((t) => t.id === id)?.title ?? "Task";
+    return tasks.find((task) => task.id === id)?.title ?? t("common.task");
   }
 
   function appointmentLabel(id: string) {
     const a = appointments.find((x) => x.id === id);
-    if (!a) return "Appointment";
+    if (!a) return t("reminders.fallback.appointment");
     return `${a.title} · ${formatInOrgTime(a.startsAt, { dateStyle: "short", timeStyle: "short" })}`;
   }
 
@@ -359,14 +361,14 @@ export function PersonalRemindersTab({
 
     return (
       <div className="grid gap-3 sm:grid-cols-2">
-        <Labeled label="Contact">
+        <Labeled label={t("reminders.contact")}>
           <select
             value={value.contactId}
             disabled={disabled}
             onChange={(e) => onChange({ contactId: e.target.value })}
             className="input-base w-full"
           >
-            <option value="">None</option>
+            <option value="">{t("common.none")}</option>
             {contacts.map((c) => (
               <option key={c.id} value={c.id}>
                 {contactDisplayName(c)}
@@ -374,14 +376,14 @@ export function PersonalRemindersTab({
             ))}
           </select>
         </Labeled>
-        <Labeled label="Open task">
+        <Labeled label={t("reminders.openTask")}>
           <select
             value={inheritedTaskId || value.taskId}
             disabled={disabled || Boolean(inheritedTaskId)}
             onChange={(e) => onChange({ taskId: e.target.value, appointmentId: "" })}
             className="input-base w-full"
           >
-            <option value="">None</option>
+            <option value="">{t("common.none")}</option>
             {openTasks.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.title}
@@ -389,17 +391,17 @@ export function PersonalRemindersTab({
             ))}
           </select>
           {inheritedTaskId && (
-            <p className="mt-1 text-[10px] text-slate-500">From linked appointment</p>
+            <p className="mt-1 text-[10px] text-slate-500">{t("reminders.fromAppointment")}</p>
           )}
         </Labeled>
-        <Labeled label="Appointment" className="sm:col-span-2">
+        <Labeled label={t("reminders.appointment")} className="sm:col-span-2">
           <select
             value={value.appointmentId}
             disabled={disabled}
             onChange={(e) => onChange({ appointmentId: e.target.value })}
             className="input-base w-full"
           >
-            <option value="">None</option>
+            <option value="">{t("common.none")}</option>
             {scheduledAppointments.map((a) => (
               <option key={a.id} value={a.id}>
                 {appointmentLabel(a.id)}
@@ -464,8 +466,8 @@ export function PersonalRemindersTab({
           <p className="truncate text-sm font-semibold text-slate-900">{r.title}</p>
           <p className="mt-0.5 text-xs text-slate-500">
             {formatInOrgTime(r.dueAt, { dateStyle: "medium", timeStyle: "short" })}
-            {overdue && !r.done && <span className="ml-2 font-semibold text-rose-700">Overdue</span>}
-            {r.done && <span className="ml-2 font-medium text-emerald-700">Done</span>}
+            {overdue && !r.done && <span className="ml-2 font-semibold text-rose-700">{t("common.overdue")}</span>}
+            {r.done && <span className="ml-2 font-medium text-emerald-700">{t("common.done")}</span>}
           </p>
         </button>
         </div>
@@ -479,36 +481,36 @@ export function PersonalRemindersTab({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 space-y-2">
             <div>
-              <h2 className="font-display text-base font-semibold text-slate-900">Reminders</h2>
+              <h2 className="font-display text-base font-semibold text-slate-900">{t("reminders.title")}</h2>
               <div
                 className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
-                aria-label="Reminders summary"
+                aria-label={t("reminders.summaryAria")}
               >
                 <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                   <span className="tabular-nums font-semibold text-violet-700">{reminderStats.open}</span>
-                  <span className="font-normal">Open</span>
+                  <span className="font-normal">{t("reminders.tab.open")}</span>
                 </span>
                 <span className="px-0.5 text-slate-300" aria-hidden>
                   |
                 </span>
                 <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                   <span className="tabular-nums font-semibold text-rose-700">{reminderStats.overdue}</span>
-                  <span className="font-normal">Overdue</span>
+                  <span className="font-normal">{t("common.overdue")}</span>
                 </span>
                 <span className="px-0.5 text-slate-300" aria-hidden>
                   |
                 </span>
                 <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                   <span className="tabular-nums font-semibold text-emerald-700">{reminderStats.done}</span>
-                  <span className="font-normal">Done</span>
+                  <span className="font-normal">{t("common.done")}</span>
                 </span>
               </div>
             </div>
             <span className="inline-flex rounded-lg border border-slate-200 bg-violet-100/80 p-0.5 shadow-inner">
               {(
                 [
-                  ["open", "Open"],
-                  ["done", "Done"],
+                  ["open", t("reminders.tab.open")],
+                  ["done", t("reminders.tab.done")],
                 ] as const
               ).map(([tab, label]) => (
                 <button
@@ -530,7 +532,7 @@ export function PersonalRemindersTab({
               onClick={openNew}
               className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
             >
-              Add
+              {t("common.add")}
             </button>
           )}
         </div>
@@ -544,10 +546,10 @@ export function PersonalRemindersTab({
         ) : (
           <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">
             {visible.length === 0
-              ? "No personal reminders yet."
+              ? t("reminders.empty.none")
               : listTab === "open"
-                ? "No open reminders."
-                : "No done reminders yet."}
+                ? t("reminders.empty.open")
+                : t("reminders.empty.done")}
           </p>
         )}
       </aside>
@@ -556,28 +558,28 @@ export function PersonalRemindersTab({
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <header className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
-              <h3 className="font-display text-xl font-semibold text-slate-900">New reminder</h3>
-              <p className="mt-1 text-sm text-slate-500">Yours or shared with teammates — link to contacts, tasks, or appointments.</p>
+              <h3 className="font-display text-xl font-semibold text-slate-900">{t("reminders.new.title")}</h3>
+              <p className="mt-1 text-sm text-slate-500">{t("reminders.new.subtitle")}</p>
             </div>
             <button
               type="button"
               onClick={() => setShowForm(false)}
               className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Close
+              {t("common.close")}
             </button>
           </header>
           <form onSubmit={submitNew} className="mt-5 space-y-4">
-            <Labeled label="What to do">
+            <Labeled label={t("reminders.whatToDo")}>
               <input
                 required
                 value={draft.title}
                 onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                 className="input-base w-full"
-                placeholder="e.g. Send proposal"
+                placeholder={t("reminders.whatToDoPlaceholder")}
               />
             </Labeled>
-            <Labeled label="Due">
+            <Labeled label={t("common.due")}>
               <input
                 type="datetime-local"
                 required
@@ -586,7 +588,7 @@ export function PersonalRemindersTab({
                 className="input-base w-full"
               />
             </Labeled>
-            <Labeled label="Notes">
+            <Labeled label={t("common.notes")}>
               <div className="relative">
                 <textarea
                   value={draft.notes}
@@ -603,7 +605,7 @@ export function PersonalRemindersTab({
                 />
               </div>
             </Labeled>
-            <Labeled label="Include others">
+            <Labeled label={t("reminders.includeOthers")}>
               <ParticipantMultiSelect
                 people={people}
                 participantIds={draft.participantIds}
@@ -612,7 +614,7 @@ export function PersonalRemindersTab({
                 onChange={(participantIds, participantDepartmentIds) =>
                   setDraft((d) => ({ ...d, participantIds, participantDepartmentIds }))
                 }
-                placeholder="Just me"
+                placeholder={t("reminders.justMe")}
               />
             </Labeled>
             <AssociationFields value={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
@@ -622,7 +624,7 @@ export function PersonalRemindersTab({
                 disabled={!draft.title.trim() || submitting || draftUploading}
                 className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Save reminder
+                {t("reminders.saveReminder")}
               </button>
             </div>
           </form>
@@ -632,9 +634,9 @@ export function PersonalRemindersTab({
           {editing ? (
             <form onSubmit={saveEdit} className="space-y-4">
               <header className="border-b border-slate-100 pb-4">
-                <h3 className="font-display text-xl font-semibold text-slate-900">Edit reminder</h3>
+                <h3 className="font-display text-xl font-semibold text-slate-900">{t("reminders.edit.title")}</h3>
               </header>
-              <Labeled label="What to do">
+              <Labeled label={t("reminders.whatToDo")}>
                 <input
                   required
                   value={draft.title}
@@ -642,7 +644,7 @@ export function PersonalRemindersTab({
                   className="input-base w-full"
                 />
               </Labeled>
-              <Labeled label="Due">
+              <Labeled label={t("common.due")}>
                 <input
                   type="datetime-local"
                   required
@@ -651,7 +653,7 @@ export function PersonalRemindersTab({
                   className="input-base w-full"
                 />
               </Labeled>
-              <Labeled label="Notes">
+              <Labeled label={t("common.notes")}>
                 <div className="relative">
                   <textarea
                     value={draft.notes}
@@ -670,7 +672,7 @@ export function PersonalRemindersTab({
                   />
                 </div>
               </Labeled>
-              <Labeled label="Include others">
+              <Labeled label={t("reminders.includeOthers")}>
                 <ParticipantMultiSelect
                   people={people}
                   participantIds={draft.participantIds}
@@ -679,7 +681,7 @@ export function PersonalRemindersTab({
                   onChange={(participantIds, participantDepartmentIds) =>
                     setDraft((d) => ({ ...d, participantIds, participantDepartmentIds }))
                   }
-                  placeholder="Just me"
+                  placeholder={t("reminders.justMe")}
                 />
               </Labeled>
               <AssociationFields value={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
@@ -689,14 +691,14 @@ export function PersonalRemindersTab({
                   disabled={submitting || draftUploading}
                   className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
                 >
-                  Save
+                  {t("common.save")}
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </form>
@@ -706,23 +708,24 @@ export function PersonalRemindersTab({
                 <div>
                   <h3 className="font-display text-xl font-semibold text-slate-900">{selected.title}</h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    Due {formatInOrgTime(selected.dueAt, { dateStyle: "medium", timeStyle: "short" })}
+                    {t("common.duePrefix", {
+                      date: formatInOrgTime(selected.dueAt, { dateStyle: "medium", timeStyle: "short" }),
+                    })}
                     {selected.done ? (
-                      <span className="ml-2 font-medium text-emerald-700">Done</span>
+                      <span className="ml-2 font-medium text-emerald-700">{t("common.done")}</span>
                     ) : isReminderOverdue(selected.dueAt, selected.done) ? (
-                      <span className="ml-2 font-semibold text-rose-700">Overdue</span>
+                      <span className="ml-2 font-semibold text-rose-700">{t("common.overdue")}</span>
                     ) : null}
                   </p>
                   <LinkChips r={selected} />
                   <p className="mt-2 text-xs text-slate-500">
-                    Created by <span className="font-medium text-slate-700">{ownerLabel(selected.ownerId)}</span>
+                    {t("reminders.createdBy", { name: ownerLabel(selected.ownerId) })}
                     {(selected.participantIds.length > 0 || selected.participantDepartmentIds.length > 0) && (
                       <>
                         {" "}
-                        · Shared with{" "}
-                        <span className="font-medium text-slate-700">
-                          {formatPersonalReminderParticipants(selected, people, currentUserId)}
-                        </span>
+                        · {t("reminders.sharedWith", {
+                          names: formatPersonalReminderParticipants(selected, people, currentUserId),
+                        })}
                       </>
                     )}
                   </p>
@@ -735,7 +738,7 @@ export function PersonalRemindersTab({
                         onClick={() => startEdit(selected)}
                         className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                       >
-                        Edit
+                        {t("common.edit")}
                       </button>
                       <button
                         type="button"
@@ -746,14 +749,14 @@ export function PersonalRemindersTab({
                         }}
                         className="rounded-xl border border-emerald-800/50 bg-emerald-900/20 px-3 py-1.5 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-800/35 hover:bg-emerald-900/30"
                       >
-                        Mark done
+                        {t("common.markDone")}
                       </button>
                       <button
                         type="button"
                         onClick={() => setDeleteConfirmOpen(true)}
                         className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
                       >
-                        Delete
+                        {t("common.delete")}
                       </button>
                     </>
                   ) : (
@@ -763,7 +766,7 @@ export function PersonalRemindersTab({
                         onClick={() => setReopenOpen(true)}
                         className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                       >
-                        Reopen
+                        {t("common.reopen")}
                       </button>
                     )
                   )}
@@ -772,9 +775,9 @@ export function PersonalRemindersTab({
               {reopenOpen && selected.done && (
                 <div className="mt-3">
                   <ConfirmPanel
-                    message="Reopen this reminder? It will move back to Open."
-                    yesLabel="Yes, reopen"
-                    noLabel="Keep done"
+                    message={t("reminders.reopenConfirm")}
+                    yesLabel={t("reminders.yesReopen")}
+                    noLabel={t("reminders.keepDone")}
                     onYes={() => {
                       void Promise.resolve(onUpdateReminder(selected.id, { done: false }))
                         .then(() => {
@@ -790,9 +793,9 @@ export function PersonalRemindersTab({
               {deleteConfirmOpen && !selected.done && (
                 <div className="mt-3">
                   <ConfirmPanel
-                    message="Delete this reminder? This cannot be undone."
-                    yesLabel="Yes, delete"
-                    noLabel="Keep reminder"
+                    message={t("reminders.deleteConfirm")}
+                    yesLabel={t("reminders.yesDelete")}
+                    noLabel={t("reminders.keepReminder")}
                     yesEmphasis
                     onYes={() => {
                       void Promise.resolve(onRemoveReminder(selected.id)).then(() => {
@@ -823,7 +826,7 @@ export function PersonalRemindersTab({
         </section>
       ) : (
         <div className="flex min-h-[12rem] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-500">
-          Select a reminder or add a new one.
+          {t("reminders.selectOrAdd")}
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ import {
 import type { ImageAttachment, Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import type { UpdateMentionOption } from "../utils/mentions";
+import { useT } from "../contexts/I18nContext";
 import { InlineImageAttachments } from "./InlineImageAttachments";
 
 export type MentionSuggestion =
@@ -109,6 +110,7 @@ export function MentionTextarea({
   imageUploading?: boolean;
   imageUploadingIndices?: ReadonlySet<number>;
 }) {
+  const t = useT();
   const imagesEnabled =
     onImageFilesChange !== undefined || onImageAttachmentsChange !== undefined;
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -226,7 +228,7 @@ export function MentionTextarea({
           {updateItems.length > 0 && (
             <>
               <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                Updates
+                {t("tasks.updates.title")}
               </p>
               {updateItems.map((item) => {
                 const idx = items.indexOf(item);
@@ -255,7 +257,7 @@ export function MentionTextarea({
           {peopleItems.length > 0 && (
             <>
               <p className="mt-0.5 border-t border-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                People
+                {t("common.people")}
               </p>
               {peopleItems.map((item) => {
                 const idx = items.indexOf(item);
@@ -281,7 +283,7 @@ export function MentionTextarea({
           {deptItems.length > 0 && (
             <>
               <p className="mt-0.5 border-t border-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                Departments
+                {t("common.departments")}
               </p>
               {deptItems.map((item) => {
                 const idx = items.indexOf(item);

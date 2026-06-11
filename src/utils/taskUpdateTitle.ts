@@ -1,4 +1,6 @@
 import type { Person, Task } from "../types";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import { taskUpdatesToPlainText } from "./sanitizeRichText";
 import { taskDescriptionContent } from "./taskUpdates";
 import { taskUpdateEntries } from "./taskUpdateEntries";
@@ -169,14 +171,15 @@ export function buildTaskUpdateTitleContext(
 }
 
 export function fallbackTaskUpdateTitle(bodyPlain: string): string {
+  const locale = loadLocale();
   const plain = bodyPlain.replace(/\s+/g, " ").trim();
-  if (!plain) return "Media update";
+  if (!plain) return translate(locale, "tasks.updates.mediaUpdate");
   const words = plain.split(/\s+/).slice(0, MAX_TITLE_WORDS);
   let title = words.join(" ");
   if (title.length > 55) {
     title = `${title.slice(0, 54).trimEnd()}…`;
   }
-  return title || "Progress update";
+  return title || translate(locale, "tasks.updates.progressUpdate");
 }
 
 export function resolveTaskUpdateTitle(bodyPlain: string, aiTitle: string | undefined): string {

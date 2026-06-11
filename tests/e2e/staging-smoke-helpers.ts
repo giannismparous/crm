@@ -1,21 +1,22 @@
 import { expect, type Page } from "@playwright/test";
+import { el } from "./ui-labels-el";
 
 export const FOUNDER = { email: "founder-e2e@test.local", name: "E2E Founder" };
 export const ENG_PARTNER = { email: "partner-eng-e2e@test.local", name: "E2E Eng Partner" };
 
 export async function signIn(page: Page, email: string, displayName: string) {
   await page.goto("/");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("test-pass-123");
-  await page.locator("form").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel(el.email).fill(email);
+  await page.getByLabel(el.password).fill("test-pass-123");
+  await page.locator("form").getByRole("button", { name: el.signIn }).click();
+  await expect(page.getByRole("navigation", { name: el.navPrimary })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: displayName, exact: true }).first()).toBeVisible();
 }
 
 export async function openSettings(page: Page, displayName: string) {
   await page.getByRole("button", { name: displayName, exact: true }).and(page.locator('[aria-haspopup="menu"]')).click();
-  await page.getByRole("menuitem", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByRole("menuitem", { name: el.settings }).click();
+  await expect(page.getByRole("heading", { name: el.settings })).toBeVisible();
 }
 
 export function futureDatetimeLocal(daysAhead = 14, hour = 10): string {
@@ -27,10 +28,11 @@ export function futureDatetimeLocal(daysAhead = 14, hour = 10): string {
 }
 
 export async function assignNewTaskToDepartment(page: Page, dept: string) {
-  const form = page.locator("form").filter({ hasText: "New task" });
-  await form.getByRole("button").filter({ hasText: /Open|Engineering|Sales|people|dept/ }).first().click();
-  const listbox = page.getByRole("listbox", { name: "Choose assignees" });
-  await listbox.getByRole("checkbox", { name: dept, exact: true }).check();
+  const form = page.locator("form").filter({ hasText: el.newTask });
+  await form.getByRole("button").filter({ hasText: /Ανοιχτ|Μηχανική|Πωλήσεις|άτομα|τμήμα|Open|Engineering|Sales|people|dept/ }).first().click();
+  const listbox = page.getByRole("listbox", { name: el.chooseAssignees });
+  const deptLabel = dept === "Engineering" ? el.deptEngineering : dept === "Sales" ? el.deptSales : dept;
+  await listbox.getByRole("checkbox", { name: deptLabel, exact: true }).check();
   await page.keyboard.press("Escape");
 }
 
@@ -39,13 +41,15 @@ export async function expectTaskTitle(page: Page, title: string) {
 }
 
 export async function createTask(page: Page, title: string, dept?: string) {
-  await page.getByRole("button", { name: "New task" }).click();
-  const form = page.locator("form").filter({ hasText: "New task" });
-  await form.getByLabel("Title").fill(title);
+  await page.getByRole("button", { name: el.newTask }).click();
+  const form = page.locator("form").filter({ hasText: el.newTask });
+  await form.getByLabel(el.title).fill(title);
   const due = new Date();
   due.setDate(due.getDate() + 7);
-  await form.getByLabel("Due").fill(due.toISOString().slice(0, 10));
+  await form.getByLabel(el.due).fill(due.toISOString().slice(0, 10));
   if (dept) await assignNewTaskToDepartment(page, dept);
-  await form.getByRole("button", { name: "Create" }).click();
+  await form.getByRole("button", { name: el.create }).click();
   await expect(form).toHaveCount(0, { timeout: 15_000 });
 }
+
+export { el };

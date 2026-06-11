@@ -1,5 +1,7 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { getFirebaseApp } from "./config";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import type { TaskUpdateTitleContext } from "../utils/taskUpdateTitle";
 import { fallbackTaskUpdateTitle, resolveTaskUpdateTitle } from "../utils/taskUpdateTitle";
 
@@ -9,7 +11,7 @@ function functions() {
 
 export async function requestTaskUpdateTitle(context: TaskUpdateTitleContext): Promise<string> {
   const body = context.newUpdateBody.trim();
-  if (!body) return "Media update";
+  if (!body) return translate(loadLocale(), "tasks.updates.mediaUpdate");
 
   try {
     const fn = httpsCallable<TaskUpdateTitleContext, { title: string }>(

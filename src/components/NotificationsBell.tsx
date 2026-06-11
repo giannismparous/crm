@@ -2,18 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import type { AppNotification } from "../types";
 import { notificationHeadline, notificationTaskLine } from "../utils/notificationText";
+import { useT } from "../contexts/I18nContext";
 import { formatInOrgTime } from "../utils/orgTimezone";
 
 const COLLAPSED_COUNT = 7;
 
-function formatWhen(iso: string): string {
+function formatWhen(iso: string, t: ReturnType<typeof useT>): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const now = Date.now();
   const diff = now - d.getTime();
-  if (diff < 60_000) return "Just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 60_000) return t("common.justNow");
+  if (diff < 3_600_000) return t("common.minutesAgo", { count: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t("common.hoursAgo", { count: Math.floor(diff / 3_600_000) });
   return formatInOrgTime(d, { month: "short", day: "numeric" });
 }
 
@@ -28,6 +29,7 @@ export function NotificationsBell({
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -64,7 +66,9 @@ export function NotificationsBell({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="relative rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"
-        aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ""}`}
+        aria-label={t("notifications.aria", {
+          unread: unread.length ? t("notifications.unreadSuffix", { count: unread.length }) : "",
+        })}
         aria-expanded={open}
       >
         <Bell className="h-4 w-4" strokeWidth={2} aria-hidden />
@@ -81,24 +85,24 @@ export function NotificationsBell({
             expanded ? "max-h-[min(48rem,88vh)]" : "max-h-[min(24rem,58vh)]"
           }`}
           role="dialog"
-          aria-label="Notifications"
+          aria-label={t("notifications.title")}
         >
           <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-2">
-            <p className="text-xs font-semibold text-slate-800">Notifications</p>
+            <p className="text-xs font-semibold text-slate-800">{t("notifications.title")}</p>
             {unread.length > 0 && (
               <button
                 type="button"
                 onClick={() => void onMarkAllRead()}
                 className="shrink-0 text-[10px] font-medium text-accent hover:underline"
               >
-                Mark all read
+                {t("notifications.markAllRead")}
               </button>
             )}
           </div>
 
           <ul className="min-h-0 flex-1 overflow-y-auto">
             {notifications.length === 0 ? (
-              <li className="px-3 py-6 text-center text-xs text-slate-500">No notifications yet.</li>
+              <li className="px-3 py-6 text-center text-xs text-slate-500">{t("notifications.empty")}</li>
             ) : (
               visible.map((n) => (
                 <li key={n.id}>
@@ -113,7 +117,7 @@ export function NotificationsBell({
                       <span className="text-xs font-semibold leading-snug text-slate-900">
                         {notificationHeadline(n)}
                       </span>
-                      <span className="shrink-0 text-[10px] text-slate-400">{formatWhen(n.createdAt)}</span>
+                      <span className="shrink-0 text-[10px] text-slate-400">{formatWhen(n.createdAt, t)}</span>
                     </span>
                     <span className="text-[11px] font-semibold text-accent">{notificationTaskLine(n)}</span>
                     {n.bodyPreview && (
@@ -134,7 +138,7 @@ export function NotificationsBell({
                 onClick={() => setExpanded(true)}
                 className="w-full rounded-lg py-1.5 text-center text-xs font-medium text-accent hover:bg-accent/5"
               >
-                Show {hiddenCount} more
+                {t("common.showMore", { count: hiddenCount })}
               </button>
             </div>
           )}
@@ -145,7 +149,7 @@ export function NotificationsBell({
                 onClick={() => setExpanded(false)}
                 className="w-full rounded-lg py-1.5 text-center text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
-                Show less
+                {t("common.showLess")}
               </button>
             </div>
           )}

@@ -6,6 +6,8 @@ import {
   normalizeOrgRole,
   type OrgRole,
 } from "../auth/roles";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import { normalizeDepartments } from "../types";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "./config";
 import { normalizeRegistrationSeed } from "./registrationSeeds";
@@ -58,9 +60,7 @@ export async function ensureUserProfile(user: User): Promise<void> {
   const isFounderBootstrap = emailLower === FOUNDER_BOOTSTRAP_EMAIL;
 
   if (!existing.exists() && !isFounderBootstrap) {
-    throw new Error(
-      "This account is not registered with your team. Create an account with a valid one-time seed, or contact your admin."
-    );
+    throw new Error(translate(loadLocale(), "auth.error.notRegistered"));
   }
 
   const orgRole = await resolveOrgRoleForEnsure(prev, emailLower);

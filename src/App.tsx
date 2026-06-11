@@ -28,6 +28,8 @@ import { useScrollRestoration } from "./hooks/useScrollRestoration";
 import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
 import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./utils/crmUrlState";
 import { PersonNavProvider } from "./contexts/PersonNavContext";
+import { useT } from "./contexts/I18nContext";
+import { useSyncUserLocale } from "./hooks/useSyncUserLocale";
 
 function App() {
   const {
@@ -69,6 +71,7 @@ function App() {
     updatePerson,
     notifications,
     markNotificationRead,
+    markChatNotificationsRead,
     markAllNotificationsRead,
     notifyTaskComment,
     notifyCommentReaction,
@@ -91,13 +94,14 @@ function App() {
     chatUnreadCount,
     presenceMap,
   } = useOrgFirestore();
+  const t = useT();
+  useSyncUserLocale(user?.uid);
 
   const [tab, setTabState] = useState<TabId>(() => {
     const fromUrl = readTabFromLocation();
     return fromUrl === "messages" ? "tasks" : fromUrl;
   });
   const [chatOpenRequest, setChatOpenRequest] = useState<string | null>(null);
-  const [chatUiActive, setChatUiActive] = useState(false);
   const setTab = useCallback((next: TabId) => {
     setTabState(next);
     writeTabToLocation(next, { clearFocus: true });
@@ -133,7 +137,7 @@ function App() {
 
     if (status === "connected") {
       setGoogleCalendarOauthMessage({
-        text: "Google Calendar connected. Events sync to your SimasiaAI CRM calendar.",
+        text: t("app.googleCalendar.connected"),
         error: false,
       });
       setSettingsOpen(true);
@@ -141,7 +145,7 @@ function App() {
     } else if (status === "error") {
       const detail = params.get("message")?.trim();
       setGoogleCalendarOauthMessage({
-        text: detail || "Google Calendar connection failed.",
+        text: detail || t("app.googleCalendar.failed"),
         error: true,
       });
       setSettingsOpen(true);
@@ -229,18 +233,20 @@ function App() {
     [people, currentUserPersonId]
   );
 
-  useNotificationAlerts(notifications, Boolean(user && currentUserPersonId));
-  useChatMessageAlerts(
-    notifications,
-    Boolean(user && currentUserPersonId) && !chatUiActive
+  const bellNotifications = useMemo(
+    () => notifications.filter((n) => n.kind !== "chat_message"),
+    [notifications]
   );
+
+  useNotificationAlerts(bellNotifications, Boolean(user && currentUserPersonId));
+  useChatMessageAlerts(notifications, Boolean(user && currentUserPersonId));
 
   const currentUserName = useMemo(() => {
     if (currentUserPerson?.name.trim()) return currentUserPerson.name.trim();
     if (user?.displayName?.trim()) return user.displayName.trim();
     if (user?.email) return user.email.split("@")[0] ?? user.email;
-    return "Signed in";
-  }, [currentUserPerson, user]);
+    return t("app.signedIn");
+  }, [currentUserPerson, user, t]);
 
   const syncing = authLoading || Boolean(user && dataLoading);
   const showProfileSetup = Boolean(user && currentUserPerson && needsProfileSetup(currentUserPerson));
@@ -283,7 +289,7 @@ function App() {
           </div>
           <div className="relative z-10 flex shrink-0 items-center gap-2 sm:gap-3">
             <span className="hidden min-w-[3.25rem] text-right text-[10px] text-slate-400 sm:inline" aria-live="polite">
-              {syncing ? "Syncing…" : ""}
+              {syncing ? t("common.syncing") : ""}
             </span>
             <span
               className="max-w-[140px] truncate text-right text-[10px] text-rose-600 sm:max-w-[8rem]"
@@ -292,7 +298,7 @@ function App() {
               {error ?? ""}
             </span>
             <NotificationsBell
-              notifications={notifications}
+              notifications={bellNotifications}
               onSelect={openNotification}
               onMarkRead={markNotificationRead}
               onMarkAllRead={markAllNotificationsRead}
@@ -432,9 +438,9 @@ function App() {
         onOpenOrCreateDm={openOrCreateDm}
         onCreateGroup={createGroupChat}
         onMarkRead={markChatConversationRead}
+        onMarkChatNotificationsRead={markChatNotificationsRead}
         openConversationRequest={chatOpenRequest}
         onOpenConversationRequestHandled={() => setChatOpenRequest(null)}
-        onActivityChange={setChatUiActive}
       />
 
       <ActionFeedbackBanner />

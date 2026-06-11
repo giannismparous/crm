@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
+import { useT } from "../contexts/I18nContext";
 
 export type LightboxImage = { url: string; alt?: string };
 
@@ -17,6 +18,7 @@ export function ImageLightbox({
   onClose: () => void;
   onNavigate: (index: number) => void;
 }) {
+  const t = useT();
   const count = images.length;
   const safeIndex = count > 0 ? Math.min(Math.max(0, index), count - 1) : 0;
   const current = images[safeIndex];
@@ -51,14 +53,14 @@ export function ImageLightbox({
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
       role="dialog"
       aria-modal
-      aria-label="Image viewer"
+      aria-label={t("attachments.imageViewer")}
       onClick={onClose}
     >
       <button
         type="button"
         onClick={onClose}
         className="absolute right-3 top-3 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
-        aria-label="Close"
+        aria-label={t("common.close")}
       >
         <X className="h-5 w-5" />
       </button>
@@ -71,7 +73,7 @@ export function ImageLightbox({
             onNavigate(safeIndex - 1);
           }}
           className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:left-4"
-          aria-label="Previous image"
+          aria-label={t("attachments.previousImage")}
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -85,7 +87,7 @@ export function ImageLightbox({
             onNavigate(safeIndex + 1);
           }}
           className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:right-4"
-          aria-label="Next image"
+          aria-label={t("attachments.nextImage")}
         >
           <ChevronRight className="h-6 w-6" />
         </button>
@@ -104,7 +106,7 @@ export function ImageLightbox({
         {!imageLoaded && <ShimmerPlaceholder roundedClassName="rounded-lg" />}
         <img
           src={current.url}
-          alt={current.alt ?? "Image"}
+          alt={current.alt ?? t("common.media.image")}
           onLoad={() => setImageLoaded(true)}
           className={`max-h-[85vh] max-w-[min(92vw,1200px)] rounded-lg object-contain shadow-2xl transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
         />

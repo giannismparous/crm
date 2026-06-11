@@ -1,8 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translateContactStage } from "../i18n/helpers";
 import type { ContactStage } from "../types";
 import {
   MERGE_FIELD_KEYS,
-  MERGE_FIELD_LABEL,
   buildInitialMergeFormValues,
   contactHasSaveableIdentity,
   fieldHasConflict,
@@ -14,14 +15,23 @@ import {
 } from "../utils/contactMerge";
 import { CompanySuggestInput } from "./CompanySuggestInput";
 
-const STAGE_LABEL: Record<ContactStage, string> = {
-  lead: "Lead",
-  qualified: "Qualified",
-  proposal: "Proposal",
-  negotiation: "Negotiation",
-  customer: "Customer",
-  churned: "Churned",
-};
+function mergeFieldLabel(field: MergeFieldKey, t: ReturnType<typeof useT>): string {
+  const keys: Record<MergeFieldKey, string> = {
+    firstName: "contacts.firstName",
+    lastName: "contacts.lastName",
+    company: "contacts.company",
+    jobTitle: "contacts.jobTitle",
+    email: "common.email",
+    phone: "contacts.phone",
+    website: "contacts.website",
+    stage: "contacts.stage",
+    estimatedValue: "contacts.estDealValue",
+    currency: "contacts.currency",
+    lastContactedAt: "contacts.lastContacted",
+    generalNotes: "common.notes",
+  };
+  return t(keys[field]);
+}
 
 function Labeled({
   label,
@@ -46,21 +56,24 @@ function MergeFieldRow({
   values,
   onChange,
   companySuggestions,
+  t,
 }: {
   field: MergeFieldKey;
   sources: MergeSourceSnapshot[];
   values: MergeFormValues;
   onChange: (field: MergeFieldKey, value: string) => void;
   companySuggestions: string[];
+  t: ReturnType<typeof useT>;
 }) {
   const conflict = fieldHasConflict(field, sources);
   const options = useMemo(() => getMergeFieldOptions(field, sources), [field, sources]);
+  const label = mergeFieldLabel(field, t);
 
   return (
     <div className={field === "generalNotes" ? "sm:col-span-2" : field === "website" ? "sm:col-span-2" : ""}>
-      <Labeled label={MERGE_FIELD_LABEL[field]}>
+      <Labeled label={label}>
         {conflict && (
-          <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label={`Choose ${MERGE_FIELD_LABEL[field]}`}>
+          <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label={t("contacts.merge.chooseField", { field: label })}>
             {options.map((opt) => {
               const active = mergeValuesEqual(field, values[field], opt.value);
               return (
@@ -103,6 +116,9 @@ function MergeFieldInput({
   onChange: (value: string) => void;
   companySuggestions: string[];
 }) {
+  const t = useT();
+  const { locale } = useI18n();
+
   if (field === "company") {
     return (
       <CompanySuggestInput value={value} onChange={onChange} suggestions={companySuggestions} className="input-base" />
@@ -111,9 +127,9 @@ function MergeFieldInput({
   if (field === "stage") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base">
-        {(Object.keys(STAGE_LABEL) as ContactStage[]).map((s) => (
+        {(["lead", "qualified", "proposal", "negotiation", "customer", "churned"] as ContactStage[]).map((s) => (
           <option key={s} value={s}>
-            {STAGE_LABEL[s]}
+            {translateContactStage(locale, s)}
           </option>
         ))}
       </select>
@@ -154,9 +170,9 @@ function MergeFieldInput({
   if (field === "currency") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base">
-        <option>EUR</option>
-        <option>USD</option>
-        <option>GBP</option>
+        <option value="EUR">{t("common.currency.eur")}</option>
+        <option value="USD">{t("common.currency.usd")}</option>
+        <option value="GBP">{t("common.currency.gbp")}</option>
       </select>
     );
   }
@@ -177,6 +193,7 @@ export function ContactMergePanel({
   onConfirm: (values: MergeFormValues) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [values, setValues] = useState(() => buildInitialMergeFormValues(sources));
 
   const conflictCount = useMemo(
@@ -201,10 +218,12 @@ export function ContactMergePanel({
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <header className="border-b border-slate-100 pb-4">
-        <h3 className="font-display text-xl font-semibold text-slate-900">Merge contacts</h3>
+        <h3 className="font-display text-xl font-semibold text-slate-900">{t("contacts.merge.title")}</h3>
         {conflictCount > 0 && (
           <p className="mt-2 text-xs text-amber-800">
-            {conflictCount} field{conflictCount === 1 ? "" : "s"} differ — choose which value to keep or type your own.
+            {conflictCount === 1
+              ? t("contacts.merge.conflicts_one", { count: String(conflictCount) })
+              : t("contacts.merge.conflicts_other", { count: String(conflictCount) })}
           </p>
         )}
       </header>
@@ -219,6 +238,7 @@ export function ContactMergePanel({
               values={values}
               onChange={patchField}
               companySuggestions={companySuggestions}
+              t={t}
             />
           ))}
         </div>
@@ -229,11 +249,10 @@ export function ContactMergePanel({
           values={values}
           onChange={patchField}
           companySuggestions={companySuggestions}
+          t={t}
         />
 
-        <p className="text-xs text-slate-500">
-          Open reminders from merged contacts will be copied to the saved contact. Duplicate contacts will be removed.
-        </p>
+        <p className="text-xs text-slate-500">{t("contacts.merge.hint")}</p>
 
         <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
           <button
@@ -241,14 +260,14 @@ export function ContactMergePanel({
             disabled={!canSave}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Save merged contact
+            {t("contacts.merge.save")}
           </button>
           <button
             type="button"
             onClick={onCancel}
             className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
           >
-            Back
+            {t("common.back")}
           </button>
         </div>
       </form>

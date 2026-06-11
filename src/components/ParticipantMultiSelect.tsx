@@ -3,6 +3,8 @@ import type { Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
 import { personDisplayName } from "../utils/appointments";
 import { participantIdsCoveredByDepartments } from "../utils/appointmentParticipants";
+import { useI18n } from "../contexts/I18nContext";
+import { translateDepartment } from "../i18n/helpers";
 
 function personMatchesSearch(p: Person, q: string): boolean {
   const needle = q.trim().toLowerCase();
@@ -20,7 +22,7 @@ export function ParticipantMultiSelect({
   participantDepartmentIds,
   currentUserId,
   onChange,
-  placeholder = "Choose participants…",
+  placeholder,
 }: {
   people: Person[];
   participantIds: string[];
@@ -29,6 +31,8 @@ export function ParticipantMultiSelect({
   onChange: (participantIds: string[], participantDepartmentIds: string[]) => void;
   placeholder?: string;
 }) {
+  const { t, locale } = useI18n();
+  const resolvedPlaceholder = placeholder ?? t("pickers.participants");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -60,16 +64,16 @@ export function ParticipantMultiSelect({
   const summary = useMemo(() => {
     const ids = participantIds.filter(Boolean);
     const depts = participantDepartmentIds.filter(Boolean);
-    if (ids.length === 0 && depts.length === 0) return placeholder;
+    if (ids.length === 0 && depts.length === 0) return resolvedPlaceholder;
     const bits: string[] = [];
     if (ids.length === 1) {
       const p = selectablePeople.find((x) => x.id === ids[0]);
-      bits.push(p ? personDisplayName(p) : "1 person");
-    } else if (ids.length > 1) bits.push(`${ids.length} people`);
-    if (depts.length === 1) bits.push(depts[0]!);
-    else if (depts.length > 1) bits.push(`${depts.length} departments`);
+      bits.push(p ? personDisplayName(p) : t("common.onePerson"));
+    } else if (ids.length > 1) bits.push(t("common.nPeople", { count: ids.length }));
+    if (depts.length === 1) bits.push(translateDepartment(locale, depts[0]!));
+    else if (depts.length > 1) bits.push(t("common.nDepartments", { count: depts.length }));
     return bits.join(", ");
-  }, [participantIds, participantDepartmentIds, selectablePeople, placeholder]);
+  }, [participantIds, participantDepartmentIds, selectablePeople, resolvedPlaceholder, t, locale]);
 
   function stripDeptCoveredPeople(ids: string[], depts: string[]): string[] {
     const covered = participantIdsCoveredByDepartments(selectablePeople, depts);
@@ -112,7 +116,7 @@ export function ParticipantMultiSelect({
         <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[14rem] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5">
           <input
             type="search"
-            placeholder="Search people or departments…"
+            placeholder={t("common.searchPeopleDepts")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
@@ -141,15 +145,15 @@ export function ParticipantMultiSelect({
               }}
             >
               {participantIds.includes(currentUserId) || coveredByDept.has(currentUserId)
-                ? "Remove me"
-                : "Add me"}
+                ? t("common.removeMe")
+                : t("common.addMe")}
             </button>
           )}
           <div className="max-h-52 overflow-y-auto text-xs">
             {filteredPeople.length > 0 && (
               <>
                 <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  People
+                  {t("common.people")}
                 </p>
                 {filteredPeople.map((p) => {
                   const viaDept = coveredByDept.has(p.id) && !participantIds.includes(p.id);
@@ -170,7 +174,9 @@ export function ParticipantMultiSelect({
                     <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                       {personDisplayName(p)}
                       {viaDept ? (
-                        <span className="ml-1 text-[10px] font-normal text-slate-400">(dept)</span>
+                        <span className="ml-1 text-[10px] font-normal text-slate-400">
+                          {t("common.deptSuffix")}
+                        </span>
                       ) : null}
                     </span>
                   </label>
@@ -181,7 +187,7 @@ export function ParticipantMultiSelect({
             {filteredDepts.length > 0 && (
               <>
                 <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Departments
+                  {t("common.departments")}
                 </p>
                 {filteredDepts.map((d) => (
                   <label
@@ -197,14 +203,14 @@ export function ParticipantMultiSelect({
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
                     >
-                      {d}
+                      {translateDepartment(locale, d)}
                     </span>
                   </label>
                 ))}
               </>
             )}
             {filteredPeople.length === 0 && filteredDepts.length === 0 && (
-              <p className="px-1 py-2 text-center text-slate-500">No matches.</p>
+              <p className="px-1 py-2 text-center text-slate-500">{t("common.noMatches")}</p>
             )}
           </div>
           {(participantIds.length > 0 || participantDepartmentIds.length > 0) && (
@@ -213,7 +219,7 @@ export function ParticipantMultiSelect({
               className="mt-1.5 w-full rounded-md border border-slate-200 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
               onClick={() => onChange([], [])}
             >
-              Clear all
+              {t("common.clearAll")}
             </button>
           )}
         </div>

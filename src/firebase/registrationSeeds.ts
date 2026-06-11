@@ -18,8 +18,9 @@ import {
   type CreateRegistrationSeedInput,
   type RegistrationSeed,
 } from "../types";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import {
-  SEED_EXPIRED_MESSAGE,
   accountExpiresAtFromMonths,
   clampSeedValidDays,
   isSeedExpired,
@@ -75,9 +76,13 @@ export function normalizeRegistrationSeed(
   };
 }
 
+function authMsg(key: string): string {
+  return translate(loadLocale(), key);
+}
+
 function assertSeedUsable(seed: RegistrationSeed): void {
-  if (seed.used) throw new Error("Seed already used.");
-  if (isSeedExpired(seed)) throw new Error(SEED_EXPIRED_MESSAGE);
+  if (seed.used) throw new Error(authMsg("auth.error.seedUsed"));
+  if (isSeedExpired(seed)) throw new Error(authMsg("auth.error.seedExpired"));
 }
 
 function isPermissionDenied(e: unknown): boolean {
@@ -99,12 +104,12 @@ export async function assertRegistrationSeedAvailable(
     snap = await getDoc(doc(db, "organizations", ORG, "registrationSeeds", trimmed));
   } catch (e) {
     if (isPermissionDenied(e)) {
-      throw new Error("Could not verify seed. Check the code or ask for a new one.");
+      throw new Error(authMsg("auth.error.seedVerifyFailed"));
     }
     throw e;
   }
 
-  if (!snap.exists()) throw new Error("Invalid seed.");
+  if (!snap.exists()) throw new Error(authMsg("auth.error.seedInvalid"));
   const seed = normalizeRegistrationSeed(snap.id, snap.data() as Record<string, unknown>);
   assertSeedUsable(seed);
   return seed;
@@ -189,17 +194,17 @@ export async function consumeRegistrationSeed(
 
   return runTransaction(db, async (tx) => {
     const seedSnap = await tx.get(seedRef);
-    if (!seedSnap.exists()) throw new Error("Invalid seed.");
+    if (!seedSnap.exists()) throw new Error(authMsg("auth.error.seedInvalid"));
     const seed = normalizeRegistrationSeed(seedSnap.id, seedSnap.data() as Record<string, unknown>);
     assertSeedUsable(seed);
-    if (seed.usedById && seed.usedById !== user.uid) throw new Error("Seed already used.");
+    if (seed.usedById && seed.usedById !== user.uid) throw new Error(authMsg("auth.error.seedUsed"));
 
     const existingPerson = await tx.get(personRef);
     if (existingPerson.exists()) {
       const prev = existingPerson.data() as Record<string, unknown>;
       const prevSeed = String(prev.registrationSeedId ?? "").trim();
       if (prevSeed && prevSeed !== code) {
-        throw new Error("This account is already registered with a different seed.");
+        throw new Error(authMsg("auth.error.seedWrongAccount"));
       }
     }
 

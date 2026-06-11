@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { useT } from "../contexts/I18nContext";
 import { subscribeActionFeedback } from "../utils/actionFeedback";
 
 export function ActionFeedbackBanner() {
+  const t = useT();
   const [banner, setBanner] = useState<{ text: string; kind: "error" | "warning" } | null>(null);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export function ActionFeedbackBanner() {
         type="button"
         onClick={() => setBanner(null)}
         className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100"
-        aria-label="Dismiss"
+        aria-label={t("common.dismiss")}
       >
         <X className="h-4 w-4" />
       </button>

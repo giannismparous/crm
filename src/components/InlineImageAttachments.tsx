@@ -18,6 +18,7 @@ import {
   uploadSingleImageFile,
   uploadSingleMediaFile,
 } from "../utils/imageAttachments";
+import { useT } from "../contexts/I18nContext";
 import { ImageLightbox } from "./ImageLightbox";
 
 type PendingUpload = {
@@ -38,11 +39,11 @@ function maxMbForKind(kind: InlineMediaKind): number {
   return MAX_IMAGE_BYTES / (1024 * 1024);
 }
 
-function kindLabel(kind: InlineMediaKind): string {
-  if (kind === "video") return "Videos";
-  if (kind === "audio") return "Audio";
-  if (kind === "file") return "Files";
-  return "Images";
+function kindLabel(kind: InlineMediaKind, t: ReturnType<typeof useT>): string {
+  if (kind === "video") return t("common.media.videos");
+  if (kind === "audio") return t("common.media.audio");
+  if (kind === "file") return t("common.media.files");
+  return t("common.media.images");
 }
 
 function existingFingerprints(
@@ -85,6 +86,7 @@ export function InlineImageAttachments({
   /** Per-preview loading in deferred mode. */
   uploadingIndices?: ReadonlySet<number>;
 }) {
+  const t = useT();
   const uploadMode = Boolean(storageDir && onAttachmentsChange);
   const fileList = files ?? [];
   const attachmentList = attachments ?? [];
@@ -168,7 +170,7 @@ export function InlineImageAttachments({
       previewUrl,
       kind: mediaKind,
       fingerprint,
-      name: file.name || kindLabel(mediaKind),
+      name: file.name || kindLabel(mediaKind, t),
     };
     inFlightFingerprintsRef.current.add(fingerprint);
     pendingRef.current = [...pendingRef.current, slot];
@@ -200,7 +202,7 @@ export function InlineImageAttachments({
   function addFiles(incoming: FileList | null, mediaKind: InlineMediaKind) {
     if (!incoming?.length || disabled || uploadsBusy) return;
     const picked = [...incoming];
-    const limits = { maxMb: maxMbForKind(mediaKind), label: kindLabel(mediaKind) };
+    const limits = { maxMb: maxMbForKind(mediaKind), label: kindLabel(mediaKind, t) };
 
     if (uploadMode) {
       const { valid, rejected } =
@@ -258,7 +260,7 @@ export function InlineImageAttachments({
         if (duplicates > 0) {
           setError(duplicateUploadMessage(duplicates));
         } else {
-          setError("Files must be under 20 MB (videos up to 100 MB).");
+          setError(t("common.fileSizeLimit"));
         }
         return;
       }
@@ -274,7 +276,7 @@ export function InlineImageAttachments({
     const { valid, rejected } = partitionAttachmentFiles(picked);
     const merged = [...fileList, ...valid];
     if (rejected > 0 && valid.length === 0) {
-      setError("Files must be under 20 MB (videos up to 100 MB).");
+      setError(t("common.fileSizeLimit"));
       return;
     }
     setError(rejected > 0 ? `${rejected} skipped (invalid or over size limit)` : null);
@@ -343,7 +345,7 @@ export function InlineImageAttachments({
       return;
     }
     if (mediaKind === "video" || mediaKind === "audio") {
-      setPlayer({ url: att.url, kind: mediaKind, name: att.name ?? "Attachment" });
+      setPlayer({ url: att.url, kind: mediaKind, name: att.name ?? t("common.attachment") });
     }
   }
 
@@ -358,9 +360,9 @@ export function InlineImageAttachments({
         .map((item) =>
           item.kind === "pending"
             ? { url: item.pending.previewUrl!, alt: item.pending.name }
-            : { url: item.attachment.url, alt: item.attachment.name ?? "Attachment" }
+            : { url: item.attachment.url, alt: item.attachment.name ?? t("common.attachment") }
         )
-    : filePreviews.map((url, i) => ({ url, alt: fileList[i]?.name ?? "Attachment" }));
+    : filePreviews.map((url, i) => ({ url, alt: fileList[i]?.name ?? t("common.attachment") }));
 
   function renderMediaThumb(
     mediaKind: InlineMediaKind,
@@ -383,19 +385,19 @@ export function InlineImageAttachments({
           aria-label={
             fileUploading
               ? mediaKind === "image"
-                ? "Preview image while uploading"
+                ? t("richText.previewUploadingImage")
                 : mediaKind === "video"
-                  ? "Play video while uploading"
+                  ? t("richText.playUploadingVideo")
                   : mediaKind === "audio"
-                    ? "Play audio while uploading"
-                    : "Open file while uploading"
+                    ? t("richText.playUploadingAudio")
+                    : t("richText.openUploadingFile")
               : mediaKind === "image"
-                ? "View image"
+                ? t("richText.viewImage")
                 : mediaKind === "video"
-                  ? "Play video"
+                  ? t("richText.playVideo")
                   : mediaKind === "audio"
-                    ? "Play audio"
-                    : "Open file"
+                    ? t("richText.playAudio")
+                    : t("richText.openFile")
           }
           title={name}
         >
@@ -423,7 +425,7 @@ export function InlineImageAttachments({
           disabled={disabled}
           onClick={onRemove}
           className="absolute right-0 top-0 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-bl-md bg-black/70 text-white hover:bg-rose-600 disabled:opacity-40"
-          aria-label={fileUploading ? "Cancel upload" : "Remove attachment"}
+          aria-label={fileUploading ? t("richText.cancelUpload") : t("richText.removeAttachment")}
         >
           <X className="h-2 w-2" aria-hidden />
         </button>
@@ -458,7 +460,7 @@ export function InlineImageAttachments({
                 return renderMediaThumb(
                   mediaKind,
                   mediaKind === "image" ? att.url : undefined,
-                  att.name ?? "Attachment",
+                  att.name ?? t("common.attachment"),
                   false,
                   () => openAttachment(item),
                   () => void removeAttachmentAt(item.index),
@@ -470,7 +472,7 @@ export function InlineImageAttachments({
                 return renderMediaThumb(
                   "image",
                   src,
-                  fileList[i]?.name ?? "Attachment",
+                  fileList[i]?.name ?? t("common.attachment"),
                   Boolean(fileUploading),
                   () => setLightboxIndex(i),
                   () => removeFileAt(i),
@@ -485,8 +487,8 @@ export function InlineImageAttachments({
             disabled={disabled || uploadsBusy}
             onClick={() => imageInputRef.current?.click()}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200/90 bg-white/95 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-            title="Attach images"
-            aria-label="Attach images"
+            title={t("richText.attachImages")}
+            aria-label={t("richText.attachImages")}
           >
             <ImagePlus className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -495,8 +497,8 @@ export function InlineImageAttachments({
             disabled={disabled || uploadsBusy}
             onClick={() => videoInputRef.current?.click()}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200/90 bg-white/95 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-            title="Attach video"
-            aria-label="Attach video"
+            title={t("richText.attachVideo")}
+            aria-label={t("richText.attachVideo")}
           >
             <Video className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -505,8 +507,8 @@ export function InlineImageAttachments({
             disabled={disabled || uploadsBusy}
             onClick={() => audioInputRef.current?.click()}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200/90 bg-white/95 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-            title="Attach audio"
-            aria-label="Attach audio"
+            title={t("richText.attachAudio")}
+            aria-label={t("richText.attachAudio")}
           >
             <Music className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -516,8 +518,8 @@ export function InlineImageAttachments({
               disabled={disabled || uploadsBusy}
               onClick={() => anyFileInputRef.current?.click()}
               className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200/90 bg-white/95 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-              title="Attach any file"
-              aria-label="Attach any file"
+              title={t("richText.attachFile")}
+              aria-label={t("richText.attachFile")}
             >
               <FileIcon className="h-3.5 w-3.5" aria-hidden />
             </button>
@@ -603,7 +605,7 @@ export function InlineImageAttachments({
               onClick={() => setPlayer(null)}
               className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              Close
+              {t("common.close")}
             </button>
           </div>
         </div>

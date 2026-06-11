@@ -43,6 +43,7 @@ import {
   formatRecurrenceSummary,
   type AppointmentRecurrenceRule,
 } from "../utils/appointmentRecurrence";
+import { useT } from "../contexts/I18nContext";
 
 type AppointmentListTab = "upcoming" | "past" | "canceled";
 
@@ -160,21 +161,22 @@ function ReviewItemsEditor({
   items: string[];
   onChange: (items: string[]) => void;
 }) {
+  const t = useT();
   return (
     <div className="sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-600">What to review</p>
+        <p className="text-xs font-medium text-slate-600">{t("appointments.whatToReview")}</p>
         <button
           type="button"
           onClick={() => onChange([...items, ""])}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
         >
           <Plus className="h-3 w-3" aria-hidden />
-          Add item
+          {t("appointments.addItem")}
         </button>
       </div>
       {items.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-slate-500">List what should be reviewed or ready beforehand.</p>
+        <p className="mt-1.5 text-[11px] text-slate-500">{t("appointments.reviewHint")}</p>
       ) : (
         <ul className="mt-2 space-y-1.5">
           {items.map((item, index) => (
@@ -188,13 +190,13 @@ function ReviewItemsEditor({
                   onChange(items.map((v, i) => (i === index ? e.target.value : v)))
                 }
                 className="input-base min-w-0 flex-1 py-1.5"
-                placeholder="e.g. Signed contract"
+                placeholder={t("appointments.reviewPlaceholder")}
               />
               <button
                 type="button"
                 onClick={() => onChange(items.filter((_, i) => i !== index))}
                 className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                aria-label={`Remove item ${index + 1}`}
+                aria-label={t("appointments.removeItemAria", { n: String(index + 1) })}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -227,14 +229,15 @@ function ExistingTasksLinker({
   appointmentId?: string;
   onChange: (ids: string[]) => void;
 }) {
+  const tr = useT();
   const options = useMemo(() => {
     const aptId = appointmentId?.trim();
     const today = orgTodayDateKey();
     return tasks
       .filter(
-        (t) =>
-          (isTaskLinkableForAppointment(t, today, aptId) || selectedIds.includes(t.id)) &&
-          (!t.appointmentId || !aptId || t.appointmentId === aptId || selectedIds.includes(t.id))
+        (task) =>
+          (isTaskLinkableForAppointment(task, today, aptId) || selectedIds.includes(task.id)) &&
+          (!task.appointmentId || !aptId || task.appointmentId === aptId || selectedIds.includes(task.id))
       )
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [tasks, appointmentId, selectedIds]);
@@ -245,23 +248,23 @@ function ExistingTasksLinker({
   }
 
   if (options.length === 0) {
-    return <p className="text-[11px] text-slate-500">No open tasks available to link.</p>;
+    return <p className="text-[11px] text-slate-500">{tr("appointments.noTasksToLink")}</p>;
   }
 
   return (
     <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5">
-      {options.map((t) => {
-        const checked = selectedIds.includes(t.id);
+      {options.map((task) => {
+        const checked = selectedIds.includes(task.id);
         return (
-          <li key={t.id}>
+          <li key={task.id}>
             <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50">
               <input
                 type="checkbox"
                 checked={checked}
-                onChange={() => toggle(t.id)}
+                onChange={() => toggle(task.id)}
                 className="rounded border-slate-300 text-accent focus:ring-accent/30"
               />
-              <span className="min-w-0 truncate text-sm text-slate-800">{t.title || "Untitled task"}</span>
+              <span className="min-w-0 truncate text-sm text-slate-800">{task.title || tr("common.untitledTask")}</span>
             </label>
           </li>
         );
@@ -350,6 +353,7 @@ export function AppointmentsTab({
   focusAppointmentId?: string | null;
   onFocusAppointmentHandled?: () => void;
 }) {
+  const t = useT();
   const saved = useMemo(() => readPersistedTabState("appointments", APPOINTMENTS_VIEW_DEFAULTS), []);
   const savedForm = useMemo(() => readFormDraft<AppointmentDraft>(APPOINTMENTS_DRAFT_KEY), []);
   const [scope, setScope] = useState<TaskListScope>(() => saved.scope);
@@ -496,11 +500,11 @@ export function AppointmentsTab({
     e.preventDefault();
     const title = draft.title.trim();
     if (!title) {
-      setError("Title is required.");
+      setError(t("appointments.error.titleRequired"));
       return;
     }
     if (!draft.startsAt) {
-      setError("Start date and time are required.");
+      setError(t("appointments.error.startRequired"));
       return;
     }
     const startsAt = datetimeLocalToIso(draft.startsAt);
@@ -508,12 +512,12 @@ export function AppointmentsTab({
     if (draft.endsAt) {
       endsAt = datetimeLocalToIso(draft.endsAt);
       if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
-        setError("End time must be after start time.");
+        setError(t("appointments.error.endAfterStart"));
         return;
       }
     }
     if (descriptionImagesUploading) {
-      setError("Wait for images to finish uploading.");
+      setError(t("appointments.error.waitUpload"));
       return;
     }
     setBusy(true);
@@ -726,7 +730,7 @@ export function AppointmentsTab({
       if (!editing) {
         await rollbackCreate();
       }
-      setError(err instanceof Error ? err.message : "Could not save appointment");
+      setError(err instanceof Error ? err.message : t("appointments.error.save"));
     } finally {
       setBusy(false);
     }
@@ -739,7 +743,7 @@ export function AppointmentsTab({
       setSelectedId("");
       setCancelConfirmId("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not cancel appointment");
+      setError(err instanceof Error ? err.message : t("appointments.error.cancel"));
     } finally {
       setBusy(false);
     }
@@ -771,7 +775,7 @@ export function AppointmentsTab({
               onClick={closeForm}
               className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Back
+              {t("common.back")}
             </button>
           </div>
           <form
@@ -779,24 +783,22 @@ export function AppointmentsTab({
           className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
         >
           <h2 className="font-display text-base font-semibold text-slate-900">
-            {editing ? "Edit appointment" : "New appointment"}
+            {editing ? t("appointments.edit") : t("appointments.new")}
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Schedule for yourself, with teammates, or on behalf of others — pick participants below.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">{t("appointments.subtitle")}</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-              Title
+              {t("common.title")}
               <input
                 required
                 value={draft.title}
                 onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                 className="input-base mt-1 w-full"
-                placeholder="e.g. Client kickoff"
+                placeholder={t("appointments.titlePlaceholder")}
               />
             </label>
             <label className="block text-xs font-medium text-slate-600">
-              Starts
+              {t("appointments.starts")}
               <input
                 type="datetime-local"
                 required
@@ -806,7 +808,7 @@ export function AppointmentsTab({
               />
             </label>
             <label className="block text-xs font-medium text-slate-600">
-              Ends <span className="font-normal text-slate-400">(optional)</span>
+              {t("appointments.ends")} <span className="font-normal text-slate-400">{t("common.optional")}</span>
               <input
                 type="datetime-local"
                 value={draft.endsAt}
@@ -824,13 +826,13 @@ export function AppointmentsTab({
                     onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))}
                     className="rounded border-slate-300 text-accent focus:ring-accent/30"
                   />
-                  Recurring meeting
+                  {t("appointments.recurring")}
                 </label>
 
                 {draft.recurring && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-                      Frequency
+                      {t("appointments.frequency")}
                       <select
                         value={draft.recurrenceKind}
                         onChange={(e) =>
@@ -841,21 +843,19 @@ export function AppointmentsTab({
                         }
                         className="input-base mt-1 w-full py-1.5"
                       >
-                        <option value="daily">Every X days</option>
-                        <option value="weekly">Every X weeks</option>
-                        <option value="monthly">Every X months (same date)</option>
-                        <option value="monthly_day">Day X of each month</option>
+                        <option value="daily">{t("appointments.freq.daily")}</option>
+                        <option value="weekly">{t("appointments.freq.weekly")}</option>
+                        <option value="monthly">{t("appointments.freq.monthly")}</option>
+                        <option value="monthly_day">{t("appointments.freq.monthlyDay")}</option>
                       </select>
                     </label>
 
                     <label className="block text-xs font-medium text-slate-600">
                       {draft.recurrenceKind === "daily"
-                        ? "Every (days)"
+                        ? t("appointments.everyDays")
                         : draft.recurrenceKind === "weekly"
-                          ? "Every (weeks)"
-                          : draft.recurrenceKind === "monthly"
-                            ? "Every (months)"
-                            : "Every (months)"}
+                          ? t("appointments.everyWeeks")
+                          : t("appointments.everyMonths")}
                       <input
                         type="number"
                         min={1}
@@ -873,7 +873,7 @@ export function AppointmentsTab({
 
                     {draft.recurrenceKind === "monthly_day" && (
                       <label className="block text-xs font-medium text-slate-600">
-                        Day of month
+                        {t("appointments.dayOfMonth")}
                         <input
                           type="number"
                           min={1}
@@ -891,7 +891,7 @@ export function AppointmentsTab({
                     )}
 
                     <label className="block text-xs font-medium text-slate-600">
-                      Number of meetings
+                      {t("appointments.meetingCount")}
                       <input
                         type="number"
                         min={MIN_RECURRENCE_COUNT}
@@ -927,7 +927,7 @@ export function AppointmentsTab({
             )}
 
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-              Participants
+              {t("appointments.participants")}
               <div className="mt-1">
                 <ParticipantMultiSelect
                   people={people}
@@ -945,33 +945,34 @@ export function AppointmentsTab({
               onChange={(reviewItems) => setDraft((d) => ({ ...d, reviewItems }))}
             />
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-              Location
+              {t("appointments.location")}
               <input
                 value={draft.location}
                 onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))}
                 className="input-base mt-1 w-full"
-                placeholder="Office, address, or room"
+                placeholder={t("appointments.locationPlaceholder")}
               />
             </label>
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-              Meeting link <span className="font-normal text-slate-400">(optional)</span>
+              {t("appointments.meetingLink")}{" "}
+              <span className="font-normal text-slate-400">{t("common.optional")}</span>
               <input
                 type="text"
                 value={draft.meetingLink}
                 onChange={(e) => setDraft((d) => ({ ...d, meetingLink: e.target.value }))}
                 className="input-base mt-1 w-full"
-                placeholder="https://meet.google.com/…"
+                placeholder={t("appointments.meetingLinkPlaceholder")}
               />
             </label>
             <div className="sm:col-span-2">
               <p className="text-xs font-medium text-slate-600">
-                Description <span className="font-normal text-slate-400">(optional)</span>
+                {t("common.description")} <span className="font-normal text-slate-400">{t("common.optional")}</span>
               </p>
               <div className="mt-1">
                 <SimpleRichText
                   value={draft.description}
                   onChange={(html) => setDraft((d) => ({ ...d, description: html }))}
-                  placeholder="Agenda, notes, prep…"
+                  placeholder={t("appointments.descriptionPlaceholder")}
                   collapseKey={
                     editing && selected
                       ? `appointment-desc-${selected.id}`
@@ -984,13 +985,11 @@ export function AppointmentsTab({
             </div>
 
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3 sm:col-span-2">
-              <p className="text-xs font-semibold text-slate-800">Tasks for this appointment</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">
-                Link existing open tasks and/or create new ones for this meeting.
-              </p>
+              <p className="text-xs font-semibold text-slate-800">{t("appointments.tasksSection")}</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">{t("appointments.tasksSectionHint")}</p>
 
               <div className="mt-3">
-                <p className="text-[11px] font-semibold text-slate-700">Link existing tasks</p>
+                <p className="text-[11px] font-semibold text-slate-700">{t("appointments.linkExisting")}</p>
                 <div className="mt-1.5">
                   <ExistingTasksLinker
                     tasks={allTasks}
@@ -1003,7 +1002,7 @@ export function AppointmentsTab({
 
               <div className="mt-4 border-t border-slate-200/80 pt-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold text-slate-700">Create new tasks</p>
+                  <p className="text-[11px] font-semibold text-slate-700">{t("appointments.createNewTasks")}</p>
                   <button
                     type="button"
                     onClick={() =>
@@ -1015,12 +1014,12 @@ export function AppointmentsTab({
                     className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
                   >
                     <Plus className="h-3.5 w-3.5" aria-hidden />
-                    New task
+                    {t("tasks.form.newTask")}
                   </button>
                 </div>
 
               {draft.newTasks.length === 0 ? (
-                <p className="mt-2 text-[11px] text-slate-500">No new tasks — add one if you need fresh prep work tracked.</p>
+                <p className="mt-2 text-[11px] text-slate-500">{t("appointments.noNewTasks")}</p>
               ) : (
                 <ul className="mt-3 space-y-3">
                   {draft.newTasks.map((taskDraft, index) => (
@@ -1030,41 +1029,41 @@ export function AppointmentsTab({
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                          Task {index + 1}
+                          {t("appointments.taskN", { n: String(index + 1) })}
                         </span>
                         <button
                           type="button"
                           onClick={() =>
                             setDraft((d) => ({
                               ...d,
-                              newTasks: d.newTasks.filter((t) => t.id !== taskDraft.id),
+                              newTasks: d.newTasks.filter((task) => task.id !== taskDraft.id),
                             }))
                           }
                           className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                          aria-label={`Remove task ${index + 1}`}
+                          aria-label={t("appointments.removeTaskAria", { n: String(index + 1) })}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-                          Title
+                          {t("common.title")}
                           <input
                             value={taskDraft.title}
                             onChange={(e) =>
                               setDraft((d) => ({
                                 ...d,
-                                newTasks: d.newTasks.map((t) =>
-                                  t.id === taskDraft.id ? { ...t, title: e.target.value } : t
+                                newTasks: d.newTasks.map((task) =>
+                                  task.id === taskDraft.id ? { ...task, title: e.target.value } : task
                                 ),
                               }))
                             }
                             className="input-base mt-1 w-full py-1.5"
-                            placeholder="e.g. Prepare demo environment"
+                            placeholder={t("appointments.taskTitlePlaceholder")}
                           />
                         </label>
                         <label className="block text-xs font-medium text-slate-600">
-                          Due
+                          {t("common.due")}
                           <input
                             type="date"
                             value={taskDraft.dueDate}
@@ -1080,42 +1079,43 @@ export function AppointmentsTab({
                           />
                         </label>
                         <label className="block text-xs font-medium text-slate-600">
-                          Priority
+                          {t("tasks.form.priority")}
                           <select
                             value={taskDraft.priority}
                             onChange={(e) =>
                               setDraft((d) => ({
                                 ...d,
-                                newTasks: d.newTasks.map((t) =>
-                                  t.id === taskDraft.id
-                                    ? { ...t, priority: e.target.value as TaskPriority }
-                                    : t
+                                newTasks: d.newTasks.map((task) =>
+                                  task.id === taskDraft.id
+                                    ? { ...task, priority: e.target.value as TaskPriority }
+                                    : task
                                 ),
                               }))
                             }
                             className="input-base mt-1 w-full py-1.5"
                           >
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="high">High</option>
-                            <option value="urgent">Urgent</option>
+                            <option value="low">{t("tasks.priority.low")}</option>
+                            <option value="medium">{t("tasks.priority.medium")}</option>
+                            <option value="high">{t("tasks.priority.high")}</option>
+                            <option value="urgent">{t("tasks.priority.urgent")}</option>
                           </select>
                         </label>
                         <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-                          Project <span className="font-normal text-slate-400">(optional)</span>
+                          {t("tasks.form.project")}{" "}
+                          <span className="font-normal text-slate-400">{t("common.optional")}</span>
                           <select
                             value={taskDraft.projectId}
                             onChange={(e) =>
                               setDraft((d) => ({
                                 ...d,
-                                newTasks: d.newTasks.map((t) =>
-                                  t.id === taskDraft.id ? { ...t, projectId: e.target.value } : t
+                                newTasks: d.newTasks.map((task) =>
+                                  task.id === taskDraft.id ? { ...task, projectId: e.target.value } : task
                                 ),
                               }))
                             }
                             className="input-base mt-1 w-full py-1.5"
                           >
-                            <option value="">No project</option>
+                            <option value="">{t("tasks.form.noProject")}</option>
                             {projects.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.name}
@@ -1124,7 +1124,7 @@ export function AppointmentsTab({
                           </select>
                         </label>
                         <div className="sm:col-span-2">
-                          <span className="mb-1 block text-xs font-medium text-slate-600">Assign to</span>
+                          <span className="mb-1 block text-xs font-medium text-slate-600">{t("appointments.assignTo")}</span>
                           <ParticipantMultiSelect
                             people={people}
                             participantIds={taskDraft.assigneeIds}
@@ -1133,14 +1133,14 @@ export function AppointmentsTab({
                             onChange={(assigneeIds, assigneeDepartmentIds) =>
                               setDraft((d) => ({
                                 ...d,
-                                newTasks: d.newTasks.map((t) =>
-                                  t.id === taskDraft.id
-                                    ? { ...t, assigneeIds, assigneeDepartmentIds }
-                                    : t
+                                newTasks: d.newTasks.map((task) =>
+                                  task.id === taskDraft.id
+                                    ? { ...task, assigneeIds, assigneeDepartmentIds }
+                                    : task
                                 ),
                               }))
                             }
-                            placeholder="Choose assignees…"
+                            placeholder={t("appointments.assigneesPlaceholder")}
                           />
                         </div>
                       </div>
@@ -1158,14 +1158,14 @@ export function AppointmentsTab({
               disabled={busy || descriptionImagesUploading}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-600 disabled:opacity-60"
             >
-              {busy ? "Saving…" : editing ? "Save changes" : "Create appointment"}
+              {busy ? t("common.saving") : editing ? t("appointments.saveChanges") : t("appointments.create")}
             </button>
             <button
               type="button"
               onClick={closeForm}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </form>
@@ -1183,7 +1183,7 @@ export function AppointmentsTab({
                   scope === "my" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
                 }`}
               >
-                My appointments
+                {t("appointments.scope.my")}
               </button>
               <button
                 type="button"
@@ -1194,20 +1194,22 @@ export function AppointmentsTab({
                     : "text-slate-600"
                 }`}
               >
-                Everyone
+                {t("common.everyone")}
               </button>
             </span>
           ) : (
-            <span className="text-xs font-semibold text-slate-600">My appointments</span>
+            <span className="text-xs font-semibold text-slate-600">{t("appointments.scope.my")}</span>
           )}
-          <span className="text-xs text-slate-500">{upcomingCount} upcoming</span>
+          <span className="text-xs text-slate-500">
+            {t("appointments.upcomingCount", { count: String(upcomingCount) })}
+          </span>
         </div>
         <button
           type="button"
           onClick={openCreate}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-600"
         >
-          New appointment
+          {t("appointments.new")}
         </button>
       </div>
 
@@ -1215,22 +1217,22 @@ export function AppointmentsTab({
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <span className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
-              {(["upcoming", "past", "canceled"] as const).map((t) => (
+              {(["upcoming", "past", "canceled"] as const).map((tab) => (
                 <button
-                  key={t}
+                  key={tab}
                   type="button"
-                  onClick={() => setListTab(t)}
+                  onClick={() => setListTab(tab)}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize sm:text-sm ${
-                    listTab === t ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
+                    listTab === tab ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
                   }`}
                 >
-                  {t}
+                  {t(`appointments.tab.${tab}`)}
                 </button>
               ))}
             </span>
             <input
               type="search"
-              placeholder="Search appointments…"
+              placeholder={t("appointments.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="input-base w-full max-w-xs py-1.5 text-sm"
@@ -1239,7 +1241,7 @@ export function AppointmentsTab({
 
           {sorted.length === 0 ? (
             <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
-              No {listTab} appointments.
+              {t("appointments.empty", { tab: t(`appointments.tab.${listTab}`) })}
             </p>
           ) : (
             <ul className="space-y-2">
@@ -1274,10 +1276,10 @@ export function AppointmentsTab({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="font-medium text-slate-900">
-                            {apt.title || "Untitled"}
+                            {apt.title || t("common.untitled")}
                             {apt.recurrenceSeriesId && (
                               <span className="ml-2 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                Recurring
+                                {t("appointments.recurringBadge")}
                               </span>
                             )}
                           </div>
@@ -1291,7 +1293,7 @@ export function AppointmentsTab({
                         </div>
                         {!scheduled && (
                           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
-                            Canceled
+                            {t("common.canceled")}
                           </span>
                         )}
                       </div>
@@ -1329,7 +1331,7 @@ export function AppointmentsTab({
 
               <dl className="space-y-2 text-sm">
                 <div>
-                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Participants</dt>
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.participants")}</dt>
                   <dd className="mt-0.5 text-slate-800">
                     {formatAppointmentParticipants(selected, people, currentUserId)}
                   </dd>
@@ -1337,7 +1339,7 @@ export function AppointmentsTab({
                 {(selected.reviewItems?.length ?? 0) > 0 && (
                   <div>
                     <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                      What to review
+                      {t("appointments.whatToReview")}
                     </dt>
                     <dd className="mt-1">
                       <ul className="list-disc space-y-0.5 pl-4 text-slate-800">
@@ -1353,16 +1355,16 @@ export function AppointmentsTab({
                   if (linked.length === 0) return null;
                   return (
                     <div>
-                      <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Tasks</dt>
+                      <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("common.task")}</dt>
                       <dd className="mt-1 space-y-1">
-                        {linked.map((t) => (
+                        {linked.map((task) => (
                           <button
-                            key={t.id}
+                            key={task.id}
                             type="button"
-                            onClick={() => onOpenTask(t.id)}
+                            onClick={() => onOpenTask(task.id)}
                             className="block w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-sm font-medium text-accent hover:bg-accent/5"
                           >
-                            {t.title || "Untitled task"}
+                            {task.title || t("common.untitledTask")}
                           </button>
                         ))}
                       </dd>
@@ -1371,7 +1373,7 @@ export function AppointmentsTab({
                 })()}
                 {selected.createdById && (
                   <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Created by</dt>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.createdBy")}</dt>
                     <dd className="mt-0.5 text-slate-800">
                       {people.find((p) => p.id === selected.createdById)?.name ?? "—"}
                     </dd>
@@ -1379,13 +1381,13 @@ export function AppointmentsTab({
                 )}
                 {selected.location && (
                   <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Location</dt>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.location")}</dt>
                     <dd className="mt-0.5 text-slate-800">{selected.location}</dd>
                   </div>
                 )}
                 {selected.meetingLink && (
                   <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Meeting link</dt>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.meetingLink")}</dt>
                     <dd className="mt-0.5">
                       <a
                         href={selected.meetingLink}
@@ -1402,7 +1404,7 @@ export function AppointmentsTab({
                   (selected.attachments?.length ?? 0) > 0) && (
                   <div>
                     <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                      Description
+                      {t("common.description")}
                     </dt>
                     <dd className="mt-0.5 space-y-2 text-slate-800">
                       {richTextHasContent(selected.description ?? "") &&
@@ -1432,14 +1434,14 @@ export function AppointmentsTab({
                     onClick={() => openEdit(selected)}
                     className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    Edit
+                    {t("common.edit")}
                   </button>
                   {cancelConfirmId === selected.id ? (
                     <div className="w-full">
                       <ConfirmPanel
-                        message="Cancel this appointment? It will move to the Canceled tab for everyone."
-                        yesLabel="Yes, cancel appointment"
-                        noLabel="Keep scheduled"
+                        message={t("appointments.cancelConfirm")}
+                        yesLabel={t("appointments.yesCancel")}
+                        noLabel={t("appointments.keepScheduled")}
                         yesEmphasis
                         onYes={() => void handleCancel(selected.id)}
                         onNo={() => setCancelConfirmId("")}
@@ -1452,7 +1454,7 @@ export function AppointmentsTab({
                       onClick={() => setCancelConfirmId(selected.id)}
                       className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
                     >
-                      Cancel appointment
+                      {t("appointments.cancelAppointment")}
                     </button>
                   )}
                 </div>

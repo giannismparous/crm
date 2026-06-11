@@ -5,15 +5,25 @@ import { PersonPresenceAvatar } from "./PersonPresenceAvatar";
 import { useOnlinePersonIds, usePresenceTick } from "../hooks/usePresence";
 import type { PersonPresence } from "../types";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
-import { EMPTY_PERSON_TASK_STATS, personStatsLabel } from "../utils/personTaskStats";
+import { EMPTY_PERSON_TASK_STATS } from "../utils/personTaskStats";
 import { hasPrivilege, type OrgRole } from "../auth/roles";
 import { OrgRoleWithInfo } from "./OrgRoleWithInfo";
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translateDepartment } from "../i18n/helpers";
 import {
   TEAM_DEPARTMENTS,
   departmentChipClass,
-  personDepartmentsLabel,
   personSortKey,
 } from "../types";
+
+const STATS_FIELD_KEYS: Record<keyof PersonTaskStats, string> = {
+  tasksCompleted: "team.stats.completed",
+  tasksFinishedMarked: "team.stats.markedFinished",
+  feedbackRequested: "team.stats.feedbackRequested",
+  feedbackGiven: "team.stats.feedbackGiven",
+  tasksAssigned: "team.stats.assigned",
+  tasksPostponed: "team.stats.postponed",
+};
 
 function personMatchesSearch(p: Person, q: string): boolean {
   const s = q.trim().toLowerCase();
@@ -56,6 +66,8 @@ export function TeamTab({
   onFocusPersonHandled?: () => void;
   presenceMap?: Map<string, PersonPresence>;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const nowMs = usePresenceTick();
   const onlineIds = useOnlinePersonIds(presenceMap ?? new Map(), nowMs);
   const saved = useMemo(() => readPersistedTabState("team", TEAM_VIEW_DEFAULTS), []);
@@ -118,12 +130,12 @@ export function TeamTab({
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,340px)_1fr]">
       <aside className="space-y-4">
-        <h2 className="font-display text-base font-semibold text-slate-900">Team</h2>
+        <h2 className="font-display text-base font-semibold text-slate-900">{t("team.title")}</h2>
 
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search…"
+          placeholder={t("common.search")}
           className="input-base py-2 text-sm"
         />
 
@@ -137,7 +149,7 @@ export function TeamTab({
                 : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
             }`}
           >
-            All ({people.length})
+            {t("team.allCount", { count: String(people.length) })}
           </button>
           {byDepartment.map(([dept, count]) => (
             <button
@@ -150,7 +162,9 @@ export function TeamTab({
                   : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
               }`}
             >
-              {dept} ({count})
+              {dept === "Unassigned"
+                ? t("team.deptCount", { dept: t("common.unassigned"), count: String(count) })
+                : t("team.deptCount", { dept: translateDepartment(locale, dept), count: String(count) })}
             </button>
           ))}
         </div>
@@ -178,10 +192,10 @@ export function TeamTab({
                       <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
                         {p.name}
                         {isYou && (
-                          <span className="ml-1 text-[10px] font-medium text-indigo-600">(you)</span>
+                          <span className="ml-1 text-[10px] font-medium text-indigo-600">{t("common.you")}</span>
                         )}
                       </p>
-                      <DepartmentChips departments={depts} max={2} size="xs" />
+                      <DepartmentChips departments={depts} max={2} size="xs" locale={locale} t={t} />
                       <p className="mt-1 truncate text-xs text-slate-500">{p.title || "—"}</p>
                       <p className="truncate text-[10px] text-slate-400">{p.email}</p>
                     </div>
@@ -194,9 +208,7 @@ export function TeamTab({
 
         {sortedList.length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">
-            {people.length === 0
-              ? "No registered users yet. Team members appear here after they sign up or sign in."
-              : "No matches."}
+            {people.length === 0 ? t("team.empty.noUsers") : t("common.noMatches")}
           </p>
         )}
       </aside>
@@ -208,10 +220,12 @@ export function TeamTab({
           canEditDetails={selected.id === currentUserId || currentUserOrgRole === "founder"}
           canEditDepartments={hasPrivilege(currentUserOrgRole, "manageOrgRoles")}
           onChange={(patch) => void onUpdatePerson(selected.id, patch).catch(console.error)}
+          locale={locale}
+          t={t}
         />
       ) : (
         <div className="glass-strong flex min-h-[320px] items-center justify-center rounded-3xl p-8 text-center text-slate-500">
-          Select a team member to set their departments and title.
+          {t("team.selectMember")}
         </div>
       )}
     </div>
@@ -222,10 +236,14 @@ function DepartmentChips({
   departments,
   max = 3,
   size = "sm",
+  locale,
+  t,
 }: {
   departments: string[];
   max?: number;
   size?: "xs" | "sm";
+  locale: ReturnType<typeof useI18n>["locale"];
+  t: ReturnType<typeof useT>;
 }) {
   if (departments.length === 0) {
     return (
@@ -234,7 +252,7 @@ function DepartmentChips({
           size === "xs" ? "text-[9px]" : "text-xs"
         }`}
       >
-        Unassigned
+        {t("common.unassigned")}
       </span>
     );
   }
@@ -248,7 +266,7 @@ function DepartmentChips({
           key={d}
           className={`rounded-full font-semibold ring-1 ring-inset ${pad} ${departmentChipClass(d)}`}
         >
-          {d}
+          {translateDepartment(locale, d)}
         </span>
       ))}
       {extra > 0 && (
@@ -263,9 +281,13 @@ function DepartmentChips({
 function DepartmentMultiSelect({
   value,
   onChange,
+  locale,
+  t,
 }: {
   value: string[];
   onChange: (departments: string[]) => void;
+  locale: ReturnType<typeof useI18n>["locale"];
+  t: ReturnType<typeof useT>;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -287,10 +309,10 @@ function DepartmentMultiSelect({
 
   const summary =
     selected.length === 0
-      ? "Choose departments…"
+      ? t("team.chooseDepartments")
       : selected.length === 1
-        ? selected[0]
-        : `${selected.length} departments`;
+        ? translateDepartment(locale, selected[0]!)
+        : t("common.nDepartments", { count: String(selected.length) });
 
   return (
     <div className="space-y-2">
@@ -311,7 +333,7 @@ function DepartmentMultiSelect({
           <div
             className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[14rem] max-w-md rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
             role="listbox"
-            aria-label="Departments"
+            aria-label={t("team.deptAria")}
           >
             <div className="max-h-48 overflow-y-auto text-sm">
               {DEPARTMENT_LIST.map((d) => (
@@ -328,7 +350,7 @@ function DepartmentMultiSelect({
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
                   >
-                    {d}
+                    {translateDepartment(locale, d)}
                   </span>
                 </label>
               ))}
@@ -339,7 +361,7 @@ function DepartmentMultiSelect({
                 className="mt-1.5 w-full rounded-md border border-slate-200 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 onClick={() => onChange([])}
               >
-                Clear
+                {t("common.clear")}
               </button>
             )}
           </div>
@@ -355,13 +377,22 @@ function PersonDetail({
   canEditDetails,
   canEditDepartments,
   onChange,
+  locale,
+  t,
 }: {
   person: Person;
   isYou: boolean;
   canEditDetails: boolean;
   canEditDepartments: boolean;
   onChange: (patch: Partial<Person>) => void | Promise<void>;
+  locale: ReturnType<typeof useI18n>["locale"];
+  t: ReturnType<typeof useT>;
 }) {
+  const departmentsDisplay =
+    person.departments.length > 0
+      ? person.departments.map((d) => translateDepartment(locale, d)).join(", ")
+      : t("common.unassigned");
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
       <header className="flex items-center gap-6 border-b border-slate-100 pb-6 sm:gap-8">
@@ -370,7 +401,7 @@ function PersonDetail({
           <h3 className="font-display text-3xl font-semibold leading-none text-slate-900 sm:text-4xl lg:text-5xl">
             {person.name}
             {isYou && (
-              <span className="ml-2 text-xl font-medium text-indigo-600 sm:text-2xl lg:text-3xl">(you)</span>
+              <span className="ml-2 text-xl font-medium text-indigo-600 sm:text-2xl lg:text-3xl">{t("common.you")}</span>
             )}
           </h3>
           <p className="text-xl leading-tight text-slate-600 sm:text-2xl lg:text-3xl">{person.email}</p>
@@ -385,7 +416,7 @@ function PersonDetail({
       </header>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Labeled label="Display name">
+        <Labeled label={t("team.displayName")}>
           <input
             value={person.name}
             onChange={(e) => onChange({ name: e.target.value })}
@@ -393,42 +424,50 @@ function PersonDetail({
             className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}
           />
         </Labeled>
-        <Labeled label="Title">
+        <Labeled label={t("team.titleField")}>
           <input
             value={person.title}
             onChange={(e) => onChange({ title: e.target.value })}
-            placeholder="e.g. Sales Lead"
+            placeholder={t("team.titlePlaceholder")}
             readOnly={!canEditDetails}
             className={`input-base ${!canEditDetails ? "bg-slate-50 text-slate-600" : ""}`}
           />
         </Labeled>
-        <Labeled label="Email">
+        <Labeled label={t("common.email")}>
           <input type="email" value={person.email} readOnly className="input-base bg-slate-50 text-slate-600" />
         </Labeled>
-        <Labeled label="Departments" className="sm:col-span-2">
+        <Labeled label={t("team.departments")} className="sm:col-span-2">
           {canEditDepartments ? (
             <DepartmentMultiSelect
               value={person.departments}
               onChange={(departments) => onChange({ departments })}
+              locale={locale}
+              t={t}
             />
           ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
               {person.departments.length > 0 ? (
-                <DepartmentChips departments={person.departments} />
+                <DepartmentChips departments={person.departments} locale={locale} t={t} />
               ) : (
-                <p className="text-sm text-slate-600">{personDepartmentsLabel(person.departments)}</p>
+                <p className="text-sm text-slate-600">{departmentsDisplay}</p>
               )}
             </div>
           )}
         </Labeled>
       </div>
 
-      <PersonTaskStatsPanel stats={person.taskStats ?? EMPTY_PERSON_TASK_STATS} />
+      <PersonTaskStatsPanel stats={person.taskStats ?? EMPTY_PERSON_TASK_STATS} t={t} />
     </section>
   );
 }
 
-function PersonTaskStatsPanel({ stats }: { stats: PersonTaskStats }) {
+function PersonTaskStatsPanel({
+  stats,
+  t,
+}: {
+  stats: PersonTaskStats;
+  t: ReturnType<typeof useT>;
+}) {
   const fields: (keyof PersonTaskStats)[] = [
     "tasksCompleted",
     "tasksFinishedMarked",
@@ -439,11 +478,11 @@ function PersonTaskStatsPanel({ stats }: { stats: PersonTaskStats }) {
   ];
   return (
     <div className="mt-6 border-t border-slate-100 pt-5">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task activity</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("team.activityTitle")}</h4>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {fields.map((field) => (
           <div key={field} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
-            <dt className="text-[11px] font-medium text-slate-500">{personStatsLabel(field)}</dt>
+            <dt className="text-[11px] font-medium text-slate-500">{t(STATS_FIELD_KEYS[field])}</dt>
             <dd className="mt-0.5 tabular-nums text-lg font-semibold text-slate-900">
               {Math.max(0, stats[field] ?? 0)}
             </dd>

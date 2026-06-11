@@ -1,3 +1,6 @@
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
+import type { AppLocale } from "../i18n/types";
 import {
   isoFromOrgSystemWall,
   orgYmdAddDays,
@@ -129,7 +132,7 @@ export function generateRecurrenceOccurrences(
   return out;
 }
 
-function ordinalDay(n: number): string {
+function ordinalDayEn(n: number): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
   if (mod10 === 1 && mod100 !== 11) return `${n}st`;
@@ -138,28 +141,49 @@ function ordinalDay(n: number): string {
   return `${n}th`;
 }
 
+function recurrenceDayLabel(locale: AppLocale, day: number): string {
+  if (locale === "el") {
+    return translate(locale, "appointments.recurrence.ordinalDayEl", { n: String(day) });
+  }
+  return ordinalDayEn(day);
+}
+
+function meetingsSuffix(locale: AppLocale, count?: number): string {
+  return count && count > 1
+    ? translate(locale, "appointments.recurrence.meetingsSuffix", { count: String(count) })
+    : "";
+}
+
 export function formatRecurrenceSummary(
   rule: AppointmentRecurrenceRule,
   count?: number
 ): string {
+  const locale = loadLocale();
   const interval = normalizeRecurrenceInterval(rule.interval);
-  const times = count && count > 1 ? ` · ${count} meetings` : "";
+  const times = meetingsSuffix(locale, count);
 
   switch (rule.kind) {
     case "daily":
-      return interval === 1 ? `Repeats daily${times}` : `Repeats every ${interval} days${times}`;
+      return interval === 1
+        ? translate(locale, "appointments.recurrence.daily", { times })
+        : translate(locale, "appointments.recurrence.everyDays", { n: String(interval), times });
     case "weekly":
-      return interval === 1 ? `Repeats weekly${times}` : `Repeats every ${interval} weeks${times}`;
+      return interval === 1
+        ? translate(locale, "appointments.recurrence.weekly", { times })
+        : translate(locale, "appointments.recurrence.everyWeeks", { n: String(interval), times });
     case "monthly":
       return interval === 1
-        ? `Repeats monthly${times}`
-        : `Repeats every ${interval} months${times}`;
+        ? translate(locale, "appointments.recurrence.monthly", { times })
+        : translate(locale, "appointments.recurrence.everyMonths", { n: String(interval), times });
     case "monthly_day": {
-      const day = normalizeRecurrenceDayOfMonth(rule.dayOfMonth);
-      const label = `the ${ordinalDay(day)} of each month`;
+      const day = recurrenceDayLabel(locale, normalizeRecurrenceDayOfMonth(rule.dayOfMonth));
       return interval === 1
-        ? `Repeats on ${label}${times}`
-        : `Repeats every ${interval} months on ${label}${times}`;
+        ? translate(locale, "appointments.recurrence.monthlyDay", { day, times })
+        : translate(locale, "appointments.recurrence.everyMonthsOnDay", {
+            n: String(interval),
+            day,
+            times,
+          });
     }
   }
 }

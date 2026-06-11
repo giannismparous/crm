@@ -11,8 +11,10 @@ import {
   PROJECT_COLOR_OPTIONS,
   type ProjectColor,
 } from "../utils/projectColors";
-import { NewTaskForm, PRIORITY_SHORT_LABEL, PriorityUrgencyIcon } from "./TasksTab";
+import { NewTaskForm, PriorityUrgencyIcon } from "./TasksTab";
 import { ConfirmPanel } from "./TaskWorkerActions";
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translatePriority, translateTaskStatus } from "../i18n/helpers";
 
 function ProjectDepartmentPicker({
   value,
@@ -21,12 +23,11 @@ function ProjectDepartmentPicker({
   value: string[];
   onChange: (departments: string[]) => void;
 }) {
+  const t = useT();
   const selected = value.filter((d) => TEAM_DEPARTMENTS.includes(d as (typeof TEAM_DEPARTMENTS)[number]));
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-slate-500">
-        Partners in selected departments can see this project and all of its tasks. Leave empty for founders only.
-      </p>
+      <p className="text-[11px] text-slate-500">{t("projects.deptVisibilityHint")}</p>
       <div className="flex flex-wrap gap-1.5">
         {TEAM_DEPARTMENTS.map((dept) => {
           const active = selected.includes(dept);
@@ -57,14 +58,15 @@ function ProjectColorPicker({
   value: ProjectColor;
   onChange: (color: ProjectColor) => void;
 }) {
+  const t = useT();
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Project color">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("projects.colorAria")}>
       {PROJECT_COLOR_OPTIONS.map((c) => (
         <button
           key={c}
           type="button"
           onClick={() => onChange(c)}
-          aria-label={`Color ${c}`}
+          aria-label={t("projects.colorLabel", { color: c })}
           aria-pressed={value === c}
           className={`h-6 w-6 rounded-full border-2 transition ${
             value === c
@@ -77,14 +79,6 @@ function ProjectColorPicker({
     </div>
   );
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  todo: "To do",
-  in_progress: "Doing",
-  review: "Review",
-  done: "Done",
-  canceled: "Canceled",
-};
 
 function SidebarSectionHeader({
   title,
@@ -99,6 +93,7 @@ function SidebarSectionHeader({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
@@ -114,7 +109,7 @@ function SidebarSectionHeader({
       </span>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{title}</span>
       <span className="text-[10px] tabular-nums text-slate-400">
-        {projectCount} · {taskCount} {taskCount === 1 ? "task" : "tasks"}
+        {projectCount} · {t("common.taskCount", { count: taskCount })}
       </span>
     </button>
   );
@@ -170,6 +165,8 @@ export function ProjectsTab({
   onAddTask: (t: Omit<Task, "id" | "createdAt">) => void | Promise<string | void>;
   onOpenTask: (taskId: string) => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const saved = useMemo(() => readPersistedTabState("projects", PROJECTS_VIEW_DEFAULTS), []);
   const savedCreate = useMemo(() => readFormDraft<ProjectCreateDraft>(PROJECTS_CREATE_DRAFT_KEY), []);
   const savedEdit = useMemo(() => readFormDraft<ProjectEditDraft>(PROJECTS_EDIT_DRAFT_KEY), []);
@@ -349,14 +346,14 @@ export function ProjectsTab({
     <div className="grid gap-8 lg:grid-cols-[minmax(0,300px)_1fr]">
       <aside className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-display text-base font-semibold text-slate-900">Projects</h2>
+          <h2 className="font-display text-base font-semibold text-slate-900">{t("projects.title")}</h2>
           {canManageProjects && (
             <button
               type="button"
               onClick={() => setShowCreate((v) => !v)}
               className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
             >
-              {showCreate ? "Cancel" : "New"}
+              {showCreate ? t("common.cancel") : t("common.new")}
             </button>
           )}
         </div>
@@ -367,7 +364,7 @@ export function ProjectsTab({
             className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
           >
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("common.name")}</span>
               <input
                 required
                 value={createName}
@@ -376,7 +373,7 @@ export function ProjectsTab({
               />
             </label>
             <label className="mt-2 block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Description</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.description")}</span>
               <textarea
                 value={createDesc}
                 onChange={(e) => setCreateDesc(e.target.value)}
@@ -385,18 +382,18 @@ export function ProjectsTab({
               />
             </label>
             <div className="mt-2">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Color</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.colorAria")}</span>
               <ProjectColorPicker value={createColor} onChange={setCreateColor} />
             </div>
             <div className="mt-2">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Department visibility</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.departmentVisibility")}</span>
               <ProjectDepartmentPicker value={createDepartments} onChange={setCreateDepartments} />
             </div>
             <button
               type="submit"
               className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
             >
-              Create
+              {t("common.create")}
             </button>
           </form>
         )}
@@ -405,7 +402,7 @@ export function ProjectsTab({
           {openProjects.length > 0 && (
             <div>
               <SidebarSectionHeader
-                title="Open"
+                title={t("projects.section.open")}
                 projectCount={openProjects.length}
                 taskCount={openSectionTaskCount}
                 expanded={openSectionExpanded}
@@ -436,7 +433,7 @@ export function ProjectsTab({
                             <span className="truncate">{p.name}</span>
                           </p>
                           <p className="mt-0.5 text-[10px] text-slate-500">
-                            {taskCount} {taskCount === 1 ? "task" : "tasks"}
+                            {t("common.taskCount", { count: taskCount })}
                           </p>
                         </button>
                       </li>
@@ -449,7 +446,7 @@ export function ProjectsTab({
           {completedProjects.length > 0 && (
             <div>
               <SidebarSectionHeader
-                title="Complete"
+                title={t("projects.section.complete")}
                 projectCount={completedProjects.length}
                 taskCount={completeSectionTaskCount}
                 expanded={completeSectionExpanded}
@@ -480,7 +477,7 @@ export function ProjectsTab({
                             <span className="truncate">{p.name}</span>
                           </p>
                           <p className="mt-0.5 text-[10px] text-slate-500">
-                            {taskCount} {taskCount === 1 ? "task" : "tasks"}
+                            {t("common.taskCount", { count: taskCount })}
                           </p>
                         </button>
                       </li>
@@ -494,7 +491,7 @@ export function ProjectsTab({
 
         {projects.length === 0 && !showCreate && (
           <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">
-            No projects yet.
+            {t("projects.empty")}
           </p>
         )}
       </aside>
@@ -506,7 +503,7 @@ export function ProjectsTab({
               {editing ? (
                 <div className="space-y-3">
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">{t("common.name")}</span>
                     <input
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
@@ -514,7 +511,7 @@ export function ProjectsTab({
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-slate-600">Description</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.description")}</span>
                     <textarea
                       value={draftDesc}
                       onChange={(e) => setDraftDesc(e.target.value)}
@@ -523,11 +520,11 @@ export function ProjectsTab({
                     />
                   </label>
                   <div>
-                    <span className="mb-1 block text-xs font-medium text-slate-600">Color</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.colorAria")}</span>
                     <ProjectColorPicker value={draftColor} onChange={setDraftColor} />
                   </div>
                   <div>
-                    <span className="mb-1 block text-xs font-medium text-slate-600">Department visibility</span>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">{t("projects.departmentVisibility")}</span>
                     <ProjectDepartmentPicker value={draftDepartments} onChange={setDraftDepartments} />
                   </div>
                 </div>
@@ -542,7 +539,7 @@ export function ProjectsTab({
                     <h3 className="font-display text-xl font-semibold text-slate-900">{selected.name}</h3>
                     {selected.completed && (
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                        Complete
+                        {t("projects.badge.complete")}
                       </span>
                     )}
                   </div>
@@ -561,7 +558,7 @@ export function ProjectsTab({
                       ))}
                     </div>
                   ) : canManageProjects ? (
-                    <p className="mt-2 text-xs text-slate-500">Founders only — no department visibility set.</p>
+                    <p className="mt-2 text-xs text-slate-500">{t("projects.foundersOnlyHint")}</p>
                   ) : null}
                 </>
               )}
@@ -575,14 +572,14 @@ export function ProjectsTab({
                     onClick={() => void saveEdit()}
                     className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
                   >
-                    Save
+                    {t("common.save")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditing(false)}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                 </>
               ) : canManageProjects ? (
@@ -593,7 +590,7 @@ export function ProjectsTab({
                       onClick={() => void Promise.resolve(onUpdateProject(selected.id, { completed: true }))}
                       className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
                     >
-                      Mark complete
+                      {t("common.markComplete")}
                     </button>
                   ) : (
                     <button
@@ -601,7 +598,7 @@ export function ProjectsTab({
                       onClick={() => void Promise.resolve(onUpdateProject(selected.id, { completed: false }))}
                       className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
-                      Reopen
+                      {t("common.reopen")}
                     </button>
                   )}
                   <button
@@ -609,7 +606,7 @@ export function ProjectsTab({
                     onClick={startEdit}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    Edit
+                    {t("common.edit")}
                   </button>
                 </>
               ) : null}
@@ -620,9 +617,9 @@ export function ProjectsTab({
             deleteConfirmOpen ? (
               <div className="mt-4">
                 <ConfirmPanel
-                  message={`Delete “${selected.name}”? This cannot be undone.`}
-                  yesLabel="Yes, delete project"
-                  noLabel="Keep project"
+                  message={t("projects.deleteConfirm", { name: selected.name })}
+                  yesLabel={t("projects.yesDelete")}
+                  noLabel={t("projects.keepProject")}
                   yesEmphasis
                   onYes={() => {
                     void Promise.resolve(onRemoveProject(selected.id));
@@ -638,7 +635,7 @@ export function ProjectsTab({
                 onClick={() => setDeleteConfirmOpen(true)}
                 className="mt-4 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
               >
-                Delete
+                {t("common.delete")}
               </button>
             )
           )}
@@ -666,7 +663,7 @@ export function ProjectsTab({
                 onClick={() => setShowTaskForm(true)}
                 className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-dim"
               >
-                New task
+                {t("projects.newTask")}
               </button>
             )}
 
@@ -686,13 +683,13 @@ export function ProjectsTab({
                           <span className="font-medium text-slate-900">{task.title}</span>
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600">
                             <PriorityUrgencyIcon priority={task.priority} className="h-3.5 w-3.5" />
-                            {PRIORITY_SHORT_LABEL[task.priority]}
+                            {translatePriority(locale, task.priority)}
                           </span>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
-                          <span>{STATUS_LABEL[task.status] ?? task.status}</span>
+                          <span>{translateTaskStatus(locale, task.status)}</span>
                           <span className={overdue ? "font-semibold text-rose-600" : ""}>
-                            Due {task.dueDate}
+                            {t("common.duePrefix", { date: task.dueDate })}
                           </span>
                         </div>
                       </button>

@@ -3,6 +3,7 @@ import { File as FileIcon, Music, Trash2, Video } from "lucide-react";
 import type { ImageAttachment } from "../types";
 import { attachmentMediaKind } from "../utils/imageAttachments";
 import { AttachmentMediaViewer, type MediaViewerItem } from "./AttachmentMediaViewer";
+import { useT } from "../contexts/I18nContext";
 import { LoadableImage } from "./LoadableImage";
 
 export function ImageAttachmentGallery({
@@ -21,6 +22,7 @@ export function ImageAttachmentGallery({
   deletingPath?: string | null;
   scopeKey?: string;
 }) {
+  const t = useT();
   const list = attachments ?? [];
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const listSignature = list.map((a) => a.storagePath).join("\0");
@@ -50,7 +52,15 @@ export function ImageAttachmentGallery({
         {list.map((a, i) => {
           const deleting = deletingPath === a.storagePath;
           const kind = attachmentMediaKind(a);
-          const label = a.name ?? (kind === "image" ? "View image" : kind === "video" ? "Play video" : kind === "audio" ? "Play audio" : "Open file");
+          const label =
+            a.name ??
+            (kind === "image"
+              ? t("richText.viewImage")
+              : kind === "video"
+                ? t("richText.playVideo")
+                : kind === "audio"
+                  ? t("richText.playAudio")
+                  : t("richText.openFile"));
 
           if (isChat) {
             return (
@@ -65,7 +75,7 @@ export function ImageAttachmentGallery({
                   {kind === "image" ? (
                     <LoadableImage
                       src={a.url}
-                      alt={a.name ?? "Attachment"}
+                      alt={a.name ?? t("common.attachment")}
                       className="max-h-52 w-full"
                       roundedClassName="rounded-lg"
                       imgClassName="mx-auto max-h-52 w-full object-contain"
@@ -80,7 +90,7 @@ export function ImageAttachmentGallery({
                         <FileIcon className="h-5 w-5 shrink-0 text-slate-500" aria-hidden />
                       )}
                       <span className="min-w-0 truncate text-xs font-medium text-slate-700">
-                        {a.name ?? kindLabel(kind)}
+                        {a.name ?? kindLabel(kind, t)}
                       </span>
                     </span>
                   )}
@@ -96,8 +106,8 @@ export function ImageAttachmentGallery({
                       void onDelete(a);
                     }}
                     className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-rose-600 disabled:opacity-50"
-                    aria-label="Delete attachment"
-                    title="Delete attachment"
+                    aria-label={t("richText.deleteAttachment")}
+                    title={t("richText.deleteAttachment")}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -118,7 +128,7 @@ export function ImageAttachmentGallery({
                 {kind === "image" ? (
                   <LoadableImage
                     src={a.url}
-                    alt={a.name ?? "Attachment"}
+                    alt={a.name ?? t("common.attachment")}
                     className="absolute inset-0"
                     roundedClassName="rounded-lg"
                     imgClassName="object-cover"
@@ -128,7 +138,9 @@ export function ImageAttachmentGallery({
                 ) : kind === "audio" ? (
                   <Music className="h-6 w-6 text-slate-600" aria-hidden />
                 ) : (
-                  <span className="px-1 text-[10px] font-bold uppercase text-slate-600">File</span>
+                  <span className="px-1 text-[10px] font-bold uppercase text-slate-600">
+                    {t("common.media.file")}
+                  </span>
                 )}
               </button>
               {onDelete && (
@@ -142,8 +154,8 @@ export function ImageAttachmentGallery({
                     void onDelete(a);
                   }}
                   className="absolute right-0.5 top-0.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-rose-600 disabled:opacity-50"
-                  aria-label="Delete attachment"
-                  title="Delete attachment"
+                  aria-label={t("richText.deleteAttachment")}
+                  title={t("richText.deleteAttachment")}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -164,9 +176,9 @@ export function ImageAttachmentGallery({
   );
 }
 
-function kindLabel(kind: MediaViewerItem["kind"]): string {
-  if (kind === "video") return "Video";
-  if (kind === "audio") return "Audio";
-  if (kind === "file") return "File";
-  return "Image";
+function kindLabel(kind: MediaViewerItem["kind"], t: ReturnType<typeof useT>): string {
+  if (kind === "video") return t("common.media.video");
+  if (kind === "audio") return t("common.media.audio");
+  if (kind === "file") return t("common.media.file");
+  return t("common.media.image");
 }

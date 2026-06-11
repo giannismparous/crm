@@ -19,6 +19,7 @@ import type {
 import { formatInOrgTime, formatInTimezone, getActiveTimezone } from "../../utils/orgTimezone";
 import { canUnsendChatMessage } from "../../utils/chatUnsend";
 import { isValidTimezone } from "../../utils/userTimezone";
+import { useT } from "../../contexts/I18nContext";
 import { ChatConversationHistory } from "../ChatConversationHistory";
 import { ChatMessageBody } from "../ChatMessageBody";
 import { ImageAttachmentGallery } from "../ImageAttachmentGallery";
@@ -40,10 +41,11 @@ function formatMessageTime(iso: string): string {
 }
 
 function ChatMessagesLoading() {
+  const t = useT();
   return (
     <div className="flex min-h-[10rem] flex-col items-center justify-center gap-2 py-10" aria-busy="true">
       <span className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-accent" />
-      <p className="text-xs text-slate-400">Loading messages…</p>
+      <p className="text-xs text-slate-400">{t("chat.loadingMessages")}</p>
     </div>
   );
 }
@@ -61,13 +63,14 @@ function ReadReceipt({
   currentUserId: string;
   mine: boolean;
 }) {
+  const t = useT();
   if (!mine) return null;
   const read = messageReadByAllOthers(message, conversation, peerMemberStates, currentUserId);
   const Icon = read ? CheckCheck : Check;
   return (
     <Icon
       className={`inline-block h-3 w-3 shrink-0 ${read ? "text-sky-200" : "text-white/60"}`}
-      aria-label={read ? "Read" : "Sent"}
+      aria-label={read ? t("common.read") : t("common.sent")}
     />
   );
 }
@@ -98,6 +101,7 @@ export function ChatBubbleWindow({
   onUnsendMessage: (conversationId: string, message: ChatMessage) => Promise<void>;
   onMarkRead: (conversationId: string, at?: string) => void | Promise<void>;
 }) {
+  const t = useT();
   const db = getFirestoreDb();
   const { messages, loading, hasOlder, loadingOlder, loadOlder } = useChatWindowMessages(
     db,
@@ -187,9 +191,17 @@ export function ChatBubbleWindow({
 
   useEffect(() => {
     if (!panelOpen) return;
-    const last = messages[messages.length - 1];
-    if (!last) return;
-    void onMarkRead(conversation.id, last.createdAt);
+
+    const markReadIfVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const last = messages[messages.length - 1];
+      if (!last) return;
+      void onMarkRead(conversation.id, last.createdAt);
+    };
+
+    markReadIfVisible();
+    document.addEventListener("visibilitychange", markReadIfVisible);
+    return () => document.removeEventListener("visibilitychange", markReadIfVisible);
   }, [messages, conversation.id, onMarkRead, panelOpen]);
 
   async function handleLoadOlder() {
@@ -215,7 +227,7 @@ export function ChatBubbleWindow({
       setDraft("");
       setDraftAttachments([]);
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : "Could not send message.");
+      setSendError(err instanceof Error ? err.message : t("chat.error.send"));
     } finally {
       setSending(false);
     }
@@ -233,7 +245,7 @@ export function ChatBubbleWindow({
       await onUnsendMessage(conversation.id, message);
     } catch (err) {
       setExitingMessageIds((prev) => prev.filter((id) => id !== message.id));
-      setUnsendError(err instanceof Error ? err.message : "Could not unsend message.");
+      setUnsendError(err instanceof Error ? err.message : t("chat.error.unsend"));
     } finally {
       setUnsendingId(null);
       setExitingMessageIds((prev) => prev.filter((id) => id !== message.id));
@@ -254,7 +266,7 @@ export function ChatBubbleWindow({
         maxWidth: "calc(100vw - 3rem)",
       }}
       role="dialog"
-      aria-label={`Chat with ${title}`}
+      aria-label={t("chat.withTitle", { title })}
       aria-hidden={panelMotion !== "open"}
     >
       {showTail && (
@@ -285,7 +297,7 @@ export function ChatBubbleWindow({
           <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
           {conversation.kind === "dm" && (
             <div className="text-[10px] text-slate-500">
-              <p>{online ? "Active" : "Offline"}</p>
+              <p>{online ? t("common.active") : t("common.offline")}</p>
               {peerLocalTime && <p className="text-slate-400">{peerLocalTime}</p>}
             </div>
           )}
@@ -295,7 +307,7 @@ export function ChatBubbleWindow({
           type="button"
           onClick={onMinimize}
           className="rounded-lg p-1 text-slate-400 hover:bg-slate-200/80 hover:text-slate-700"
-          aria-label="Minimize chat"
+          aria-label={t("chat.minimize")}
         >
           <ChevronDown className="h-4 w-4" aria-hidden />
         </button>
@@ -305,7 +317,7 @@ export function ChatBubbleWindow({
         {showLoading ? (
           <ChatMessagesLoading />
         ) : messages.length === 0 ? (
-          <p className="py-10 text-center text-xs text-slate-400">No messages yet. Say hello!</p>
+          <p className="py-10 text-center text-xs text-slate-400">{t("chat.emptyThread")}</p>
         ) : (
           <div className="chat-messages-reveal space-y-2">
             {hasOlder && (
@@ -316,7 +328,7 @@ export function ChatBubbleWindow({
                   onClick={() => void handleLoadOlder()}
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-60"
                 >
-                  {loadingOlder ? "Loading…" : "Load older messages"}
+                  {loadingOlder ? t("common.loading") : t("chat.loadOlder")}
                 </button>
               </div>
             )}
@@ -352,7 +364,7 @@ export function ChatBubbleWindow({
                   >
                     {!mine && conversation.kind !== "dm" && (
                       <p className="mb-0.5 text-[10px] font-semibold opacity-70">
-                        {author?.name.trim() || "Member"}
+                        {author?.name.trim() || t("common.member")}
                       </p>
                     )}
                     <ChatMessageBody
@@ -384,7 +396,7 @@ export function ChatBubbleWindow({
                             mine ? "text-white/90 hover:text-white" : "text-accent"
                           }`}
                         >
-                          Unsend
+                          {t("chat.unsend")}
                         </button>
                       )}
                       <span>{formatMessageTime(m.createdAt)}</span>
@@ -425,7 +437,7 @@ export function ChatBubbleWindow({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder="Message…"
+            placeholder={t("chat.messagePlaceholder")}
             className="input-base min-h-[40px] w-full resize-none pb-9 text-sm"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -447,7 +459,7 @@ export function ChatBubbleWindow({
           disabled={sending || draftUploading || (!draft.trim() && draftAttachments.length === 0)}
           className="mt-1.5 w-full rounded-lg bg-accent py-1.5 text-xs font-semibold text-white hover:bg-accent-dim disabled:opacity-50"
         >
-          {sending ? "Sending…" : draftUploading ? "Uploading…" : "Send"}
+          {sending ? t("common.sending") : draftUploading ? t("common.uploading") : t("chat.send")}
         </button>
       </form>
     </div>

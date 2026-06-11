@@ -36,15 +36,8 @@ import {
   type MergeSourceSnapshot,
 } from "../utils/contactMerge";
 import { datetimeLocalToIso, defaultOrgDatetimeLocal, formatInOrgTime } from "../utils/orgTimezone";
-
-const STAGE_LABEL: Record<ContactStage, string> = {
-  lead: "Lead",
-  qualified: "Qualified",
-  proposal: "Proposal",
-  negotiation: "Negotiation",
-  customer: "Customer",
-  churned: "Churned",
-};
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translateContactStage } from "../i18n/helpers";
 
 const STAGE_STYLES: Record<ContactStage, string> = {
   lead: "bg-slate-100 text-slate-800 ring-slate-200",
@@ -123,6 +116,8 @@ export function ContactsTab({
   focusContactId?: string | null;
   onFocusContactHandled?: () => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const saved = useMemo(() => readPersistedTabState("contacts", CONTACTS_VIEW_DEFAULTS), []);
   const savedNewForm = useMemo(() => readFormDraft<NewContactDraft>(CONTACTS_NEW_DRAFT_KEY), []);
   const [selectedId, setSelectedId] = useState(() => saved.selectedId);
@@ -272,9 +267,20 @@ export function ContactsTab({
     setNewContactDraft((d) => ({ ...d, ...patch }));
   }
 
+  function contactUrgencyHint(c: SalesContact): string | null {
+    const raw = urgencyLabel(c);
+    if (!raw) return null;
+    if (raw === "Reminder overdue") return t("contacts.urgency.reminderOverdue");
+    if (raw === "Due today") return t("contacts.urgency.dueToday");
+    if (raw === "Due tomorrow") return t("contacts.urgency.dueTomorrow");
+    const match = /^Next in (\d+)d$/.exec(raw);
+    if (match) return t("contacts.urgency.nextIn", { days: match[1]! });
+    return raw;
+  }
+
   function updateContact(id: string, patch: Partial<SalesContact>) {
     void onUpdateContact(id, patch).catch((err) => {
-      reportActionError(err instanceof Error ? err.message : "Could not update contact.");
+      reportActionError(err instanceof Error ? err.message : t("contacts.error.update"));
     });
   }
 
@@ -297,7 +303,7 @@ export function ContactsTab({
 
   function removeReminder(contactId: string, reminderId: string) {
     void onRemoveReminder(contactId, reminderId).catch((err) => {
-      reportActionError(err instanceof Error ? err.message : "Could not delete reminder.");
+      reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.delete"));
     });
   }
 
@@ -306,14 +312,14 @@ export function ContactsTab({
       <aside className="space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">Sales</h2>
+            <h2 className="font-display text-base font-semibold text-slate-900">{t("contacts.title")}</h2>
             <div
               className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
-              aria-label="Contacts summary"
+              aria-label={t("contacts.summaryAria")}
             >
               <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                 <span className="tabular-nums font-semibold text-emerald-700">{contacts.length}</span>
-                <span className="font-normal">Contacts</span>
+                <span className="font-normal">{t("contacts.count")}</span>
               </span>
               {query.trim() && filteredList.length !== contacts.length && (
                 <>
@@ -322,7 +328,7 @@ export function ContactsTab({
                   </span>
                   <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                     <span className="tabular-nums font-semibold text-slate-600">{filteredList.length}</span>
-                    <span className="font-normal">shown</span>
+                    <span className="font-normal">{t("contacts.shown")}</span>
                   </span>
                 </>
               )}
@@ -331,7 +337,7 @@ export function ContactsTab({
               </span>
               <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
                 <span className="tabular-nums font-semibold text-amber-800">{pendingReminders}</span>
-                <span className="font-normal">Reminders</span>
+                <span className="font-normal">{t("contacts.reminders")}</span>
               </span>
             </div>
           </div>
@@ -341,21 +347,21 @@ export function ContactsTab({
               onClick={openNewContactForm}
               className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
             >
-              Add
+              {t("common.add")}
             </button>
           )}
         </div>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search…"
+          placeholder={t("common.search")}
           className="input-base py-2 text-sm"
         />
 
         <ul className="space-y-1.5">
           {sortedList.map((c) => {
             const active = selectedId === c.id;
-            const hint = urgencyLabel(c);
+            const hint = contactUrgencyHint(c);
             return (
               <li key={c.id}>
                 <button
@@ -380,7 +386,7 @@ export function ContactsTab({
                     <span
                       className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase ring-1 ring-inset ${STAGE_STYLES[c.stage]}`}
                     >
-                      {STAGE_LABEL[c.stage]}
+                      {translateContactStage(locale, c.stage)}
                     </span>
                   </div>
                   <p className="truncate text-xs text-slate-500">{c.company}</p>
@@ -393,7 +399,7 @@ export function ContactsTab({
 
         {sortedList.length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">
-            No matches.
+            {t("common.noMatches")}
           </p>
         )}
       </aside>
@@ -413,7 +419,7 @@ export function ContactsTab({
           }}
           onMergeComplete={(values, sources, deleteIds) =>
             void finishMergeCreate(values, sources, deleteIds).catch((err) => {
-              reportActionError(err instanceof Error ? err.message : "Could not merge contacts.");
+              reportActionError(err instanceof Error ? err.message : t("contacts.error.merge"));
             })
           }
         />
@@ -430,18 +436,18 @@ export function ContactsTab({
           onRemoveReminder={(rid) => removeReminder(selected.id, rid)}
           onMergeComplete={(values, sources, deleteIds) =>
             void finishMergeUpdate(selected.id, values, sources, deleteIds).catch((err) => {
-              reportActionError(err instanceof Error ? err.message : "Could not merge contacts.");
+              reportActionError(err instanceof Error ? err.message : t("contacts.error.merge"));
             })
           }
         />
       ) : (
         <div
           className="flex min-h-[min(420px,55vh)] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center"
-          aria-label="No contact selected"
+          aria-label={t("contacts.noSelectedAria")}
         >
-          <p className="text-sm font-medium text-slate-700">No contact selected</p>
+          <p className="text-sm font-medium text-slate-700">{t("contacts.noSelected")}</p>
           <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-slate-500">
-            Pick a contact from the list to view and edit details, or use Add to create one.
+            {t("contacts.noSelectedHint")}
           </p>
         </div>
       )}
@@ -474,6 +480,8 @@ function NewContactForm({
     deleteContactIds: string[]
   ) => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const [duplicatesExpanded, setDuplicatesExpanded] = useState(false);
   const [duplicatesOkay, setDuplicatesOkay] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
@@ -554,35 +562,35 @@ function NewContactForm({
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
-          <h3 className="font-display text-xl font-semibold text-slate-900">New contact</h3>
-          <p className="mt-1 text-sm text-slate-500">Fill in details and save when ready.</p>
+          <h3 className="font-display text-xl font-semibold text-slate-900">{t("contacts.new.title")}</h3>
+          <p className="mt-1 text-sm text-slate-500">{t("contacts.new.subtitle")}</p>
         </div>
         <button
           type="button"
           onClick={onCancel}
           className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
-          Close
+          {t("common.close")}
         </button>
       </header>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Labeled label="First name">
+          <Labeled label={t("contacts.firstName")}>
             <input
               value={draft.firstName}
               onChange={(e) => onDraftChange({ firstName: e.target.value })}
               className="input-base"
             />
           </Labeled>
-          <Labeled label="Last name">
+          <Labeled label={t("contacts.lastName")}>
             <input
               value={draft.lastName}
               onChange={(e) => onDraftChange({ lastName: e.target.value })}
               className="input-base"
             />
           </Labeled>
-        <Labeled label="Company">
+        <Labeled label={t("contacts.company")}>
           <CompanySuggestInput
             value={draft.company}
             onChange={(company) => onDraftChange({ company })}
@@ -590,14 +598,14 @@ function NewContactForm({
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Job title">
+        <Labeled label={t("contacts.jobTitle")}>
           <input
             value={draft.jobTitle}
             onChange={(e) => onDraftChange({ jobTitle: e.target.value })}
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Email">
+        <Labeled label={t("common.email")}>
           <input
             type="email"
             value={draft.email}
@@ -605,7 +613,7 @@ function NewContactForm({
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Phone">
+        <Labeled label={t("contacts.phone")}>
           <input
             value={draft.phone}
             onChange={(e) => onDraftChange({ phone: e.target.value })}
@@ -625,28 +633,28 @@ function NewContactForm({
             />
           </div>
         )}
-        <Labeled label="Website" className="sm:col-span-2">
+        <Labeled label={t("contacts.website")} className="sm:col-span-2">
           <input
             value={draft.website}
             onChange={(e) => onDraftChange({ website: e.target.value })}
             className="input-base"
-            placeholder="https://"
+            placeholder={t("contacts.websitePlaceholder")}
           />
         </Labeled>
-        <Labeled label="Stage">
+        <Labeled label={t("contacts.stage")}>
           <select
             value={draft.stage}
             onChange={(e) => onDraftChange({ stage: e.target.value as ContactStage })}
             className="input-base"
           >
-            {(Object.keys(STAGE_LABEL) as ContactStage[]).map((s) => (
+            {(["lead", "qualified", "proposal", "negotiation", "customer", "churned"] as ContactStage[]).map((s) => (
               <option key={s} value={s}>
-                {STAGE_LABEL[s]}
+                {translateContactStage(locale, s)}
               </option>
             ))}
           </select>
         </Labeled>
-        <Labeled label="Est. deal value">
+        <Labeled label={t("contacts.estDealValue")}>
           <div className="flex gap-2">
             <input
               type="number"
@@ -661,13 +669,13 @@ function NewContactForm({
               onChange={(e) => onDraftChange({ currency: e.target.value })}
               className="input-base w-24"
             >
-              <option>EUR</option>
-              <option>USD</option>
-              <option>GBP</option>
+              <option value="EUR">{t("common.currency.eur")}</option>
+              <option value="USD">{t("common.currency.usd")}</option>
+              <option value="GBP">{t("common.currency.gbp")}</option>
             </select>
           </div>
         </Labeled>
-        <Labeled label="Last contacted">
+        <Labeled label={t("contacts.lastContacted")}>
           <input
             type="datetime-local"
             value={draft.lastContactedAt}
@@ -677,11 +685,11 @@ function NewContactForm({
         </Labeled>
         </div>
 
-        <Labeled label="Notes">
+        <Labeled label={t("common.notes")}>
           <SimpleRichText
             value={draft.generalNotes}
             onChange={(html) => onDraftChange({ generalNotes: html })}
-            placeholder="What they care about, stakeholders, risks, promised follow-ups…"
+            placeholder={t("contacts.notesPlaceholder")}
             collapseKey={`new-contact-notes-${draftContactId}`}
             inlineImageStorageDir={`contacts/${draftContactId}/notes`}
           />
@@ -693,7 +701,7 @@ function NewContactForm({
             disabled={!canSave}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Save contact
+            {t("contacts.saveContact")}
           </button>
         </div>
       </form>
@@ -739,8 +747,10 @@ function ReminderCard({
   onStopEdit: () => void;
   setReminderUploading: (id: string | null) => void;
 }) {
+  const t = useT();
   const due = new Date(r.dueAt);
   const overdue = isReminderOverdue(r.dueAt, r.done);
+  const dueText = formatInOrgTime(due, { dateStyle: "medium", timeStyle: "short" });
 
   if (r.done) {
     return (
@@ -749,20 +759,20 @@ function ReminderCard({
           <div className="min-w-0 flex-1">
             <p className="font-medium text-slate-800">{r.title}</p>
             <p className="mt-1 text-xs text-slate-500">
-              Due {formatInOrgTime(due, { dateStyle: "medium", timeStyle: "short" })}
-              <span className="ml-2 font-medium text-emerald-700">Done</span>
+              {t("common.duePrefix", { date: dueText })}
+              <span className="ml-2 font-medium text-emerald-700">{t("common.done")}</span>
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
               void Promise.resolve(onUpdateReminder(r.id, { done: false })).catch((err) => {
-                reportActionError(err instanceof Error ? err.message : "Could not reopen reminder.");
+                reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.reopen"));
               });
             }}
             className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
           >
-            Reopen
+            {t("common.reopen")}
           </button>
         </div>
         {r.notes.trim() && (
@@ -784,8 +794,8 @@ function ReminderCard({
           <div className="min-w-0 flex-1">
             <p className="font-medium text-slate-900">{r.title}</p>
             <p className="mt-1 text-xs text-slate-500">
-              Due {formatInOrgTime(due, { dateStyle: "medium", timeStyle: "short" })}
-              {overdue && <span className="ml-2 font-semibold text-rose-700">Overdue</span>}
+              {t("common.duePrefix", { date: dueText })}
+              {overdue && <span className="ml-2 font-semibold text-rose-700">{t("common.overdue")}</span>}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -794,7 +804,7 @@ function ReminderCard({
               onClick={onStartEdit}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
             >
-              Edit
+              {t("common.edit")}
             </button>
             <label className="flex items-center gap-2 text-xs text-slate-600">
               <input
@@ -804,13 +814,13 @@ function ReminderCard({
                   if (e.target.checked) onStopEdit();
                   void Promise.resolve(onUpdateReminder(r.id, { done: e.target.checked })).catch(
                     (err) => {
-                      reportActionError(err instanceof Error ? err.message : "Could not update reminder.");
+                      reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.update"));
                     }
                   );
                 }}
                 className="rounded border-slate-300 text-accent focus:ring-accent/30"
               />
-              Done
+              {t("common.done")}
             </label>
           </div>
         </div>
@@ -836,8 +846,8 @@ function ReminderCard({
             className="w-full bg-transparent font-medium text-slate-900 outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
-            Due {formatInOrgTime(due, { dateStyle: "medium", timeStyle: "short" })}
-            {overdue && <span className="ml-2 font-semibold text-rose-700">Overdue</span>}
+            {t("common.duePrefix", { date: dueText })}
+            {overdue && <span className="ml-2 font-semibold text-rose-700">{t("common.overdue")}</span>}
           </p>
         </div>
         <label className="flex shrink-0 items-center gap-2 text-xs text-slate-600">
@@ -848,23 +858,23 @@ function ReminderCard({
               if (e.target.checked) onStopEdit();
               void Promise.resolve(onUpdateReminder(r.id, { done: e.target.checked })).catch(
                 (err) => {
-                  reportActionError(err instanceof Error ? err.message : "Could not update reminder.");
+                  reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.update"));
                 }
               );
             }}
             className="rounded border-slate-300 text-accent focus:ring-accent/30"
           />
-          Done
+          {t("common.done")}
         </label>
       </div>
       <label className="mt-2 block">
-        <span className="mb-1 block text-[10px] font-medium text-slate-500">Short notes</span>
+        <span className="mb-1 block text-[10px] font-medium text-slate-500">{t("contacts.reminders.shortNotes")}</span>
         <textarea
           value={r.notes}
           onChange={(e) => onUpdateReminder(r.id, { notes: e.target.value })}
           rows={3}
           className="input-base min-h-[72px] resize-y text-xs"
-          placeholder="Optional context for this follow-up…"
+          placeholder={t("contacts.reminders.contextPlaceholder")}
         />
       </label>
       <div className="relative mt-2 min-h-[1.75rem]">
@@ -873,7 +883,7 @@ function ReminderCard({
           attachments={r.attachments ?? []}
           onAttachmentsChange={(attachments) => {
             void Promise.resolve(onUpdateReminder(r.id, { attachments })).catch((err) => {
-              reportActionError(err instanceof Error ? err.message : "Could not save attachments.");
+              reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.attachments"));
             });
           }}
           onUploadingChange={(uploading) => setReminderUploading(uploading ? r.id : null)}
@@ -882,7 +892,7 @@ function ReminderCard({
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
         <label className="flex items-center gap-1 text-slate-500">
-          Adjust due
+          {t("contacts.reminders.adjustDue")}
           <input
             type="datetime-local"
             value={toLocalInput(r.dueAt)}
@@ -900,14 +910,14 @@ function ReminderCard({
           }}
           className="text-sm font-medium text-rose-700 hover:text-rose-900 hover:underline"
         >
-          Remove
+          {t("common.remove")}
         </button>
         <button
           type="button"
           onClick={onStopEdit}
           className="ml-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
         >
-          Done editing
+          {t("contacts.reminders.doneEditing")}
         </button>
       </div>
     </li>
@@ -944,6 +954,8 @@ function ContactDetail({
     deleteContactIds: string[]
   ) => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const [rTitle, setRTitle] = useState("");
   const [rDue, setRDue] = useState(() => defaultOrgDatetimeLocal(24));
   const [rNotes, setRNotes] = useState("");
@@ -985,12 +997,12 @@ function ContactDetail({
 
   const mergeSources = useMemo(
     () => [
-      salesContactToMergeSnapshot(contact, "This contact"),
+      salesContactToMergeSnapshot(contact, t("contacts.thisContact")),
       ...duplicateMatches.map((m) =>
         salesContactToMergeSnapshot(m.contact, contactDisplayName(m.contact))
       ),
     ],
-    [contact, duplicateMatches]
+    [contact, duplicateMatches, t]
   );
 
   const duplicateAckScope = `contact:${contact.id}`;
@@ -1054,7 +1066,7 @@ function ContactDetail({
       setRDraftAttachments([]);
       setRDue(defaultOrgDatetimeLocal(24));
     } catch (err) {
-      reportActionError(err instanceof Error ? err.message : "Could not save reminder.");
+      reportActionError(err instanceof Error ? err.message : t("contacts.reminders.error.save"));
     } finally {
       setReminderSubmitting(false);
     }
@@ -1089,34 +1101,34 @@ function ContactDetail({
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ring-1 ring-inset ${STAGE_STYLES[contact.stage]}`}
           >
-            {STAGE_LABEL[contact.stage]}
+            {translateContactStage(locale, contact.stage)}
           </span>
           <button
             type="button"
             onClick={onDelete}
             className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
           >
-            Delete
+            {t("common.delete")}
           </button>
         </div>
       </header>
 
       <div className="mt-4 grid gap-4 pt-2 sm:mt-5 sm:grid-cols-2 sm:pt-3">
-        <Labeled label="First name">
+        <Labeled label={t("contacts.firstName")}>
           <input
             value={contact.firstName}
             onChange={(e) => onChange({ firstName: e.target.value })}
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Last name">
+        <Labeled label={t("contacts.lastName")}>
           <input
             value={contact.lastName}
             onChange={(e) => onChange({ lastName: e.target.value })}
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Company">
+        <Labeled label={t("contacts.company")}>
           <CompanySuggestInput
             value={contact.company}
             onChange={(company) => onChange({ company })}
@@ -1124,13 +1136,13 @@ function ContactDetail({
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Job title">
+        <Labeled label={t("contacts.jobTitle")}>
           <input value={contact.jobTitle} onChange={(e) => onChange({ jobTitle: e.target.value })} className="input-base" />
         </Labeled>
-        <Labeled label="Email">
+        <Labeled label={t("common.email")}>
           <input type="email" value={contact.email} onChange={(e) => onChange({ email: e.target.value })} className="input-base" />
         </Labeled>
-        <Labeled label="Phone">
+        <Labeled label={t("contacts.phone")}>
           <input value={contact.phone} onChange={(e) => onChange({ phone: e.target.value })} className="input-base" />
         </Labeled>
         {duplicateMatches.length > 0 && (
@@ -1146,23 +1158,23 @@ function ContactDetail({
             />
           </div>
         )}
-        <Labeled label="Website" className="sm:col-span-2">
+        <Labeled label={t("contacts.website")} className="sm:col-span-2">
           <input value={contact.website} onChange={(e) => onChange({ website: e.target.value })} className="input-base" />
         </Labeled>
-        <Labeled label="Stage">
+        <Labeled label={t("contacts.stage")}>
           <select
             value={contact.stage}
             onChange={(e) => onChange({ stage: e.target.value as ContactStage })}
             className="input-base"
           >
-            {(Object.keys(STAGE_LABEL) as ContactStage[]).map((s) => (
+            {(["lead", "qualified", "proposal", "negotiation", "customer", "churned"] as ContactStage[]).map((s) => (
               <option key={s} value={s}>
-                {STAGE_LABEL[s]}
+                {translateContactStage(locale, s)}
               </option>
             ))}
           </select>
         </Labeled>
-        <Labeled label="Est. deal value">
+        <Labeled label={t("contacts.estDealValue")}>
           <input
             type="number"
             min={0}
@@ -1171,18 +1183,18 @@ function ContactDetail({
             className="input-base"
           />
         </Labeled>
-        <Labeled label="Currency">
+        <Labeled label={t("contacts.currency")}>
           <select
             value={contact.currency}
             onChange={(e) => onChange({ currency: e.target.value })}
             className="input-base"
           >
-            <option>EUR</option>
-            <option>USD</option>
-            <option>GBP</option>
+            <option value="EUR">{t("common.currency.eur")}</option>
+            <option value="USD">{t("common.currency.usd")}</option>
+            <option value="GBP">{t("common.currency.gbp")}</option>
           </select>
         </Labeled>
-        <Labeled label="Last contacted">
+        <Labeled label={t("contacts.lastContacted")}>
           <input
             type="datetime-local"
             value={lastContactLocal}
@@ -1192,30 +1204,30 @@ function ContactDetail({
         </Labeled>
       </div>
 
-      <Labeled label="Notes" className="mb-8">
+      <Labeled label={t("common.notes")} className="mb-8">
         <SimpleRichText
           value={contact.generalNotes}
           onChange={(html) => onChange({ generalNotes: html })}
-          placeholder="What they care about, stakeholders, risks, promised follow-ups…"
+          placeholder={t("contacts.notesPlaceholder")}
           collapseKey={`contact-notes-${contact.id}`}
           inlineImageStorageDir={`contacts/${contact.id}/notes`}
         />
       </Labeled>
 
       <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-        <h4 className="text-sm font-semibold text-slate-900">Reminders</h4>
+        <h4 className="text-sm font-semibold text-slate-900">{t("contacts.reminders.title")}</h4>
 
         <form onSubmit={submitReminder} className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-white p-3">
-          <Labeled label="What to do next">
+          <Labeled label={t("contacts.reminders.whatNext")}>
             <input
               value={rTitle}
               onChange={(e) => setRTitle(e.target.value)}
               className="input-base py-2 text-sm"
-              placeholder="e.g. Send proposal"
+              placeholder={t("contacts.reminders.whatNextPlaceholder")}
               required
             />
           </Labeled>
-          <Labeled label="Due">
+          <Labeled label={t("common.due")}>
             <input
               type="datetime-local"
               value={rDue}
@@ -1223,14 +1235,14 @@ function ContactDetail({
               className="input-base py-2 text-sm sm:max-w-[240px]"
             />
           </Labeled>
-          <Labeled label="Short notes">
+          <Labeled label={t("contacts.reminders.shortNotes")}>
             <div className="relative">
               <textarea
                 value={rNotes}
                 onChange={(e) => setRNotes(e.target.value)}
                 rows={3}
                 className="input-base min-h-[72px] resize-y py-2 pb-10 text-sm"
-                placeholder="Optional context for this follow-up…"
+                placeholder={t("contacts.reminders.contextPlaceholder")}
               />
               <InlineImageAttachments
                 storageDir={`contacts/${contact.id}/reminders/${rDraftReminderId}`}
@@ -1246,7 +1258,7 @@ function ContactDetail({
             disabled={reminderSubmitting || rDraftImagesUploading}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
-            {reminderSubmitting ? "Adding…" : "Add reminder"}
+            {reminderSubmitting ? t("common.adding") : t("contacts.reminders.add")}
           </button>
         </form>
 
@@ -1281,7 +1293,7 @@ function ContactDetail({
                 className={`h-3.5 w-3.5 shrink-0 text-rose-400 transition-transform ${overdueRemindersOpen ? "rotate-180" : ""}`}
                 aria-hidden
               />
-              <span>Overdue reminders</span>
+              <span>{t("contacts.reminders.overdue")}</span>
               <span className="font-normal tabular-nums text-rose-600/80">({overdueReminders.length})</span>
             </button>
             {overdueRemindersOpen && (
@@ -1317,7 +1329,7 @@ function ContactDetail({
                 className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${doneRemindersOpen ? "rotate-180" : ""}`}
                 aria-hidden
               />
-              <span>Done reminders</span>
+              <span>{t("contacts.reminders.done")}</span>
               <span className="font-normal tabular-nums text-slate-400">({doneReminders.length})</span>
             </button>
             {doneRemindersOpen && (
@@ -1342,7 +1354,7 @@ function ContactDetail({
         )}
 
         {contact.reminders.length === 0 && (
-          <p className="mt-3 text-center text-xs text-slate-500">No reminders yet — add your first follow-up above.</p>
+          <p className="mt-3 text-center text-xs text-slate-500">{t("contacts.reminders.empty")}</p>
         )}
       </div>
     </section>

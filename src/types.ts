@@ -1,4 +1,7 @@
 import type { OrgRole } from "./auth/roles";
+import { translateDepartment } from "./i18n/helpers";
+import { loadLocale } from "./i18n/localeStorage";
+import { translate } from "./i18n/translate";
 
 /** Aggregate task activity counters (Firestore `taskStats` on each person). */
 export type PersonTaskStats = {
@@ -76,8 +79,9 @@ export function normalizeDepartments(value: unknown, legacySingle?: unknown): st
 }
 
 export function personDepartmentsLabel(departments: string[]): string {
-  if (departments.length === 0) return "Unassigned";
-  return departments.join(", ");
+  const locale = loadLocale();
+  if (departments.length === 0) return translate(locale, "departments.unassigned");
+  return departments.map((d) => translateDepartment(locale, d)).join(", ");
 }
 
 export function personSortKey(departments: string[], name: string): string {

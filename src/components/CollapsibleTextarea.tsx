@@ -8,18 +8,21 @@ import {
   useOneWayCollapsible,
 } from "../hooks/useOneWayCollapsible";
 import { CollapsibleExpandToggle } from "./CollapsibleExpandToggle";
+import { useT } from "../contexts/I18nContext";
 
 export function CollapsibleTextarea({
   value,
   onChange,
   collapseKey,
-  placeholder = "Add a description…",
+  placeholder,
 }: {
   value: string;
   onChange: (value: string) => void;
   collapseKey?: string;
   placeholder?: string;
 }) {
+  const t = useT();
+  const resolvedPlaceholder = placeholder ?? t("tasks.form.descriptionPlaceholder");
   const ref = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -44,7 +47,7 @@ export function CollapsibleTextarea({
         ref={ref}
         value={value}
         rows={rows}
-        placeholder={placeholder}
+        placeholder={resolvedPlaceholder}
         onChange={(e) => {
           onChange(e.target.value);
           const el = ref.current;

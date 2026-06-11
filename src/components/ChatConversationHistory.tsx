@@ -4,6 +4,7 @@ import type { ChatMessage, ImageAttachment, Person } from "../types";
 import { attachmentMediaKind } from "../utils/imageAttachments";
 import { extractUrlsFromText } from "../utils/chatLinks";
 import { formatInOrgTime } from "../utils/orgTimezone";
+import { useT } from "../contexts/I18nContext";
 import { AttachmentMediaViewer, type MediaViewerItem } from "./AttachmentMediaViewer";
 
 type HistoryTab = "files" | "links";
@@ -36,6 +37,7 @@ export function ChatConversationHistory({
   messages: ChatMessage[];
   people: Person[];
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<HistoryTab>("files");
   const [historyViewerIndex, setHistoryViewerIndex] = useState<number | null>(null);
@@ -80,7 +82,7 @@ export function ChatConversationHistory({
   );
 
   function authorName(id: string) {
-    return people.find((p) => p.id === id)?.name.trim() || "Member";
+    return people.find((p) => p.id === id)?.name.trim() || t("common.member");
   }
 
   function openHistoryFileAt(messageId: string, storagePath: string) {
@@ -98,7 +100,7 @@ export function ChatConversationHistory({
         className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         aria-expanded={open}
       >
-        History
+        {t("chat.history")}
         {(files.length > 0 || links.length > 0) && (
           <span className="ml-1 tabular-nums text-slate-400">
             ({files.length + links.length})
@@ -118,7 +120,7 @@ export function ChatConversationHistory({
                   tab === id ? "border-b-2 border-accent text-accent" : "text-slate-500"
                 }`}
               >
-                {id} ({id === "files" ? files.length : links.length})
+                {t(`chat.history.${id}`)} ({id === "files" ? files.length : links.length})
               </button>
             ))}
           </div>
@@ -126,7 +128,7 @@ export function ChatConversationHistory({
           <div className="max-h-72 overflow-y-auto p-3">
             {tab === "files" ? (
               files.length === 0 ? (
-                <p className="py-6 text-center text-xs text-slate-500">No files shared yet.</p>
+                <p className="py-6 text-center text-xs text-slate-500">{t("chat.history.noFiles")}</p>
               ) : (
                 <ul className="space-y-3">
                   {files.map(({ attachment, messageId, authorId, createdAt }) => {
@@ -154,12 +156,12 @@ export function ChatConversationHistory({
                           {kind === "image" ? (
                             <img
                               src={attachment.url}
-                              alt={attachment.name ?? "Attachment"}
+                              alt={attachment.name ?? t("common.attachment")}
                               className="mt-2 h-16 max-w-full rounded-lg border border-slate-200 object-contain"
                             />
                           ) : (
                             <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent">
-                              Open in viewer
+                              {t("chat.history.openViewer")}
                               <ExternalLink className="h-3 w-3" aria-hidden />
                             </span>
                           )}
@@ -170,7 +172,7 @@ export function ChatConversationHistory({
                 </ul>
               )
             ) : links.length === 0 ? (
-              <p className="py-6 text-center text-xs text-slate-500">No links shared yet.</p>
+              <p className="py-6 text-center text-xs text-slate-500">{t("chat.history.noLinks")}</p>
             ) : (
               <ul className="space-y-2">
                 {links.map(({ url, authorId, createdAt, messageId }) => (

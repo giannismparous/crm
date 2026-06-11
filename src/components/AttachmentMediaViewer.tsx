@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, File as FileIcon, Music, X } from "lucide-react";
 import type { InlineMediaKind } from "../types";
+import { useT } from "../contexts/I18nContext";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 
 export type MediaViewerItem = {
@@ -9,11 +10,11 @@ export type MediaViewerItem = {
   kind: InlineMediaKind;
 };
 
-function kindLabel(kind: InlineMediaKind): string {
-  if (kind === "video") return "Video";
-  if (kind === "audio") return "Audio";
-  if (kind === "file") return "File";
-  return "Image";
+function kindLabel(kind: InlineMediaKind, t: ReturnType<typeof useT>): string {
+  if (kind === "video") return t("common.media.video");
+  if (kind === "audio") return t("common.media.audio");
+  if (kind === "file") return t("common.media.file");
+  return t("common.media.image");
 }
 
 export function AttachmentMediaViewer({
@@ -29,6 +30,7 @@ export function AttachmentMediaViewer({
   onClose: () => void;
   onNavigate: (index: number) => void;
 }) {
+  const t = useT();
   const count = items.length;
   const safeIndex = count > 0 ? Math.min(Math.max(0, index), count - 1) : 0;
   const current = items[safeIndex];
@@ -58,21 +60,21 @@ export function AttachmentMediaViewer({
 
   if (!open || !current) return null;
 
-  const title = current.name?.trim() || kindLabel(current.kind);
+  const title = current.name?.trim() || kindLabel(current.kind, t);
 
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
       role="dialog"
       aria-modal
-      aria-label={`${kindLabel(current.kind)} viewer`}
+      aria-label={t("attachments.viewerAria", { kind: kindLabel(current.kind, t) })}
       onClick={onClose}
     >
       <button
         type="button"
         onClick={onClose}
         className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
-        aria-label="Close"
+        aria-label={t("common.close")}
       >
         <X className="h-5 w-5" />
       </button>
@@ -85,7 +87,7 @@ export function AttachmentMediaViewer({
             onNavigate(safeIndex - 1);
           }}
           className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:left-4"
-          aria-label="Previous attachment"
+          aria-label={t("attachments.previous")}
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -99,7 +101,7 @@ export function AttachmentMediaViewer({
             onNavigate(safeIndex + 1);
           }}
           className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:right-4"
-          aria-label="Next attachment"
+          aria-label={t("attachments.next")}
         >
           <ChevronRight className="h-6 w-6" />
         </button>
@@ -171,7 +173,7 @@ export function AttachmentMediaViewer({
               className="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-dim"
               onClick={() => setMediaReady(true)}
             >
-              Open file
+              {t("attachments.openFile")}
               <ExternalLink className="h-4 w-4" aria-hidden />
             </a>
           </div>

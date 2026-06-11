@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { el } from "./ui-labels-el";
 
 const e2eEnabled = process.env.CRM_E2E_ENABLED === "1";
 
@@ -7,10 +8,10 @@ test.describe("Emulator E2E smoke", () => {
 
   async function signIn(page: import("@playwright/test").Page, email: string, displayName: string) {
     await page.goto("/");
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill("test-pass-123");
-    await page.locator("form").getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible({
+    await page.getByLabel(el.email).fill(email);
+    await page.getByLabel(el.password).fill("test-pass-123");
+    await page.locator("form").getByRole("button", { name: el.signIn }).click();
+    await expect(page.getByRole("navigation", { name: el.navPrimary })).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByRole("button", { name: displayName, exact: true }).first()).toBeVisible();
@@ -21,28 +22,28 @@ test.describe("Emulator E2E smoke", () => {
       .getByRole("button", { name: displayName, exact: true })
       .and(page.locator('[aria-haspopup="menu"]'))
       .click();
-    await page.getByRole("menuitem", { name: "Settings" }).click();
+    await page.getByRole("menuitem", { name: el.settings }).click();
   }
 
   test("founder sees Contacts and seed settings", async ({ page }) => {
     await signIn(page, "founder-e2e@test.local", "E2E Founder");
-    await expect(page.getByRole("button", { name: "Contacts" })).toBeVisible();
+    await expect(page.getByRole("button", { name: el.contacts })).toBeVisible();
     await openSettings(page, "E2E Founder");
-    await expect(page.getByText("Partner codes")).toBeVisible();
+    await expect(page.getByText(el.partnerCodes)).toBeVisible();
   });
 
   test("partner hides Contacts and seed settings", async ({ page }) => {
     await signIn(page, "partner-eng-e2e@test.local", "E2E Eng Partner");
-    await expect(page.getByRole("button", { name: "Contacts" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: el.contacts })).toHaveCount(0);
     await openSettings(page, "E2E Eng Partner");
-    await expect(page.getByText("Partner codes")).toHaveCount(0);
-    await expect(page.getByText("Appearance")).toBeVisible();
+    await expect(page.getByText(el.partnerCodes)).toHaveCount(0);
+    await expect(page.getByText(el.appearance)).toBeVisible();
   });
 
   test("founder sees seeded engineering task in everyone scope", async ({ page }) => {
     await signIn(page, "founder-e2e@test.local", "E2E Founder");
-    await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
-    await page.getByRole("button", { name: "Everyone" }).click();
+    await expect(page.getByRole("heading", { name: el.tasks })).toBeVisible();
+    await page.getByRole("button", { name: el.everyone }).click();
     await expect(page.getByRole("button", { name: "E2E Eng Partner" }).first()).toBeVisible({
       timeout: 30_000,
     });
@@ -52,6 +53,6 @@ test.describe("Emulator E2E smoke", () => {
     await signIn(page, "partner-eng-e2e@test.local", "E2E Eng Partner");
     await page.goto("/?tab=tasks&task=e2e-task-sales");
     await expect(page.getByText("Sales task")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: el.tasks })).toBeVisible();
   });
 });

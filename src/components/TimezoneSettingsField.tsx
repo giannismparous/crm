@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Clock } from "lucide-react";
+import { useT } from "../contexts/I18nContext";
 import type { useTimezone } from "../hooks/useTimezone";
 import {
   formatTimezoneLabel,
@@ -16,6 +17,7 @@ function TimezonePicker({
   value: string;
   onChange: (tz: string) => void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const zones = useMemo(() => listAllTimezones(), []);
   const filtered = useMemo(() => {
@@ -30,16 +32,16 @@ function TimezonePicker({
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search time zones…"
+        placeholder={t("timezone.search")}
         className="input-base text-sm"
-        aria-label="Search time zones"
+        aria-label={t("timezone.searchAria")}
       />
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="input-base max-h-40 text-sm"
         size={Math.min(8, Math.max(4, filtered.length))}
-        aria-label="Time zone"
+        aria-label={t("timezone.selectAria")}
       >
         {filtered.map((tz) => (
           <option key={tz} value={tz}>
@@ -48,13 +50,14 @@ function TimezonePicker({
         ))}
       </select>
       {filtered.length === 0 && (
-        <p className="text-[10px] text-slate-500">No matching time zones.</p>
+        <p className="text-[10px] text-slate-500">{t("timezone.noMatch")}</p>
       )}
     </div>
   );
 }
 
 export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls }) {
+  const t = useT();
   const {
     settings,
     setMode,
@@ -73,7 +76,7 @@ export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 settings-muted">
           <Clock className="h-3.5 w-3.5" aria-hidden />
-          Time zone
+          {t("timezone.label")}
         </span>
         {!usingOrgDefault && (
           <button
@@ -81,17 +84,16 @@ export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls
             onClick={resetToOrgTime}
             className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
           >
-            Use organization time
+            {t("timezone.useOrg")}
           </button>
         )}
       </div>
       <p className="mb-2 text-[10px] leading-relaxed text-slate-500 settings-muted">
-        How dates and times appear for you in the CRM. Saved per account — other team members keep
-        their own setting.
+        {t("timezone.description")}
       </p>
       {preview && (
         <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-          <span className="font-medium">Now in your app:</span> {preview}
+          <span className="font-medium">{t("timezone.nowPreview")}</span> {preview}
         </p>
       )}
 
@@ -105,7 +107,7 @@ export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls
             className="mt-0.5 accent-accent"
           />
           <span className="min-w-0 text-xs text-slate-700">
-            <span className="font-semibold text-slate-900">Auto-detect</span>
+            <span className="font-semibold text-slate-900">{t("timezone.autoDetect")}</span>
             <span className="mt-0.5 block text-[10px] text-slate-500">
               {formatTimezoneLabel(detectedTimezone)}
             </span>
@@ -121,9 +123,9 @@ export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls
             className="mt-0.5 accent-accent"
           />
           <span className="min-w-0 text-xs text-slate-700">
-            <span className="font-semibold text-slate-900">Organization time</span>
+            <span className="font-semibold text-slate-900">{t("timezone.orgTime")}</span>
             <span className="mt-0.5 block text-[10px] text-slate-500">
-              {formatTimezoneLabel(orgTimezone)} — Greece (default)
+              {t("timezone.orgTimeHint", { tz: formatTimezoneLabel(orgTimezone) })}
             </span>
           </span>
         </label>
@@ -137,9 +139,9 @@ export function TimezoneSettingsField({ timezone }: { timezone: TimezoneControls
             className="mt-0.5 accent-accent"
           />
           <span className="min-w-0 flex-1 text-xs text-slate-700">
-            <span className="font-semibold text-slate-900">Choose time zone</span>
+            <span className="font-semibold text-slate-900">{t("timezone.choose")}</span>
             <span className="mt-0.5 block text-[10px] text-slate-500">
-              Pick any IANA time zone (e.g. US Pacific).
+              {t("timezone.chooseHint")}
             </span>
           </span>
         </label>

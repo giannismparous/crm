@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Person } from "../types";
 import { TEAM_DEPARTMENTS, departmentChipClass } from "../types";
+import { useI18n } from "../contexts/I18nContext";
+import { translateDepartment } from "../i18n/helpers";
 
 function personMatchesSearch(p: Person, q: string): boolean {
   const s = q.trim().toLowerCase();
@@ -26,6 +28,7 @@ export function NotifyRecipientPicker({
   /** Hidden from the list (e.g. people already on the task). */
   excludePersonIds?: string[];
 }) {
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -69,14 +72,15 @@ export function NotifyRecipientPicker({
   }
 
   const summary = useMemo(() => {
-    if (personIds.length === 0 && departmentIds.length === 0) return "Choose who to notify…";
+    if (personIds.length === 0 && departmentIds.length === 0) return t("pickers.notify");
     const bits: string[] = [];
-    if (personIds.length === 1) bits.push(pool.find((p) => p.id === personIds[0])?.name ?? "1 person");
-    else if (personIds.length > 1) bits.push(`${personIds.length} people`);
-    if (departmentIds.length === 1) bits.push(departmentIds[0]!);
-    else if (departmentIds.length > 1) bits.push(`${departmentIds.length} departments`);
+    if (personIds.length === 1) {
+      bits.push(pool.find((p) => p.id === personIds[0])?.name ?? t("common.onePerson"));
+    } else if (personIds.length > 1) bits.push(t("common.nPeople", { count: personIds.length }));
+    if (departmentIds.length === 1) bits.push(translateDepartment(locale, departmentIds[0]!));
+    else if (departmentIds.length > 1) bits.push(t("common.nDepartments", { count: departmentIds.length }));
     return bits.join(", ");
-  }, [personIds, departmentIds, pool]);
+  }, [personIds, departmentIds, pool, t, locale]);
 
   return (
     <div className="relative w-full min-w-[12rem] max-w-md" ref={rootRef}>
@@ -96,11 +100,11 @@ export function NotifyRecipientPicker({
         <div
           className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[14rem] rounded-lg border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-black/5"
           role="listbox"
-          aria-label="Choose who to notify"
+          aria-label={t("pickers.notifyAria")}
         >
           <input
             type="search"
-            placeholder="Search people or departments…"
+            placeholder={t("common.searchPeopleDepts")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-base mb-1.5 w-full py-1.5 text-xs"
@@ -109,7 +113,7 @@ export function NotifyRecipientPicker({
             {filteredPeople.length > 0 && (
               <>
                 <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  People
+                  {t("common.people")}
                 </p>
                 {filteredPeople.map((p) => (
                   <label
@@ -130,7 +134,7 @@ export function NotifyRecipientPicker({
             {filteredDepts.length > 0 && (
               <>
                 <p className="mt-1 border-t border-slate-100 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Sectors
+                  {t("common.departments")}
                 </p>
                 {filteredDepts.map((d) => (
                   <label
@@ -146,7 +150,7 @@ export function NotifyRecipientPicker({
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${departmentChipClass(d)}`}
                     >
-                      {d}
+                      {translateDepartment(locale, d)}
                     </span>
                   </label>
                 ))}
@@ -159,7 +163,7 @@ export function NotifyRecipientPicker({
               className="mt-1.5 w-full rounded-md border border-slate-200 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
               onClick={() => onChange([], [])}
             >
-              Clear
+              {t("common.clear")}
             </button>
           )}
         </div>

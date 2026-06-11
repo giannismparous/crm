@@ -16,6 +16,7 @@ import type {
 import { ChatBubbleWindow } from "./ChatBubbleWindow";
 import { ChatConversationBubble } from "./ChatConversationBubble";
 import { ChatLauncherPopover } from "./ChatLauncherPopover";
+import { useT } from "../../contexts/I18nContext";
 import { CHAT_DOCK_MARGIN, chatPanelRightForBubble } from "./chatDockLayout";
 
 const PANEL_ANIM_MS = 220;
@@ -38,6 +39,7 @@ export function MessagesChatStack({
   onOpenOrCreateDm,
   onCreateGroup,
   onMarkRead,
+  onMarkChatNotificationsRead,
   openConversationRequest,
   onOpenConversationRequestHandled,
   onActivityChange,
@@ -57,10 +59,12 @@ export function MessagesChatStack({
   onOpenOrCreateDm: (personId: string) => Promise<string>;
   onCreateGroup: (participantIds: string[], departmentIds: string[], title: string) => Promise<string>;
   onMarkRead: (conversationId: string, at?: string) => void | Promise<void>;
+  onMarkChatNotificationsRead?: (conversationId: string) => void | Promise<void>;
   openConversationRequest?: string | null;
   onOpenConversationRequestHandled?: () => void;
   onActivityChange?: (active: boolean) => void;
 }) {
+  const t = useT();
   const {
     openIds,
     expandedId,
@@ -91,6 +95,16 @@ export function MessagesChatStack({
     openIds,
     readMap,
     currentUserId
+  );
+
+  const handleMarkRead = useCallback(
+    (conversationId: string, at?: string) => {
+      void onMarkRead(conversationId, at);
+      if (document.visibilityState === "visible") {
+        void onMarkChatNotificationsRead?.(conversationId);
+      }
+    },
+    [onMarkRead, onMarkChatNotificationsRead]
   );
 
   const handleOpenChat = useCallback(
@@ -259,7 +273,7 @@ export function MessagesChatStack({
           onMinimize={minimizeAll}
           onSendMessage={onSendMessage}
           onUnsendMessage={onUnsendMessage}
-          onMarkRead={onMarkRead}
+          onMarkRead={handleMarkRead}
         />
       ))}
 
@@ -287,8 +301,12 @@ export function MessagesChatStack({
           <button
             type="button"
             onClick={handleToggleLauncher}
-            title="All chats"
-            aria-label={`All chats${unreadCount ? `, ${unreadCount} unread` : ""}`}
+            title={t("chat.allChats")}
+            aria-label={
+              unreadCount > 0
+                ? t("chat.allChatsUnread", { count: unreadCount })
+                : t("chat.allChats")
+            }
             aria-expanded={launcherOpen}
             className="chat-launcher-btn pointer-events-auto relative flex h-10 w-10 items-center justify-center rounded-full bg-accent text-white shadow-md shadow-glow ring-1 ring-accent/30 transition-all duration-200 hover:scale-105 hover:bg-accent-dim focus-visible:outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           >

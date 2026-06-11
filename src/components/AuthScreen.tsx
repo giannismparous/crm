@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useT } from "../contexts/I18nContext";
 import { AppBrand } from "./AppBrand";
 import { signInWithTeamAccess } from "../firebase/authSession";
 import { formatAuthError } from "../firebase/authErrors";
@@ -10,6 +11,7 @@ import {
 import { registerWithSeed } from "../firebase/registerWithSeed";
 
 export function AuthScreen() {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [seedCode, setSeedCode] = useState("");
@@ -38,7 +40,7 @@ export function AuthScreen() {
         await registerWithSeed(creds.email, creds.password, creds.seedCode);
       }
     } catch (err) {
-      setMessage(formatAuthError(err));
+      setMessage(formatAuthError(err, t));
     } finally {
       setBusy(false);
     }
@@ -51,9 +53,7 @@ export function AuthScreen() {
           <AppBrand size="auth" />
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {mode === "signin"
-            ? "Sign in with your team email to load live data."
-            : "Create an account with a one-time seed from your team admin."}
+          {mode === "signin" ? t("auth.signInSubtitle") : t("auth.registerSubtitle")}
         </p>
 
         <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5">
@@ -64,7 +64,7 @@ export function AuthScreen() {
               mode === "signin" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
             }`}
           >
-            Sign in
+            {t("auth.signIn")}
           </button>
           <button
             type="button"
@@ -73,14 +73,14 @@ export function AuthScreen() {
               mode === "register" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
             }`}
           >
-            Register
+            {t("auth.register")}
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3" noValidate>
           {mode === "register" && (
             <label className="block text-xs font-medium text-slate-600">
-              Registration seed
+              {t("auth.registrationSeed")}
               <input
                 type="text"
                 autoComplete="off"
@@ -88,14 +88,14 @@ export function AuthScreen() {
                 inputMode="text"
                 value={seedCode}
                 onChange={(e) => setSeedCode(normalizeSeedCode(e.target.value))}
-                placeholder="Paste one-time code"
+                placeholder={t("auth.seedPlaceholder")}
                 className="input-base mt-1 w-full py-2 font-mono text-sm"
                 disabled={busy}
               />
             </label>
           )}
           <label className="block text-xs font-medium text-slate-600">
-            Email
+            {t("common.email")}
             <input
               type="email"
               autoComplete="email"
@@ -106,7 +106,7 @@ export function AuthScreen() {
             />
           </label>
           <label className="block text-xs font-medium text-slate-600">
-            Password
+            {t("auth.password")}
             <input
               type="password"
               autoComplete={mode === "signin" ? "current-password" : "new-password"}
@@ -124,7 +124,7 @@ export function AuthScreen() {
             disabled={busy}
             className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-dim disabled:opacity-60"
           >
-            {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+            {busy ? t("common.pleaseWait") : mode === "signin" ? t("auth.signIn") : t("auth.createAccount")}
           </button>
         </form>
       </div>

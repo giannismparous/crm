@@ -53,6 +53,7 @@ import {
   contentOverflowsLines,
   useOneWayCollapsible,
 } from "../hooks/useOneWayCollapsible";
+import { useT } from "../contexts/I18nContext";
 import { CollapsibleExpandToggle } from "./CollapsibleExpandToggle";
 import { ImageLightbox, type LightboxImage } from "./ImageLightbox";
 /** Default visible height for updates (exactly 5 lines + padding). */
@@ -330,7 +331,7 @@ export function SimpleRichText({
   value,
   persistedHtml,
   onChange,
-  placeholder = "Add progress notes…",
+  placeholder,
   minHeight = UPDATES_COLLAPSED_MAX,
   authorId,
   className = "",
@@ -345,6 +346,8 @@ export function SimpleRichText({
   autoMigratePersisted = true,
   flushSaveRef,
 }: Props) {
+  const t = useT();
+  const resolvedPlaceholder = placeholder ?? t("richText.defaultPlaceholder");
   const imageStorageDir =
     inlineImageStorageDir ?? (taskId ? `tasks/${taskId}/updates` : undefined);
   const enableGenericFileAttach = enableGenericFileAttachProp ?? Boolean(imageStorageDir);
@@ -741,7 +744,7 @@ export function SimpleRichText({
       (file, index) => uploadSingleImageFile(imageStorageDir!, file, index),
       {
         maxMb: MAX_IMAGE_BYTES / (1024 * 1024),
-        label: "Images",
+        label: t("common.media.images"),
       }
     );
   }
@@ -754,7 +757,7 @@ export function SimpleRichText({
       (file, index) => uploadSingleMediaFile(imageStorageDir!, file, index),
       {
         maxMb: MAX_VIDEO_BYTES / (1024 * 1024),
-        label: "Videos",
+        label: t("common.media.videos"),
       }
     );
   }
@@ -767,7 +770,7 @@ export function SimpleRichText({
       (file, index) => uploadSingleMediaFile(imageStorageDir!, file, index),
       {
         maxMb: MAX_AUDIO_BYTES / (1024 * 1024),
-        label: "Audio",
+        label: t("common.media.audio"),
       }
     );
   }
@@ -782,7 +785,7 @@ export function SimpleRichText({
       if (duplicates > 0) {
         setUploadError(duplicateUploadMessage(duplicates));
       } else {
-        setUploadError("Files must be under 20 MB (videos up to 100 MB).");
+        setUploadError(t("common.fileSizeLimit"));
       }
       return;
     }
@@ -849,28 +852,28 @@ export function SimpleRichText({
       className={`simple-rich-text-root ${clipCollapsed ? "overflow-hidden" : "overflow-visible"} rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-100/80 ${className}`}
     >
       <div className="rich-text-toolbar flex items-center gap-0.5 border-b border-slate-100 px-1.5 py-1">
-        <ToolbarBtn label="Bold" onClick={() => exec("bold")}>
+        <ToolbarBtn label={t("richText.bold")} onClick={() => exec("bold")}>
           <span className="font-bold">B</span>
         </ToolbarBtn>
-        <ToolbarBtn label="Underline" onClick={() => exec("underline")}>
+        <ToolbarBtn label={t("richText.underline")} onClick={() => exec("underline")}>
           <span className="underline">U</span>
         </ToolbarBtn>
-        <ToolbarBtn label="Highlight (click again to remove)" onClick={toggleHighlight}>
+        <ToolbarBtn label={t("richText.highlight")} onClick={toggleHighlight}>
           <span className="rich-text-toolbar-highlight-mark">H</span>
         </ToolbarBtn>
         {imageStorageDir && (
           <>
-            <ToolbarBtn label="Attach images" onClick={() => fileRef.current?.click()}>
+            <ToolbarBtn label={t("richText.attachImages")} onClick={() => fileRef.current?.click()}>
               <ImagePlus className="h-3.5 w-3.5" aria-hidden />
             </ToolbarBtn>
-            <ToolbarBtn label="Attach video" onClick={() => videoRef.current?.click()}>
+            <ToolbarBtn label={t("richText.attachVideo")} onClick={() => videoRef.current?.click()}>
               <Video className="h-3.5 w-3.5" aria-hidden />
             </ToolbarBtn>
-            <ToolbarBtn label="Attach audio" onClick={() => audioRef.current?.click()}>
+            <ToolbarBtn label={t("richText.attachAudio")} onClick={() => audioRef.current?.click()}>
               <Music className="h-3.5 w-3.5" aria-hidden />
             </ToolbarBtn>
             {enableGenericFileAttach && (
-              <ToolbarBtn label="Attach any file" onClick={() => anyFileRef.current?.click()}>
+              <ToolbarBtn label={t("richText.attachFile")} onClick={() => anyFileRef.current?.click()}>
                 <FileIcon className="h-3.5 w-3.5" aria-hidden />
               </ToolbarBtn>
             )}
@@ -884,7 +887,7 @@ export function SimpleRichText({
         suppressContentEditableWarning
         role="textbox"
         aria-multiline
-        data-placeholder={placeholder}
+        data-placeholder={resolvedPlaceholder}
         onFocus={() => {
           focused.current = true;
           setEditing(true);

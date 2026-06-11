@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { X, Copy, Check, Sun, Moon, Type, ChevronDown } from "lucide-react";
-import { ORG_ROLE_LABELS, SEED_ASSIGNABLE_ROLES, type OrgRole } from "../auth/roles";
+import { SEED_ASSIGNABLE_ROLES, type OrgRole } from "../auth/roles";
+import { APP_LOCALES, LOCALE_LABELS, useI18n, useT } from "../contexts/I18nContext";
+import type { TFunction } from "../i18n/helpers";
+import { translateDepartment, translateRole } from "../i18n/helpers";
 import { InfoTooltip } from "./InfoTooltip";
 import { RoleInfoTip } from "./RoleInfoTip";
 import type { CreateRegistrationSeedInput, Person, RegistrationSeed } from "../types";
@@ -14,10 +17,10 @@ import { TimezoneSettingsField } from "./TimezoneSettingsField";
 
 const SEED_VALID_DAYS = SEED_VALID_DAYS_MAX;
 
-function seedPersonLabel(people: Person[], id: string, email: string): string {
+function seedPersonLabel(people: Person[], id: string, email: string, unknownLabel: string): string {
   if (email.trim()) return email.trim();
   const p = people.find((x) => x.id === id);
-  return p?.name.trim() || p?.email.trim() || "Unknown";
+  return p?.name.trim() || p?.email.trim() || unknownLabel;
 }
 
 function formatWhen(iso: string): string {
@@ -31,11 +34,20 @@ function formatWhen(iso: string): string {
   return formatted || iso;
 }
 
+function seedCodeExpiryText(t: TFunction, used: boolean, expiresAt: string): string {
+  const date = formatWhen(expiresAt);
+  if (used) return `${t("settings.seeds.codeWasValid")} ${date}`;
+  const codeLabel = t("settings.seeds.codeWasValid").replace(/\s+(was valid until|ήταν έγκυρος έως)$/u, "");
+  return `${codeLabel} ${t("settings.seeds.codeExpires")} ${date}`;
+}
+
 function SectionInfoTip({ text, label }: { text: string; label: string }) {
   return <InfoTooltip text={text} label={label} />;
 }
 
 function RoleSelect({ value, onChange }: { value: OrgRole; onChange: (role: OrgRole) => void }) {
+  const t = useT();
+  const { locale } = useI18n();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +69,7 @@ function RoleSelect({ value, onChange }: { value: OrgRole; onChange: (role: OrgR
         aria-expanded={open}
         className="input-base !inline-flex !w-auto cursor-pointer items-center gap-1.5 whitespace-nowrap !py-1.5 !pl-3 !pr-2.5 text-sm"
       >
-        <span>{ORG_ROLE_LABELS[value]}</span>
+        <span>{translateRole(locale, value)}</span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
@@ -66,7 +78,7 @@ function RoleSelect({ value, onChange }: { value: OrgRole; onChange: (role: OrgR
       {open && (
         <ul
           role="listbox"
-          aria-label="Role"
+          aria-label={t("settings.seeds.roleAria")}
           className="absolute left-0 top-full z-50 mt-1 min-w-full w-max rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
         >
           {SEED_ASSIGNABLE_ROLES.map((role) => (
@@ -81,7 +93,7 @@ function RoleSelect({ value, onChange }: { value: OrgRole; onChange: (role: OrgR
                   role === value ? "bg-slate-50 font-medium text-slate-900" : "text-slate-700"
                 }`}
               >
-                <span>{ORG_ROLE_LABELS[role]}</span>
+                <span>{translateRole(locale, role)}</span>
                 <RoleInfoTip role={role} />
               </button>
             </li>
@@ -103,11 +115,14 @@ function SettingsSection({
   titleInfo?: string;
   children: ReactNode;
 }) {
+  const t = useT();
   return (
     <section>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-        {titleInfo ? <SectionInfoTip text={titleInfo} label={`About ${title}`} /> : null}
+        {titleInfo ? (
+          <SectionInfoTip text={titleInfo} label={t("settings.aboutSection", { title })} />
+        ) : null}
         {titleNote ? <span className="text-xs font-normal text-slate-400">{titleNote}</span> : null}
       </div>
       <div className="mt-3">{children}</div>
@@ -152,6 +167,7 @@ function SeedDepartmentPicker({
   value: string[];
   onChange: (departments: string[]) => void;
 }) {
+  const { locale } = useI18n();
   const selected = value.filter((d) => TEAM_DEPARTMENTS.includes(d as (typeof TEAM_DEPARTMENTS)[number]));
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -168,7 +184,7 @@ function SeedDepartmentPicker({
               active ? departmentChipClass(dept) : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
             }`}
           >
-            {dept}
+            {translateDepartment(locale, dept)}
           </button>
         );
       })}
@@ -209,6 +225,8 @@ export function SettingsModal({
   googleCalendarOauthMessage?: { text: string; error: boolean } | null;
   timezone: ReturnType<typeof useTimezone>;
 }) {
+  const t = useT();
+  const { locale, setLocale } = useI18n();
   const { theme, fontScale, setTheme, setFontScale, fontScaleMin, fontScaleMax } = useAppearance(currentUserId);
   const [seedRole, setSeedRole] = useState<OrgRole>("partner");
   const [seedDepartments, setSeedDepartments] = useState<string[]>([]);
@@ -228,7 +246,7 @@ export function SettingsModal({
 
   async function handleCreateSeed() {
     if (seedRole === "partner" && seedDepartments.length === 0) {
-      setMessage({ text: "Pick at least one department.", error: true });
+      setMessage({ text: t("settings.seeds.pickDepartment"), error: true });
       return;
     }
     setBusy(true);
@@ -242,13 +260,9 @@ export function SettingsModal({
         accountValidMonths: seedRole === "partner" ? accountValidMonths : undefined,
       });
       setLastCode(seed.id);
-      setMessage({
-        text: "Code ready — copy and share it once.",
-        error: false,
-      });
     } catch (e) {
       setMessage({
-        text: e instanceof Error ? e.message : "Could not create code",
+        text: e instanceof Error ? e.message : t("settings.seeds.createFailed"),
         error: true,
       });
     } finally {
@@ -263,7 +277,7 @@ export function SettingsModal({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setMessage({ text: "Could not copy — select and copy manually.", error: true });
+      setMessage({ text: t("settings.seeds.copyFailed"), error: true });
     }
   }
 
@@ -284,13 +298,13 @@ export function SettingsModal({
       >
         <div className="settings-border flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5">
           <h2 id="settings-title" className="font-display text-base font-semibold text-slate-900">
-            Settings
+            {t("settings.title")}
           </h2>
           <button
             type="button"
             onClick={onClose}
             className="cursor-pointer rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-            aria-label="Close settings"
+            aria-label={t("settings.closeAria")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -299,12 +313,12 @@ export function SettingsModal({
         <div className="max-h-[min(75vh,36rem)] space-y-6 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
           {canManageSeeds && (
           <SettingsSection
-            title="Partner codes"
-            titleInfo="Issue a one-time code and give it to new partners. Each code is valid for 7 days."
+            title={t("settings.seeds.title")}
+            titleInfo={t("settings.seeds.info")}
           >
             <div className="space-y-3">
               <label className="block text-xs font-medium text-slate-600 settings-muted">
-                Role
+                {t("settings.seeds.role")}
                 <div className="mt-1">
                   <RoleSelect value={seedRole} onChange={setSeedRole} />
                 </div>
@@ -312,7 +326,9 @@ export function SettingsModal({
 
               {seedRole === "partner" && (
                 <div>
-                  <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">Departments</span>
+                  <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">
+                    {t("settings.seeds.departments")}
+                  </span>
                   <SeedDepartmentPicker value={seedDepartments} onChange={setSeedDepartments} />
                 </div>
               )}
@@ -320,7 +336,7 @@ export function SettingsModal({
               {seedRole === "partner" && (
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                   <span className="shrink-0 text-xs font-medium text-slate-600 settings-muted">
-                    Account access
+                    {t("settings.seeds.accountAccess")}
                   </span>
                   <select
                     value={accountValidMonths}
@@ -329,7 +345,7 @@ export function SettingsModal({
                   >
                     {PARTNER_ACCOUNT_MONTH_OPTIONS.map((months) => (
                       <option key={months} value={months}>
-                        {months} {months === 1 ? "month" : "months"}
+                        {t("common.month", { count: months })}
                       </option>
                     ))}
                   </select>
@@ -342,13 +358,15 @@ export function SettingsModal({
                 onClick={() => void handleCreateSeed()}
                 className="cursor-pointer rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Creating…" : "Generate code"}
+                {busy ? t("settings.seeds.creating") : t("settings.seeds.generate")}
               </button>
             </div>
 
             {lastCode && (
               <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-800">New code</p>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                  {t("settings.seeds.newCode")}
+                </p>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="min-w-0 flex-1 break-all font-mono text-xs text-emerald-950">{lastCode}</code>
                   <button
@@ -357,7 +375,7 @@ export function SettingsModal({
                     className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-50"
                   >
                     {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copied ? "Copied" : "Copy"}
+                    {copied ? t("common.copied") : t("common.copy")}
                   </button>
                 </div>
               </div>
@@ -366,7 +384,7 @@ export function SettingsModal({
             {sortedSeeds.length > 0 && (
               <div className="mt-3">
                 <CollapseHeader
-                  title="Issued codes"
+                  title={t("settings.seeds.issuedCodes")}
                   meta={`${sortedSeeds.length}`}
                   expanded={codesExpanded}
                   onToggle={() => setCodesExpanded((v) => !v)}
@@ -376,24 +394,28 @@ export function SettingsModal({
                     {sortedSeeds.map((s) => (
                       <li key={s.id} className="settings-card rounded-xl border border-slate-200 bg-white px-3 py-2">
                         <p className="font-mono text-[10px] text-slate-400">{s.id.slice(0, 8)}…</p>
-                        <p className="mt-0.5 text-slate-800">{ORG_ROLE_LABELS[s.orgRole]}</p>
+                        <p className="mt-0.5 text-slate-800">{translateRole(locale, s.orgRole)}</p>
                         {s.orgRole === "partner" && (
-                          <p className="mt-0.5 text-slate-600 settings-muted">{s.departments.join(", ")}</p>
+                          <p className="mt-0.5 text-slate-600 settings-muted">
+                            {s.departments.map((d) => translateDepartment(locale, d)).join(", ")}
+                          </p>
                         )}
                         <p className="mt-0.5 text-[10px] text-slate-500 settings-muted">
-                          {seedPersonLabel(people, s.issuedById, s.issuedByEmail)} ·{" "}
+                          {seedPersonLabel(people, s.issuedById, s.issuedByEmail, t("common.unknown"))} ·{" "}
                           {s.used
-                            ? seedPersonLabel(people, s.usedById ?? "", s.usedByEmail ?? "")
-                            : "Unclaimed"}{" "}
+                            ? seedPersonLabel(people, s.usedById ?? "", s.usedByEmail ?? "", t("common.unknown"))
+                            : t("settings.seeds.unclaimed")}{" "}
                           · {formatWhen(s.issuedAt)}
                         </p>
                         <p className="mt-0.5 text-[10px] text-slate-500 settings-muted">
-                          Code {s.used ? "was valid until" : "expires"} {formatWhen(s.expiresAt)}
-                          {!s.used && isSeedExpired(s) ? " · Expired" : ""}
+                          {seedCodeExpiryText(t, s.used, s.expiresAt)}
+                          {!s.used && isSeedExpired(s) ? ` · ${t("settings.seeds.expired")}` : ""}
                         </p>
                         {s.orgRole === "partner" && s.accountValidMonths ? (
                           <p className="mt-0.5 text-[10px] text-slate-500 settings-muted">
-                            {s.accountValidMonths} {s.accountValidMonths === 1 ? "month" : "months"} access on redeem
+                            {t("settings.seeds.accessOnRedeem", {
+                              months: t("common.month", { count: s.accountValidMonths }),
+                            })}
                           </p>
                         ) : null}
                       </li>
@@ -405,10 +427,35 @@ export function SettingsModal({
           </SettingsSection>
           )}
 
-          <SettingsSection title="Appearance">
+          <SettingsSection title={t("settings.appearance.title")}>
             <div className="space-y-4">
               <div>
-                <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">Theme</span>
+                <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">
+                  {t("common.language")}
+                </span>
+                <p className="mb-1.5 text-[10px] text-slate-500 settings-muted">{t("common.languageHint")}</p>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
+                  {APP_LOCALES.map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setLocale(loc)}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold ${
+                        locale === loc
+                          ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
+                          : "text-slate-600"
+                      }`}
+                    >
+                      {LOCALE_LABELS[loc]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="mb-1.5 block text-xs font-medium text-slate-600 settings-muted">
+                  {t("settings.appearance.theme")}
+                </span>
                 <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 shadow-inner">
                   <button
                     type="button"
@@ -420,7 +467,7 @@ export function SettingsModal({
                     }`}
                   >
                     <Sun className="h-3.5 w-3.5" aria-hidden />
-                    Bright
+                    {t("settings.appearance.bright")}
                   </button>
                   <button
                     type="button"
@@ -432,7 +479,7 @@ export function SettingsModal({
                     }`}
                   >
                     <Moon className="h-3.5 w-3.5" aria-hidden />
-                    Dark
+                    {t("settings.appearance.dark")}
                   </button>
                 </div>
               </div>
@@ -441,7 +488,7 @@ export function SettingsModal({
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 settings-muted">
                     <Type className="h-3.5 w-3.5" aria-hidden />
-                    Text size
+                    {t("settings.appearance.textSize")}
                   </span>
                   <span className="text-[10px] tabular-nums text-slate-500 settings-muted">{fontScalePct}%</span>
                 </div>
@@ -453,16 +500,18 @@ export function SettingsModal({
                   value={fontScale}
                   onChange={(e) => setFontScale(Number(e.target.value))}
                   className="h-2 w-full cursor-pointer accent-accent"
-                  aria-label="Adjust text size"
+                  aria-label={t("settings.appearance.textSizeAria")}
                 />
-                <p className="mt-1 text-[10px] text-slate-500 settings-muted">Drag to enlarge text across the app.</p>
+                <p className="mt-1 text-[10px] text-slate-500 settings-muted">
+                  {t("settings.appearance.textSizeHint")}
+                </p>
               </div>
 
               <TimezoneSettingsField timezone={timezone} />
             </div>
           </SettingsSection>
 
-          <SettingsSection title="Integrations">
+          <SettingsSection title={t("settings.integrations.title")}>
             <div className="space-y-2">
               <div className="settings-card rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4">
                 <GoogleCalendarIntegration active={open} oauthMessage={googleCalendarOauthMessage} />
@@ -473,8 +522,8 @@ export function SettingsModal({
                     <GmailIcon className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-slate-800">Gmail</p>
-                    <p className="text-[10px] text-slate-500">Email from the CRM (coming soon)</p>
+                    <p className="text-sm font-semibold text-slate-800">{t("settings.integrations.gmail")}</p>
+                    <p className="text-[10px] text-slate-500">{t("settings.integrations.gmailSoon")}</p>
                   </div>
                 </div>
               </div>

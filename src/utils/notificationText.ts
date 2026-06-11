@@ -1,52 +1,76 @@
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import type { AppNotification } from "../types";
 
 export function notificationHeadline(n: AppNotification): string {
-  const who = n.authorName || "Someone";
+  const locale = loadLocale();
+  const who = n.authorName || translate(locale, "notifications.line.someone");
   switch (n.kind) {
     case "mention_person":
-      return `${who} tagged you by name`;
+      return translate(locale, "notifications.mentionPerson", { who });
     case "mention_department":
-      return `${who} tagged your department (${n.mentionLabel || "team"})`;
+      return translate(locale, "notifications.mentionDept", {
+        who,
+        label: n.mentionLabel || translate(locale, "notifications.line.team"),
+      });
     case "mention_update":
-      return `${who} referenced ${n.mentionLabel || "an update"} in a comment`;
+      return translate(locale, "notifications.mentionUpdate", {
+        who,
+        label: n.mentionLabel || translate(locale, "notifications.line.anUpdate"),
+      });
     case "task_feedback":
-      return `${who} requested feedback`;
+      return translate(locale, "notifications.feedbackRequest", { who });
     case "task_feedback_reply":
-      return `${who} gave feedback`;
+      return translate(locale, "notifications.feedbackReply", { who });
     case "task_finished":
-      if (n.mentionLabel === "assigner") return `${who} finished your task`;
-      if (n.mentionLabel === "worker") return `${who} finished on a task you're on`;
-      return `${who} marked work finished`;
+      if (n.mentionLabel === "assigner") {
+        return translate(locale, "notifications.taskFinishedAssigner", { who });
+      }
+      if (n.mentionLabel === "worker") {
+        return translate(locale, "notifications.taskFinishedWorker", { who });
+      }
+      return translate(locale, "notifications.taskFinishedGeneric", { who });
     case "task_postponed":
-      return `${who} postponed the due date`;
+      return translate(locale, "notifications.taskPostponed", { who });
     case "task_created":
-      return `${who} created a task`;
+      return translate(locale, "notifications.taskCreated", { who });
     case "task_marked_complete":
-      return `${who} marked a task complete`;
+      return translate(locale, "notifications.taskMarkedComplete", { who });
     case "task_reopened":
-      return `${who} reopened a task`;
+      return translate(locale, "notifications.taskReopened", { who });
     case "comment_reaction":
-      return n.mentionLabel === "dislike" ? `${who} disliked a comment` : `${who} liked a comment`;
+      return n.mentionLabel === "dislike"
+        ? translate(locale, "notifications.commentDisliked", { who })
+        : translate(locale, "notifications.commentLiked", { who });
     case "reminder_shared":
-      return `${who} included you on a reminder`;
+      return translate(locale, "notifications.reminderShared", { who });
     case "reminder_due":
-      return n.mentionLabel ? `Reminder due in ${n.mentionLabel}` : "Reminder coming up";
+      return n.mentionLabel
+        ? translate(locale, "notifications.reminderDue", { label: n.mentionLabel })
+        : translate(locale, "notifications.reminderUpcoming");
     case "member_joined":
-      return `Welcome to the team, ${n.taskTitle.trim() || n.authorName || "new teammate"}!`;
+      return translate(locale, "notifications.memberJoined", {
+        name: n.taskTitle.trim() || n.authorName || translate(locale, "data.member.newTeammate"),
+      });
     case "chat_message":
-      return `${who} sent a message`;
+      return translate(locale, "notifications.chatMessage", { who });
     case "task_comment":
     default:
-      return `${who} commented on your task`;
+      return translate(locale, "notifications.taskComment", { who });
   }
 }
 
 export function notificationTaskLine(n: AppNotification): string {
+  const locale = loadLocale();
   if (n.kind === "member_joined") {
-    return n.bodyPreview.trim() || n.mentionLabel?.trim() || "New teammate";
+    return (
+      n.bodyPreview.trim() ||
+      n.mentionLabel?.trim() ||
+      translate(locale, "notifications.line.newTeammate")
+    );
   }
   if (n.kind === "chat_message") {
-    return n.taskTitle.trim() || "Conversation";
+    return n.taskTitle.trim() || translate(locale, "notifications.line.conversation");
   }
-  return n.taskTitle.trim() || "Untitled task";
+  return n.taskTitle.trim() || translate(locale, "common.untitledTask");
 }

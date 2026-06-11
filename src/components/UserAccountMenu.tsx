@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, Settings } from "lucide-react";
+import { useT } from "../contexts/I18nContext";
 import { signOutUser } from "../firebase/config";
 import type { Person } from "../types";
 import { PersonAvatar } from "./PersonAvatar";
@@ -15,6 +16,7 @@ export function UserAccountMenu({
   email?: string | null;
   onOpenSettings: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +65,7 @@ export function UserAccountMenu({
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
           >
             <Settings className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-            Settings
+            {t("account.settings")}
           </button>
           <button
             type="button"
@@ -72,7 +74,7 @@ export function UserAccountMenu({
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-rose-700 hover:bg-rose-50"
           >
             <LogOut className="h-3.5 w-3.5" aria-hidden />
-            Sign out
+            {t("account.signOut")}
           </button>
         </div>
       )}

@@ -4,6 +4,7 @@ import type { Person } from "../types";
 import { deletePersonAvatar, uploadPersonAvatar } from "../utils/personAvatar";
 import { storageUploadErrorMessage } from "../utils/imageAttachments";
 import { PERSON_AVATAR_SIZE_CLASS, PersonAvatar } from "./PersonAvatar";
+import { useT } from "../contexts/I18nContext";
 import { ProfilePhotoCropModal } from "./ProfilePhotoCropModal";
 
 export function ProfilePhotoAvatar({
@@ -19,6 +20,7 @@ export function ProfilePhotoAvatar({
   size?: keyof typeof PERSON_AVATAR_SIZE_CLASS;
   className?: string;
 }) {
+  const t = useT();
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,8 +82,8 @@ export function ProfilePhotoAvatar({
           disabled={saving}
           onClick={() => setModalOpen(true)}
           className="group inline-flex shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-60"
-          aria-label={person.avatarUrl ? "Change profile photo" : "Add profile photo"}
-          title={person.avatarUrl ? "Change profile photo" : "Add profile photo"}
+          aria-label={person.avatarUrl ? t("profilePhoto.changeAria") : t("profilePhoto.addAria")}
+          title={person.avatarUrl ? t("profilePhoto.changeAria") : t("profilePhoto.addAria")}
         >
           <span
             className={`relative inline-flex overflow-hidden rounded-full ${PERSON_AVATAR_SIZE_CLASS[size]} ${className}`}
@@ -97,7 +99,7 @@ export function ProfilePhotoAvatar({
                   size === "2xl" ? "text-xs" : size === "xl" ? "text-[10px]" : "text-[9px]"
                 }`}
               >
-                {person.avatarUrl ? "Change" : "Add"}
+                {person.avatarUrl ? t("profilePhoto.change") : t("profilePhoto.add")}
               </span>
             </span>
           </span>

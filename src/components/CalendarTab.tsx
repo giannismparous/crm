@@ -10,13 +10,9 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "../types";
-import {
-  PRIORITY_SHORT_LABEL,
-  PRIORITY_TOOLTIPS,
-  PriorityFilter,
-  PriorityUrgencyIcon,
-  TASK_PRIORITY_CALENDAR_CHIP,
-} from "./TasksTab";
+import { PriorityFilter, PriorityUrgencyIcon, TASK_PRIORITY_CALENDAR_CHIP } from "./TasksTab";
+import { useI18n, useT } from "../contexts/I18nContext";
+import { translatePriority, translateTaskStatus } from "../i18n/helpers";
 import { isPersonalReminderRelevantToPerson } from "../utils/personalReminderLinks";
 import {
   appointmentStartsAtMs,
@@ -35,7 +31,15 @@ import {
   orgYmdAddDays,
 } from "../utils/orgTimezone";
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_KEYS = [
+  "calendar.weekday.mon",
+  "calendar.weekday.tue",
+  "calendar.weekday.wed",
+  "calendar.weekday.thu",
+  "calendar.weekday.fri",
+  "calendar.weekday.sat",
+  "calendar.weekday.sun",
+] as const;
 
 const MAX_CHIPS_PER_CELL = 4;
 
@@ -244,13 +248,10 @@ function taskChipStyle(priority: TaskPriority) {
   return TASK_PRIORITY_CALENDAR_CHIP[priority];
 }
 
-const STATUS_SHORT: Record<TaskStatus, string> = {
-  todo: "To do",
-  in_progress: "Doing",
-  review: "Review",
-  done: "Done",
-  canceled: "Canceled",
-};
+function calendarStatusLabel(locale: ReturnType<typeof useI18n>["locale"], status: TaskStatus): string {
+  const key = status === "in_progress" ? "doing" : status;
+  return translateTaskStatus(locale, key);
+}
 
 export function CalendarTab({
   appointments,
@@ -280,6 +281,8 @@ export function CalendarTab({
   ) => void | Promise<void>;
   onOpenPersonalReminder: () => void;
 }) {
+  const t = useT();
+  const { locale } = useI18n();
   const CALENDAR_VIEW_DEFAULTS = useMemo(
     () => ({
       scope: "my" as TaskListScope,
@@ -371,7 +374,7 @@ export function CalendarTab({
                   scope === "my" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600"
                 }`}
               >
-                My calendar
+                {t("calendar.scope.my")}
               </button>
               <button
                 type="button"
@@ -382,11 +385,11 @@ export function CalendarTab({
                     : "text-slate-600"
                 }`}
               >
-                Everyone
+                {t("common.everyone")}
               </button>
             </span>
           ) : (
-            <span className="text-xs font-semibold text-slate-600">My calendar</span>
+            <span className="text-xs font-semibold text-slate-600">{t("calendar.scope.my")}</span>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -397,7 +400,7 @@ export function CalendarTab({
                 checked={showAppointments}
                 onChange={(e) => setShowAppointments(e.target.checked)}
               />
-              Appointments
+              {t("calendar.filter.appointments")}
             </label>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
               <input
@@ -406,7 +409,7 @@ export function CalendarTab({
                 checked={showReminders}
                 onChange={(e) => setShowReminders(e.target.checked)}
               />
-              Reminders
+              {t("calendar.filter.reminders")}
             </label>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
               <input
@@ -415,7 +418,7 @@ export function CalendarTab({
                 checked={showTasks}
                 onChange={(e) => setShowTasks(e.target.checked)}
               />
-              Tasks
+              {t("calendar.filter.tasks")}
             </label>
             {showTasks && (
               <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
@@ -430,7 +433,7 @@ export function CalendarTab({
               onClick={goToday}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Today
+              {t("common.today")}
             </button>
           )}
           <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
@@ -443,7 +446,7 @@ export function CalendarTab({
                 })
               }
               className="rounded-md px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100"
-              aria-label="Previous month"
+              aria-label={t("calendar.prevMonth")}
             >
               ‹
             </button>
@@ -459,7 +462,7 @@ export function CalendarTab({
                 })
               }
               className="rounded-md px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100"
-              aria-label="Next month"
+              aria-label={t("calendar.nextMonth")}
             >
               ›
             </button>
@@ -470,12 +473,12 @@ export function CalendarTab({
       <div className="grid gap-4 lg:grid-cols-[1fr_min(100%,320px)] lg:items-start">
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-200 shadow-sm">
           <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
-            {WEEKDAYS.map((d, wi) => (
+            {WEEKDAY_KEYS.map((key, wi) => (
               <div
-                key={d}
+                key={key}
                 className={`border-slate-200 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs ${wi > 0 ? "border-l" : ""}`}
               >
-                {d}
+                {t(key)}
               </div>
             ))}
           </div>
@@ -492,7 +495,7 @@ export function CalendarTab({
                   key={cell.key}
                   type="button"
                   onClick={() => setSelectedKey(cell.key)}
-                  title={`${cell.key}: ${items.length} item(s)`}
+                  title={t("calendar.cellTitle", { date: cell.key, count: String(items.length) })}
                   className={`flex min-h-[5.5rem] flex-col border-t border-slate-200 p-1 text-left transition sm:min-h-[7rem] sm:p-1.5 lg:min-h-[8.5rem] ${colStart ? "" : "border-l"} ${
                     cell.inMonth ? "bg-white" : "bg-slate-100/90"
                   } ${isSelected ? "z-[1] ring-2 ring-inset ring-indigo-400" : cell.inMonth ? "hover:bg-slate-50/80" : "hover:bg-slate-100"} ${
@@ -542,7 +545,7 @@ export function CalendarTab({
                                 onOpenTask(item.id);
                               }}
                               className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${chip.stripe} ${chip.bg} ${chip.text} ${chip.hover}`}
-                              title={`${item.projectName ? `${item.projectName} · ` : ""}${PRIORITY_SHORT_LABEL[item.priority]} · ${item.title} · ${STATUS_SHORT[item.status]}`}
+                              title={`${item.projectName ? `${item.projectName} · ` : ""}${translatePriority(locale, item.priority)} · ${item.title} · ${calendarStatusLabel(locale, item.status)}`}
                             >
                               <span className="flex min-w-0 items-center gap-0.5">
                                 <PriorityUrgencyIcon
@@ -584,7 +587,9 @@ export function CalendarTab({
                       )
                     )}
                     {more > 0 && (
-                      <div className="truncate px-0.5 text-[10px] font-semibold text-slate-500">+{more} more</div>
+                      <div className="truncate px-0.5 text-[10px] font-semibold text-slate-500">
+                        {t("calendar.moreChips", { count: String(more) })}
+                      </div>
                     )}
                   </div>
                 </button>
@@ -602,10 +607,10 @@ export function CalendarTab({
                   day: "numeric",
                   year: "numeric",
                 })
-              : "Select a day"}
+              : t("calendar.selectDay")}
           </h2>
           {selectedItems.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">Nothing scheduled for this date.</p>
+            <p className="mt-3 text-sm text-slate-500">{t("calendar.nothingScheduled")}</p>
           ) : (
             <ul className="mt-3 max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-sm">
               {selectedItems.map((item) =>
@@ -617,7 +622,7 @@ export function CalendarTab({
                       className={`w-full rounded-lg border px-3 py-2 text-left ring-1 transition ${APPOINTMENT_CHIP.border} ${APPOINTMENT_CHIP.bg}/80 ${APPOINTMENT_CHIP.ring} ${APPOINTMENT_CHIP.hoverBorder} ${APPOINTMENT_CHIP.hoverBg}`}
                     >
                       <div className={`text-[10px] font-bold uppercase tracking-wide ${APPOINTMENT_CHIP.label}`}>
-                        Appointment
+                        {t("calendar.item.appointment")}
                       </div>
                       <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
                       {item.timeLabel ? (
@@ -634,17 +639,17 @@ export function CalendarTab({
                           type="button"
                           onClick={() => onOpenTask(item.id)}
                           className={`w-full rounded-lg border px-3 py-2 text-left ring-1 transition ${chip.border} ${chip.bg}/80 ${chip.ring} ${chip.hover}`}
-                          title={PRIORITY_TOOLTIPS[item.priority]}
+                          title={t(`tasks.priority.${item.priority}Tip`)}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className={`text-[10px] font-bold uppercase tracking-wide ${chip.label}`}>
-                              Task
+                              {t("calendar.item.task")}
                             </div>
                             <span
                               className={`inline-flex items-center gap-1 text-[10px] font-semibold ${chip.label}`}
                             >
                               <PriorityUrgencyIcon priority={item.priority} className="h-3.5 w-3.5" />
-                              {PRIORITY_SHORT_LABEL[item.priority]}
+                              {translatePriority(locale, item.priority)}
                             </span>
                           </div>
                           {item.projectName ? (
@@ -656,7 +661,7 @@ export function CalendarTab({
                             </div>
                           ) : null}
                           <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
-                          <div className="mt-1 text-xs text-slate-600">{STATUS_SHORT[item.status]}</div>
+                          <div className="mt-1 text-xs text-slate-600">{calendarStatusLabel(locale, item.status)}</div>
                         </button>
                       </li>
                     );
@@ -672,7 +677,7 @@ export function CalendarTab({
                       className="w-full text-left transition hover:opacity-90"
                     >
                       <div className={`text-[10px] font-bold uppercase tracking-wide ${REMINDER_CHIP.label}`}>
-                        Reminder
+                        {t("calendar.item.reminder")}
                       </div>
                       <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
                       {item.timeLabel ? (
@@ -692,7 +697,7 @@ export function CalendarTab({
                         }}
                         className="rounded border-slate-300 text-accent focus:ring-accent/30"
                       />
-                      Done
+                      {t("common.done")}
                     </label>
                   </li>
                 )
@@ -702,22 +707,22 @@ export function CalendarTab({
 
           <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-3 text-[10px] text-slate-500">
             <span className="inline-flex items-center gap-1">
-              <span className={`h-2 w-2 rounded-sm ${APPOINTMENT_CHIP.legend}`} /> Appointments
+              <span className={`h-2 w-2 rounded-sm ${APPOINTMENT_CHIP.legend}`} /> {t("calendar.legend.appointments")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-rose-600" /> Urgent
+              <span className="h-2 w-2 rounded-sm bg-rose-600" /> {t("calendar.legend.urgent")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-orange-600" /> High
+              <span className="h-2 w-2 rounded-sm bg-orange-600" /> {t("calendar.legend.high")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-indigo-600" /> Medium
+              <span className="h-2 w-2 rounded-sm bg-indigo-600" /> {t("calendar.legend.medium")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-sm bg-emerald-600" /> Low
+              <span className="h-2 w-2 rounded-sm bg-emerald-600" /> {t("calendar.legend.low")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className={`h-2 w-2 rounded-sm ${REMINDER_CHIP.legend}`} /> Reminders
+              <span className={`h-2 w-2 rounded-sm ${REMINDER_CHIP.legend}`} /> {t("calendar.legend.reminders")}
             </span>
           </div>
         </aside>

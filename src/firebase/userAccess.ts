@@ -1,7 +1,9 @@
 import type { User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { FOUNDER_BOOTSTRAP_EMAIL, normalizeOrgRole } from "../auth/roles";
-import { ACCOUNT_EXPIRED_MESSAGE, isAccountExpired } from "../utils/accountExpiry";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
+import { isAccountExpired } from "../utils/accountExpiry";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "./config";
 
 const ORG = SIMASIA_AI_ORG_ID;
@@ -31,7 +33,7 @@ export async function verifyUserOrgAccess(user: User): Promise<void> {
   const orgRole = normalizeOrgRole(person?.orgRole ?? userRow?.orgRole);
   const accountExpiresAt = trimStr(person?.accountExpiresAt) || trimStr(userRow?.accountExpiresAt);
   if (isAccountExpired({ orgRole, accountExpiresAt })) {
-    throw new Error(ACCOUNT_EXPIRED_MESSAGE);
+    throw new Error(translate(loadLocale(), "auth.error.accountExpired"));
   }
 
   const seedId = trimStr(person?.registrationSeedId) || trimStr(userRow?.registrationSeedId);
@@ -40,7 +42,5 @@ export async function verifyUserOrgAccess(user: User): Promise<void> {
   const personLinked = personSnap.exists() && trimStr(person?.authUid) === uid;
   if (personLinked && (orgRole === "founder" || orgRole === "partner")) return;
 
-  throw new Error(
-    "This account is not registered with your team. Create an account with a valid one-time seed, or contact your admin."
-  );
+  throw new Error(translate(loadLocale(), "auth.error.notRegistered"));
 }

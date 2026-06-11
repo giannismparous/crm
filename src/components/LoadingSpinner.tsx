@@ -1,3 +1,5 @@
+import { useT } from "../contexts/I18nContext";
+
 const SIZE_CLASS = {
   xs: "h-3 w-3 border",
   sm: "h-4 w-4 border",
@@ -9,14 +11,16 @@ const SIZE_CLASS = {
 export function LoadingSpinner({
   size = "md",
   className = "",
-  label = "Loading",
+  label,
 }: {
   size?: keyof typeof SIZE_CLASS;
   className?: string;
   label?: string;
 }) {
+  const t = useT();
+  const aria = label ?? t("common.loading");
   return (
-    <span role="status" aria-label={label} className={`inline-flex shrink-0 ${className}`}>
+    <span role="status" aria-label={aria} className={`inline-flex shrink-0 ${className}`}>
       <span
         className={`animate-spin rounded-full border-slate-200/90 border-t-accent ${SIZE_CLASS[size]}`}
         aria-hidden

@@ -14,6 +14,9 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { canSeeAllOrgData } from "../auth/roles";
+import { translateDepartment } from "../i18n/helpers";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 import type { ChatConversation, ChatConversationKind, ChatMemberState, ChatMessage, Person } from "../types";
 import type { ImageAttachment } from "../types";
 import { attachmentMediaKind, deleteImagesFromStorage, normalizeImageAttachments } from "../utils/imageAttachments";
@@ -122,17 +125,18 @@ export function chatMessagePreview(body: string, attachments: ImageAttachment[] 
   const text = body.trim();
   if (text) return text.slice(0, 240);
   if (attachments.length === 0) return "";
+  const locale = loadLocale();
   const kind = attachmentMediaKind(attachments[0]!);
   const n = attachments.length;
   const label =
     kind === "video"
-      ? "Video"
+      ? translate(locale, "chat.attachment.video")
       : kind === "audio"
-        ? "Audio"
+        ? translate(locale, "chat.attachment.audio")
         : kind === "file"
-          ? "File"
-          : "Photo";
-  return n > 1 ? `${n} attachments` : label;
+          ? translate(locale, "chat.attachment.file")
+          : translate(locale, "chat.attachment.photo");
+  return n > 1 ? translate(locale, "chat.attachment.nAttachments", { count: n }) : label;
 }
 
 export function normalizeChatMemberState(userId: string, data: Record<string, unknown>): ChatMemberState {
@@ -224,15 +228,18 @@ export function conversationDisplayTitle(
   people: Person[],
   currentUserId: string
 ): string {
-  if (conv.kind === "founders") return FOUNDERS_CHAT_TITLE;
+  const locale = loadLocale();
+  if (conv.kind === "founders") return translate(locale, "chat.founders");
   if (conv.title?.trim()) return conv.title.trim();
   if (conv.kind === "dm") {
     const otherId = conv.memberIds.find((id) => id !== currentUserId);
     const other = people.find((p) => p.id === otherId);
-    return other?.name.trim() || other?.email.trim() || "Direct message";
+    return other?.name.trim() || other?.email.trim() || translate(locale, "chat.directMessage");
   }
   const deptPart =
-    conv.departmentIds && conv.departmentIds.length > 0 ? conv.departmentIds.join(", ") : "";
+    conv.departmentIds && conv.departmentIds.length > 0
+      ? conv.departmentIds.map((d) => translateDepartment(locale, d)).join(", ")
+      : "";
   const names = conv.memberIds
     .filter((id) => id !== currentUserId)
     .map((id) => people.find((p) => p.id === id)?.name.trim())
@@ -242,7 +249,7 @@ export function conversationDisplayTitle(
     const peoplePart = names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
     return `${deptPart} · ${peoplePart}`;
   }
-  if (names.length === 0) return "Group chat";
+  if (names.length === 0) return translate(locale, "chat.groupChat");
   if (names.length <= 3) return names.join(", ");
   return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
 }

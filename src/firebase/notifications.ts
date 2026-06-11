@@ -11,6 +11,10 @@ import { getTaskWorkerIds } from "../utils/taskAssignees";
 import { parseMentionsFromText } from "../utils/mentions";
 import { taskFinishedNotifyRecipients } from "../utils/notifyRecipients";
 import { taskUpdateEntries, updateMentionLabels } from "../utils/taskUpdateEntries";
+import { translateDepartment, translateRole } from "../i18n/helpers";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
+import type { OrgRole } from "../auth/roles";
 
 const PREVIEW_LEN = 160;
 
@@ -191,8 +195,9 @@ export async function createNotificationsForComment(
   people: Person[],
   projects: Project[] = []
 ): Promise<void> {
+  const locale = loadLocale();
   const author = people.find((p) => p.id === comment.authorId);
-  const authorName = author?.name ?? "Someone";
+  const authorName = author?.name ?? translate(locale, "common.someone");
   const recipients = resolveRecipients(task, comment, people, projects);
   if (recipients.size === 0) return;
 
@@ -200,7 +205,7 @@ export async function createNotificationsForComment(
   const col = collection(db, "organizations", orgId, "notifications");
   const createdAt = comment.createdAt || new Date().toISOString();
   const preview = bodyPreview(comment.body);
-  const taskTitle = task.title.trim() || "Untitled task";
+  const taskTitle = task.title.trim() || translate(locale, "common.untitledTask");
 
   for (const [recipientId, meta] of recipients) {
     const notifId = `${comment.id}_${recipientId}`;
@@ -258,10 +263,13 @@ export async function createNotificationsForCommentReaction(
 
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
   const createdAt = new Date().toISOString();
-  const taskTitle = task.title.trim() || "Untitled task";
-  const verb = reaction === "like" ? "liked" : "disliked";
-  const preview = `${actorName} ${verb} a comment`;
+  const taskTitle = task.title.trim() || translate(locale, "common.untitledTask");
+  const preview =
+    reaction === "like"
+      ? translate(locale, "data.notify.commentLiked", { actor: actorName })
+      : translate(locale, "data.notify.commentDisliked", { actor: actorName });
 
   for (const recipientId of recipientIds) {
     const notifId = commentReactionNotificationId(comment.id, actorId, recipientId);
@@ -308,7 +316,8 @@ function taskFinishedCopy(actorName: string, taskTitle: string, role: "assigner"
   mentionLabel: string;
   bodyPreview: string;
 } {
-  const title = taskTitle.trim() || "Untitled task";
+  const locale = loadLocale();
+  const title = taskTitle.trim() || translate(locale, "common.untitledTask");
   if (role === "assigner") {
     return { mentionLabel: "assigner", bodyPreview: "" };
   }
@@ -317,7 +326,7 @@ function taskFinishedCopy(actorName: string, taskTitle: string, role: "assigner"
   }
   return {
     mentionLabel: "",
-    bodyPreview: `${actorName} marked their work finished on “${title}”.`,
+    bodyPreview: translate(locale, "data.notify.taskFinishedBody", { actor: actorName, title }),
   };
 }
 
@@ -335,8 +344,9 @@ export async function createNotificationsForTaskFinished(
 
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
   const createdAt = new Date().toISOString();
-  const taskTitle = task.title.trim() || "Untitled task";
+  const taskTitle = task.title.trim() || translate(locale, "common.untitledTask");
   const eventKey = `task_finished_${createdAt}`;
 
   for (const { recipientId, role } of recipients) {
@@ -378,8 +388,9 @@ export async function createNotificationsForTaskEvent(
 
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
   const createdAt = new Date().toISOString();
-  const taskTitle = task.title.trim() || "Untitled task";
+  const taskTitle = task.title.trim() || translate(locale, "common.untitledTask");
   const preview = bodyPreview.trim();
   const eventKey = `${kind}_${createdAt}`;
 
@@ -420,8 +431,9 @@ export async function createNotificationsForReminderShared(
 
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
   const createdAt = new Date().toISOString();
-  const title = reminderTitle.trim() || "Reminder";
+  const title = reminderTitle.trim() || translate(locale, "data.reminder.fallbackTitle");
   const preview = bodyPreview.trim();
   const eventKey = `reminder_shared_${createdAt}`;
 
@@ -461,9 +473,10 @@ export async function upsertReminderDueNotifications(
 
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
   const createdAt = new Date().toISOString();
-  const title = reminderTitle.trim() || "Reminder";
-  const preview = `Due in ${slotLabel}`;
+  const title = reminderTitle.trim() || translate(locale, "data.reminder.fallbackTitle");
+  const preview = translate(locale, "data.reminder.duePreview", { label: slotLabel });
 
   for (const recipientId of unique) {
     const notifId = `${reminderId}_due_${recipientId}`;
@@ -476,7 +489,7 @@ export async function upsertReminderDueNotifications(
       taskTitle: title,
       commentId: `due_${slotKey}`,
       authorId: "",
-      authorName: "Reminder",
+      authorName: translate(locale, "data.reminder.author"),
       bodyPreview: preview,
       read: false,
       createdAt,
@@ -506,10 +519,14 @@ export async function createNotificationsForNewMember(
   const recipients = people.filter((p) => p.authUid && p.id !== memberId).map((p) => p.id);
   if (recipients.length === 0) return;
 
+  const locale = loadLocale();
   const { first, last } = splitDisplayName(displayName);
   const fullName = last ? `${first} ${last}` : first;
-  const roleLabel = orgRole === "founder" ? "Founder" : "Partner";
-  const deptLabel = departments.length > 0 ? departments.join(", ") : "";
+  const roleLabel = translateRole(locale, orgRole as OrgRole);
+  const deptLabel =
+    departments.length > 0
+      ? departments.map((d) => translateDepartment(locale, d)).join(", ")
+      : "";
   const batch = writeBatch(db);
   const col = collection(db, "organizations", orgId, "notifications");
   const createdAt = new Date().toISOString();
@@ -527,7 +544,9 @@ export async function createNotificationsForNewMember(
       commentId: eventKey,
       authorId: memberId,
       authorName: fullName,
-      bodyPreview: deptLabel ? `${roleLabel} · ${deptLabel}` : roleLabel,
+      bodyPreview: deptLabel
+        ? translate(locale, "data.member.joinPreview", { role: roleLabel, departments: deptLabel })
+        : roleLabel,
       read: false,
       createdAt,
     });

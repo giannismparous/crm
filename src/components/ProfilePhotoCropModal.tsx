@@ -3,6 +3,7 @@ import { Loader2, Trash2, X, ZoomIn } from "lucide-react";
 import { MAX_IMAGE_BYTES } from "../types";
 import { storagePathFromDownloadUrl } from "../utils/imageAttachments";
 import { fetchPersonAvatarBlob, renderCircularAvatarBlob } from "../utils/personAvatar";
+import { useT } from "../contexts/I18nContext";
 
 const VIEWPORT = 280;
 const MAX_MB = MAX_IMAGE_BYTES / (1024 * 1024);
@@ -24,6 +25,7 @@ export function ProfilePhotoCropModal({
   existingPhotoStoragePath?: string;
   saving?: boolean;
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -83,7 +85,7 @@ export function ProfilePhotoCropModal({
       img.onload = () => resolve(img);
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        reject(new Error("Could not load image."));
+        reject(new Error(t("profilePhoto.error.loadImage")));
       };
       img.src = url;
     });
@@ -97,7 +99,7 @@ export function ProfilePhotoCropModal({
 
   function loadBlob(blob: Blob): Promise<boolean> {
     if (!isImageBlob(blob)) {
-      setError(`Choose a photo (max ${MAX_MB} MB).`);
+      setError(t("profilePhoto.error.choosePhoto", { maxMb: MAX_MB }));
       setLoadingImage(false);
       return Promise.resolve(false);
     }
@@ -111,7 +113,7 @@ export function ProfilePhotoCropModal({
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        setError("Could not load that image.");
+        setError(t("profilePhoto.error.loadThatImage"));
         setLoadingImage(false);
         resolve(false);
       };
@@ -157,7 +159,7 @@ export function ProfilePhotoCropModal({
     }
 
     if (url) {
-      setError("Could not load your current photo. Choose a new one.");
+      setError(t("profilePhoto.error.loadCurrent"));
     }
     setLoadingImage(false);
   }
@@ -203,7 +205,7 @@ export function ProfilePhotoCropModal({
   }
 
   async function resolveExportImage(): Promise<HTMLImageElement> {
-    if (!image) throw new Error("No image to save.");
+    if (!image) throw new Error(t("profilePhoto.error.noImage"));
     const path = existingPathRef.current?.trim();
     if (!remotePreviewRef.current || !path) return image;
     return imageFromBlob(await fetchPersonAvatarBlob(path));
@@ -222,13 +224,11 @@ export function ProfilePhotoCropModal({
     } catch (err) {
       const code = (err as { code?: string })?.code ?? "";
       if (code === "storage/unauthorized" || code === "storage/unauthenticated") {
-        setError("Could not save crop. Sign in and check Storage rules, then try again.");
+        setError(t("profilePhoto.error.saveCrop"));
       } else if (remotePreviewRef.current) {
-        setError(
-          "Could not save crop (Storage CORS). Run npm run storage:cors once, then try again."
-        );
+        setError(t("profilePhoto.error.saveCors"));
       } else {
-        setError(err instanceof Error ? err.message : "Could not save photo.");
+        setError(err instanceof Error ? err.message : t("profilePhoto.error.saveFailed"));
       }
     } finally {
       if (exportUrl) URL.revokeObjectURL(exportUrl);
@@ -245,7 +245,7 @@ export function ProfilePhotoCropModal({
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 p-4"
       role="dialog"
       aria-modal
-      aria-label="Profile photo"
+      aria-label={t("profilePhoto.aria")}
       onClick={() => !busy && onClose()}
     >
       <div
@@ -254,17 +254,15 @@ export function ProfilePhotoCropModal({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-lg font-semibold text-slate-900">Profile photo</h3>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Drag to reposition. Saved as a circle.
-            </p>
+            <h3 className="font-display text-lg font-semibold text-slate-900">{t("profilePhoto.aria")}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">{t("profilePhoto.hint")}</p>
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={onClose}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X className="h-5 w-5" />
           </button>
@@ -302,12 +300,12 @@ export function ProfilePhotoCropModal({
             />
           ) : loadingImage ? (
             <div className="flex h-full w-full items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-accent" aria-label="Loading photo" />
+              <Loader2 className="h-8 w-8 animate-spin text-accent" aria-label={t("profilePhoto.loadingAria")} />
             </div>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
               <ZoomIn className="h-8 w-8 opacity-60" aria-hidden />
-              <p className="text-xs">Choose a photo to crop</p>
+              <p className="text-xs">{t("profilePhoto.chooseToCrop")}</p>
             </div>
           )}
         </div>
@@ -316,7 +314,7 @@ export function ProfilePhotoCropModal({
           <label className="mt-4 block">
             <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
               <ZoomIn className="h-3.5 w-3.5" aria-hidden />
-              Zoom
+              {t("profilePhoto.zoom")}
             </span>
             <input
               type="range"
@@ -340,7 +338,7 @@ export function ProfilePhotoCropModal({
             onClick={() => inputRef.current?.click()}
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            {image ? "Choose another" : "Choose photo"}
+            {image ? t("profilePhoto.chooseAnother") : t("profilePhoto.choosePhoto")}
           </button>
           <button
             type="button"
@@ -349,7 +347,7 @@ export function ProfilePhotoCropModal({
             className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
           >
             {(saving || rendering) && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-            Save photo
+            {t("profilePhoto.savePhoto")}
           </button>
           {onRemove && (existingPhotoUrl || existingPhotoStoragePath) && (
             <button
@@ -359,7 +357,7 @@ export function ProfilePhotoCropModal({
               className="inline-flex w-full basis-full items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50 hover:border-rose-400 active:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:basis-auto"
             >
               <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
-              Remove photo
+              {t("profilePhoto.removePhoto")}
             </button>
           )}
         </div>

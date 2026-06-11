@@ -1,4 +1,6 @@
-export function formatAuthError(err: unknown): string {
+import type { TFunction } from "../i18n/helpers";
+
+export function formatAuthError(err: unknown, t: TFunction): string {
   if (err instanceof Error && err.message && !isFirebaseError(err)) {
     return err.message;
   }
@@ -6,28 +8,28 @@ export function formatAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code ?? "";
   switch (code) {
     case "auth/email-already-in-use":
-      return "An account with this email already exists. Sign in instead.";
+      return t("auth.error.emailInUse");
     case "auth/invalid-email":
-      return "Enter a valid email address.";
+      return t("auth.error.invalidEmail");
     case "auth/invalid-credential":
     case "auth/wrong-password":
     case "auth/user-not-found":
     case "auth/invalid-login-credentials":
-      return "Incorrect email or password.";
+      return t("auth.error.wrongCredentials");
     case "auth/too-many-requests":
-      return "Too many attempts. Wait a moment and try again.";
+      return t("auth.error.tooManyRequests");
     case "auth/weak-password":
-      return "Password must be at least 6 characters.";
+      return t("auth.error.weakPassword");
     case "auth/network-request-failed":
-      return "Network error. Check your connection and try again.";
+      return t("auth.error.network");
     case "permission-denied":
-      return "Permission denied. Check your connection or contact your admin.";
+      return t("auth.error.permissionDenied");
     default:
       break;
   }
 
   if (err instanceof Error && err.message) return err.message;
-  return "Something went wrong. Try again.";
+  return t("auth.error.generic");
 }
 
 function isFirebaseError(err: Error): boolean {

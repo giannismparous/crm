@@ -28,6 +28,8 @@ import { groupKeyForSelection, resolveGroupMemberIds } from "../utils/chatGroup"
 import { normalizeAssigneeDepartments } from "../utils/taskAssignees";
 import { useChatWindowMessages } from "./useChatWindowMessages";
 import { canUnsendChatMessage } from "../utils/chatUnsend";
+import { loadLocale } from "../i18n/localeStorage";
+import { translate } from "../i18n/translate";
 
 export function useOrgChat({
   db,
@@ -178,7 +180,7 @@ export function useOrgChat({
       if (!text && attachments.length === 0) return;
       const conv = conversations.find((c) => c.id === conversationId);
       if (!conv) {
-        throw new Error("Conversation is still loading. Try again in a moment.");
+        throw new Error(translate(loadLocale(), "chat.error.loading"));
       }
 
       const now = new Date().toISOString();
@@ -202,7 +204,8 @@ export function useOrgChat({
       await markConversationRead(conversationId, now);
 
       const author = people.find((p) => p.id === currentUserId);
-      const authorName = author?.name.trim() || author?.email.trim() || "Someone";
+      const authorName =
+        author?.name.trim() || author?.email.trim() || translate(loadLocale(), "common.someone");
       await createNotificationsForChatMessage(db, orgId, {
         messageId,
         conversationId,
@@ -221,10 +224,10 @@ export function useOrgChat({
     async (conversationId: string, message: ChatMessage) => {
       if (!db || !currentUserId) return;
       if (message.authorId !== currentUserId) {
-        throw new Error("You can only unsend your own messages.");
+        throw new Error(translate(loadLocale(), "chat.error.unsendOwn"));
       }
       if (!canUnsendChatMessage(message, currentUserId)) {
-        throw new Error("This message can no longer be unsent.");
+        throw new Error(translate(loadLocale(), "chat.error.unsendExpired"));
       }
       await unsendChatMessage(db, orgId, conversationId, message);
     },
@@ -236,7 +239,7 @@ export function useOrgChat({
       if (!db || !currentUserId) return "";
       const other = people.find((p) => p.id === otherPersonId);
       if (!other || !canMessagePerson(other, currentUserPerson, currentUserId, currentUserOrgRole)) {
-        throw new Error("You cannot message this person.");
+        throw new Error(translate(loadLocale(), "chat.error.cannotMessage"));
       }
       const existing = await findDmConversation(db, orgId, [currentUserId, otherPersonId]);
       if (existing) return existing.id;
@@ -264,7 +267,7 @@ export function useOrgChat({
       const pickedPeople = [...new Set(participantIds.filter((id) => id && id !== currentUserId))];
       const pickedDepartments = normalizeAssigneeDepartments(departmentIds);
       if (pickedPeople.length === 0 && pickedDepartments.length === 0) {
-        throw new Error("Pick at least one person or department.");
+        throw new Error(translate(loadLocale(), "chat.error.pickParticipant"));
       }
 
       const memberIds = resolveGroupMemberIds(
@@ -274,7 +277,7 @@ export function useOrgChat({
         people
       );
       if (memberIds.length < 2) {
-        throw new Error("Need at least one other person in the group.");
+        throw new Error(translate(loadLocale(), "chat.error.needOtherPerson"));
       }
 
       const groupKey = groupKeyForSelection(pickedPeople, pickedDepartments, currentUserId);
@@ -296,7 +299,7 @@ export function useOrgChat({
         if (id === currentUserId) continue;
         const person = people.find((p) => p.id === id);
         if (!person || !canMessagePerson(person, currentUserPerson, currentUserId, currentUserOrgRole)) {
-          throw new Error("One or more selected people cannot be added.");
+          throw new Error(translate(loadLocale(), "chat.error.cannotAdd"));
         }
       }
 
@@ -309,7 +312,7 @@ export function useOrgChat({
         participantIds: pickedPeople,
         ...(pickedDepartments.length > 0 ? { departmentIds: pickedDepartments } : {}),
         groupKey,
-        title: title.trim() || "Group chat",
+        title: title.trim() || translate(loadLocale(), "chat.groupChat"),
         createdById: currentUserId,
         createdAt: now,
       });

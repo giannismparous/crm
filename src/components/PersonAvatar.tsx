@@ -3,6 +3,7 @@ import type { Person } from "../types";
 import { useOpenTeamMember } from "../contexts/PersonNavContext";
 import { personAvatarGradient, personInitials } from "../utils/personAvatar";
 import { LoadableImage } from "./LoadableImage";
+import { useT } from "../contexts/I18nContext";
 
 export const PERSON_AVATAR_SIZE_CLASS = {
   "2xs": "h-4 w-4 text-[7px]",
@@ -32,7 +33,8 @@ export function PersonAvatar({
   className?: string;
   style?: CSSProperties;
 }) {
-  const displayName = person?.name?.trim() || name?.trim() || "Member";
+  const t = useT();
+  const displayName = person?.name?.trim() || name?.trim() || t("common.member");
   const url = person?.avatarUrl?.trim() || avatarUrl?.trim() || "";
   const initials = personInitials(displayName);
   const gradient = personAvatarGradient(displayName);
@@ -99,8 +101,9 @@ export function PersonNameInline({
   stopPropagation?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const openTeam = useOpenTeamMember();
-  const displayName = person?.name?.trim() || name?.trim() || "Unknown";
+  const displayName = person?.name?.trim() || name?.trim() || t("common.unknown");
   const resolvedId = person?.id?.trim() || personId?.trim();
   const canNavigate = Boolean(resolvedId && openTeam);
 
@@ -133,7 +136,7 @@ export function PersonNameInline({
       type="button"
       onClick={(e) => openPersonProfile(e, openTeam, resolvedId, stopPropagation)}
       className={`${personNavButtonClass("gap-1.5 align-middle")} ${className}`}
-      title={`View ${displayName} in Team`}
+      title={t("team.viewMember", { name: displayName })}
     >
       {inner}
     </button>
@@ -152,6 +155,7 @@ export function PersonNamesInline({
   stopPropagation?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const openTeam = useOpenTeamMember();
   if (people.length === 0) return null;
 
@@ -159,7 +163,7 @@ export function PersonNamesInline({
     <span className={`inline-flex min-w-0 flex-wrap items-center ${className}`}>
       {people.map((person, index) => {
         const isMe = currentUserId && person.id === currentUserId;
-        const name = person.name.trim() || "Someone";
+        const name = person.name.trim() || t("common.someone");
         const canNavigate = Boolean(person.id && openTeam);
         const nameClass = isMe
           ? "font-semibold text-indigo-700 underline decoration-indigo-400 underline-offset-2"
@@ -173,7 +177,7 @@ export function PersonNamesInline({
                 type="button"
                 onClick={(e) => openPersonProfile(e, openTeam, person.id, stopPropagation)}
                 className={personNavButtonClass(`px-0.5 ${nameClass}`)}
-                title={`View ${name} in Team`}
+                title={t("team.viewMember", { name })}
               >
                 {name}
               </button>
@@ -209,9 +213,10 @@ export function PersonAvatarStack({
   className?: string;
   stopPropagation?: boolean;
 }) {
+  const t = useT();
   const openTeam = useOpenTeamMember();
   if (people.length === 0) return null;
-  const label = people.map((p) => p.name.trim() || "Member").join(", ");
+  const label = people.map((p) => p.name.trim() || t("common.member")).join(", ");
   const overlap = STACK_OVERLAP[size];
   const showCount = people.length > 2;
   const visible = showCount ? people.slice(0, 2) : people;
@@ -240,7 +245,7 @@ export function PersonAvatarStack({
             type="button"
             onClick={(e) => openPersonProfile(e, openTeam, person.id, stopPropagation)}
             className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-            title={`View ${person.name.trim() || "Member"} in Team`}
+            title={t("team.viewMember", { name: person.name.trim() || t("common.member") })}
             style={{ zIndex: i + 1 }}
           >
             {avatar}

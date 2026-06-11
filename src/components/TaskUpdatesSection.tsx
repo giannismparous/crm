@@ -24,6 +24,7 @@ import { formatInOrgTime } from "../utils/orgTimezone";
 import { PersonAvatarStack, PersonNamesInline } from "./PersonAvatar";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
+import { useT } from "../contexts/I18nContext";
 
 type ComposeStep = "editing" | "generatingTitle" | "reviewTitle" | "customTitle" | "saving";
 
@@ -44,28 +45,37 @@ function restoreDraftState(taskId: string, userId: string) {
   return { body, composeId, composing };
 }
 
-const UPDATE_MEDIA_BADGES = [
-  { key: "images" as const, Icon: ImageIcon, label: "images", chip: "bg-sky-50 text-sky-700 ring-sky-200/80" },
-  { key: "videos" as const, Icon: Video, label: "videos", chip: "bg-violet-50 text-violet-700 ring-violet-200/80" },
-  { key: "audio" as const, Icon: Music, label: "audio", chip: "bg-amber-50 text-amber-800 ring-amber-200/80" },
-  { key: "files" as const, Icon: FileText, label: "files", chip: "bg-slate-100 text-slate-700 ring-slate-200/80" },
+type MediaBadgeKey = "images" | "videos" | "audio" | "files";
+
+const UPDATE_MEDIA_BADGE_KEYS: {
+  key: MediaBadgeKey;
+  Icon: typeof ImageIcon;
+  labelKey: string;
+  chip: string;
+}[] = [
+  { key: "images", Icon: ImageIcon, labelKey: "common.media.images", chip: "bg-sky-50 text-sky-700 ring-sky-200/80" },
+  { key: "videos", Icon: Video, labelKey: "common.media.videos", chip: "bg-violet-50 text-violet-700 ring-violet-200/80" },
+  { key: "audio", Icon: Music, labelKey: "common.media.audio", chip: "bg-amber-50 text-amber-800 ring-amber-200/80" },
+  { key: "files", Icon: FileText, labelKey: "common.media.files", chip: "bg-slate-100 text-slate-700 ring-slate-200/80" },
 ];
 
 function UpdateMediaBadges({ html, className = "" }: { html: string; className?: string }) {
+  const t = useT();
   const counts = useMemo(() => countUpdateMediaInHtml(html), [html]);
-  const items = UPDATE_MEDIA_BADGES.map((badge) => ({
+  const items = UPDATE_MEDIA_BADGE_KEYS.map((badge) => ({
     ...badge,
     count: counts[badge.key],
+    label: t(badge.labelKey),
   })).filter((item) => item.count > 0);
 
   if (items.length === 0) return null;
 
   return (
-    <span className={`inline-flex shrink-0 items-center gap-0.5 ${className}`} aria-label="Attached media">
+    <span className={`inline-flex shrink-0 items-center gap-0.5 ${className}`} aria-label={t("tasks.updates.attachedMediaAria")}>
       {items.map(({ key, Icon, label, chip, count }) => (
         <span
           key={key}
-          title={`${count} ${label}`}
+          title={t("tasks.updates.mediaCount", { count, type: label })}
           className={`inline-flex items-center gap-0.5 rounded-md px-1 py-px ring-1 ring-inset ${chip}`}
         >
           <Icon className="h-3 w-3 shrink-0 opacity-90" aria-hidden />
@@ -85,6 +95,7 @@ function UpdateTitlePreviewRow({
   title: string | null;
   bodyHtml?: string;
 }) {
+  const t = useT();
   return (
     <div
       className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 shadow-sm"
@@ -92,7 +103,7 @@ function UpdateTitlePreviewRow({
       aria-busy={title === null}
     >
       <span className="shrink-0 rounded bg-accent/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-accent">
-        Update #{updateNumber}
+        {t("tasks.updates.number", { n: updateNumber })}
       </span>
       <span className="shrink-0 text-[9px] font-medium text-slate-400">-</span>
       {title ? (
@@ -118,10 +129,11 @@ function UpdateCard({
   index: number;
   people: Person[];
 }) {
+  const t = useT();
   const articleRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
   const contributors = updateContributors(entry, people);
-  const contributorLabel = contributors.map((p) => p.name.trim() || "Someone").join(", ");
+  const contributorLabel = contributors.map((p) => p.name.trim() || t("common.someone")).join(", ");
   const title = entry.title?.trim() ?? "";
 
   useEffect(() => {
@@ -150,7 +162,7 @@ function UpdateCard({
         />
         <span className="flex min-w-0 flex-1 items-center gap-1">
           <span className="shrink-0 rounded bg-accent/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-accent">
-            Update #{index + 1}
+            {t("tasks.updates.number", { n: index + 1 })}
           </span>
           {title && (
             <>
@@ -200,6 +212,7 @@ export function TaskUpdatesSection({
   canEditUpdates: boolean;
   onChange: (patch: Partial<Task>) => void;
 }) {
+  const t = useT();
   const entries = taskUpdateEntries(task, people);
   const initial = restoreDraftState(task.id, currentUserId);
   const [composing, setComposing] = useState(initial.composing);
@@ -319,7 +332,7 @@ export function TaskUpdatesSection({
     <div className="mt-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium text-slate-600">
-          Updates
+          {t("tasks.updates.title")}
           {entries.length > 0 && (
             <span className="ml-1 font-normal tabular-nums text-slate-400">({entries.length})</span>
           )}
@@ -331,7 +344,7 @@ export function TaskUpdatesSection({
             className="inline-flex items-center gap-1 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/10"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
-            New update
+            {t("tasks.updates.new")}
           </button>
         )}
       </div>
@@ -350,7 +363,7 @@ export function TaskUpdatesSection({
                 bodyHtml={draft}
               />
               {showTitleReview && (
-                <p className="text-[11px] text-slate-500">Accept this title, or reject to write your own.</p>
+                <p className="text-[11px] text-slate-500">{t("tasks.updates.acceptTitleHint")}</p>
               )}
             </div>
           )}
@@ -358,7 +371,7 @@ export function TaskUpdatesSection({
           {showCustomTitleInput && (
             <div className="space-y-1.5">
               <label className="block text-[11px] font-medium text-slate-600" htmlFor={`update-title-${task.id}`}>
-                Write a title
+                {t("tasks.updates.writeTitle")}
               </label>
               <input
                 ref={customTitleRef}
@@ -366,7 +379,7 @@ export function TaskUpdatesSection({
                 type="text"
                 value={customTitle}
                 onChange={(e) => setCustomTitle(e.target.value)}
-                placeholder="Title"
+                placeholder={t("common.title")}
                 maxLength={200}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 focus:border-accent/40 focus:ring-1 focus:ring-accent/20"
               />
@@ -384,7 +397,7 @@ export function TaskUpdatesSection({
               taskId={task.id}
               inlineImageStorageDir={`tasks/${task.id}/updates/${composeId}`}
               enableGenericFileAttach
-              placeholder="What did you deliver or progress on?"
+              placeholder={t("tasks.updates.placeholder")}
             />
           </div>
 
@@ -397,14 +410,14 @@ export function TaskUpdatesSection({
                   onClick={() => void startTitleReview()}
                   className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim disabled:opacity-50"
                 >
-                  Push
+                  {t("common.push")}
                 </button>
                 <button
                   type="button"
                   onClick={discardDraft}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </>
             )}
@@ -415,7 +428,7 @@ export function TaskUpdatesSection({
                 disabled
                 className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white opacity-50"
               >
-                Generating title…
+                {t("common.generating")}
               </button>
             )}
 
@@ -426,21 +439,21 @@ export function TaskUpdatesSection({
                   onClick={acceptGeneratedTitle}
                   className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
                 >
-                  Accept
+                  {t("common.accept")}
                 </button>
                 <button
                   type="button"
                   onClick={rejectGeneratedTitle}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
-                  Reject
+                  {t("common.reject")}
                 </button>
                 <button
                   type="button"
                   onClick={backToEditing}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
-                  Back
+                  {t("common.back")}
                 </button>
               </>
             )}
@@ -451,7 +464,7 @@ export function TaskUpdatesSection({
                 disabled
                 className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white opacity-50"
               >
-                Pushing…
+                {t("common.pushing")}
               </button>
             )}
 
@@ -463,14 +476,14 @@ export function TaskUpdatesSection({
                   onClick={confirmCustomTitle}
                   className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-dim disabled:opacity-50"
                 >
-                  Push
+                  {t("common.push")}
                 </button>
                 <button
                   type="button"
                   onClick={discardDraft}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </>
             )}
@@ -493,7 +506,7 @@ export function TaskUpdatesSection({
 
       {entries.length === 0 && !composing && (
         <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-3 py-4 text-center text-xs text-slate-500">
-          No updates yet — push one when you have progress to share.
+          {t("tasks.updates.empty")}
         </p>
       )}
     </div>

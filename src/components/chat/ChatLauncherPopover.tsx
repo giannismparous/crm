@@ -8,6 +8,8 @@ import { groupDepartmentsFromPeople, resolveGroupMemberIds } from "../../utils/c
 import { peopleMessageableByViewer } from "../../utils/chatVisibility";
 import { useOnlinePersonIds, usePresenceTick } from "../../hooks/usePresence";
 import type { PersonPresence } from "../../types";
+import { useI18n } from "../../contexts/I18nContext";
+import { translateDepartment } from "../../i18n/helpers";
 import { PersonPresenceAvatar } from "../PersonPresenceAvatar";
 
 export function ChatLauncherPopover({
@@ -35,6 +37,7 @@ export function ChatLauncherPopover({
   onCreateGroup: (participantIds: string[], departmentIds: string[], title: string) => Promise<string>;
   onClose: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"list" | "dm" | "group">("list");
   const [pickedIds, setPickedIds] = useState<string[]>([]);
@@ -85,7 +88,7 @@ export function ChatLauncherPopover({
       onOpenChat(id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start chat.");
+      setError(err instanceof Error ? err.message : t("chat.error.start"));
     }
   }
 
@@ -100,7 +103,7 @@ export function ChatLauncherPopover({
       resetGroupForm();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create group.");
+      setError(err instanceof Error ? err.message : t("chat.error.createGroup"));
     }
   }
 
@@ -110,11 +113,11 @@ export function ChatLauncherPopover({
     <div
       className="pointer-events-auto mb-3 flex w-[min(18rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
       role="dialog"
-      aria-label="Chats"
+      aria-label={t("chat.title")}
     >
       <div className="border-b border-slate-100 px-3 py-2.5">
-        <p className="text-sm font-semibold text-slate-900">Chats</p>
-        <p className="text-[11px] text-slate-500">Open a conversation or start a new one</p>
+        <p className="text-sm font-semibold text-slate-900">{t("chat.title")}</p>
+        <p className="text-[11px] text-slate-500">{t("chat.subtitle")}</p>
       </div>
 
       {mode === "list" && (
@@ -125,7 +128,7 @@ export function ChatLauncherPopover({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search chats…"
+                placeholder={t("chat.search")}
                 className="input-base w-full py-1.5 pl-8 text-sm"
               />
             </div>
@@ -135,7 +138,7 @@ export function ChatLauncherPopover({
                 onClick={() => setMode("dm")}
                 className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
-                New DM
+                {t("chat.newDm")}
               </button>
               <button
                 type="button"
@@ -145,7 +148,7 @@ export function ChatLauncherPopover({
                 }}
                 className="flex-1 rounded-lg bg-accent py-1.5 text-xs font-semibold text-white hover:bg-accent-dim"
               >
-                New group
+                {t("chat.newGroup")}
               </button>
             </div>
           </div>
@@ -194,18 +197,18 @@ export function ChatLauncherPopover({
                     </span>
                     {isOpen && (
                       <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-slate-500">
-                        Open
+                        {t("common.open")}
                       </span>
                     )}
                     {unread && !isOpen && (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label={t("common.unread")} />
                     )}
                   </button>
                 </li>
               );
             })}
             {filteredConversations.length === 0 && (
-              <li className="px-3 py-6 text-center text-xs text-slate-500">No chats found.</li>
+              <li className="px-3 py-6 text-center text-xs text-slate-500">{t("chat.empty")}</li>
             )}
           </ul>
         </>
@@ -214,7 +217,7 @@ export function ChatLauncherPopover({
       {mode === "dm" && (
         <div className="p-3">
           <button type="button" onClick={() => setMode("list")} className="mb-2 text-xs text-accent hover:underline">
-            Back
+            {t("common.back")}
           </button>
           <ul className="max-h-56 space-y-0.5 overflow-y-auto">
             {messageable.map((p) => (
@@ -243,18 +246,20 @@ export function ChatLauncherPopover({
             }}
             className="mb-2 text-xs text-accent hover:underline"
           >
-            Back
+            {t("common.back")}
           </button>
           <input
             value={groupTitle}
             onChange={(e) => setGroupTitle(e.target.value)}
-            placeholder="Group name (optional)"
+            placeholder={t("chat.groupNamePlaceholder")}
             className="input-base mb-2 w-full text-sm"
           />
 
           {selectableDepartments.length > 0 && (
             <div className="mb-2">
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Departments</p>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {t("common.departments")}
+              </p>
               <ul className="max-h-28 space-y-0.5 overflow-y-auto rounded-lg border border-slate-100 p-1">
                 {selectableDepartments.map((dept) => (
                   <li key={dept}>
@@ -268,7 +273,7 @@ export function ChatLauncherPopover({
                           )
                         }
                       />
-                      <span className="text-sm text-slate-800">{dept}</span>
+                      <span className="text-sm text-slate-800">{translateDepartment(locale, dept)}</span>
                     </label>
                   </li>
                 ))}
@@ -276,7 +281,9 @@ export function ChatLauncherPopover({
             </div>
           )}
 
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">People</p>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            {t("common.people")}
+          </p>
           <ul className="max-h-32 space-y-0.5 overflow-y-auto rounded-lg border border-slate-100 p-1">
             {messageable.map((p) => (
               <li key={p.id}>
@@ -294,7 +301,9 @@ export function ChatLauncherPopover({
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-800">
                     {p.name.trim() || p.email}
                     {p.departments.length > 0 && (
-                      <span className="ml-1 text-[10px] text-slate-400">({p.departments.join(", ")})</span>
+                      <span className="ml-1 text-[10px] text-slate-400">
+                        ({p.departments.map((d) => translateDepartment(locale, d)).join(", ")})
+                      </span>
                     )}
                   </span>
                 </label>
@@ -304,7 +313,7 @@ export function ChatLauncherPopover({
 
           {canCreateGroup && (
             <p className="mt-2 text-[11px] text-slate-500">
-              {resolvedMemberCount} member{resolvedMemberCount === 1 ? "" : "s"} (duplicates removed)
+              {t("chat.memberCount", { count: resolvedMemberCount })}
             </p>
           )}
 
@@ -313,7 +322,7 @@ export function ChatLauncherPopover({
             disabled={!canCreateGroup}
             className="mt-2 w-full rounded-lg bg-accent py-2 text-xs font-semibold text-white disabled:opacity-50"
           >
-            Create & open
+            {t("chat.createOpen")}
           </button>
         </form>
       )}

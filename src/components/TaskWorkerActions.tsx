@@ -5,6 +5,7 @@ import { NotifyRecipientPicker } from "./NotifyRecipientPicker";
 import { getTaskWorkerIds, submitWorkerFinished, taskHasMultipleWorkers } from "../utils/taskAssignees";
 import { createFeedbackRequest, personHasOpenFeedbackRequest, personOwesOpenFeedbackReply } from "../utils/taskFeedback";
 import { recipientIdsFromSelection, everyoneElsePersonIds } from "../utils/notifyRecipients";
+import { useT } from "../contexts/I18nContext";
 
 export type WorkerFlow = "feedback" | "finish" | "postpone" | null;
 
@@ -32,6 +33,7 @@ export function ConfirmPanel({
   children?: ReactNode;
   yesEmphasis?: boolean;
 }) {
+  const t = useT();
   return (
     <div className="confirm-panel">
       <p className="text-xs leading-relaxed text-slate-800">{message}</p>
@@ -53,7 +55,7 @@ export function ConfirmPanel({
           onClick={onNo}
           className="btn-secondary"
         >
-          {noLabel ?? "No"}
+          {noLabel ?? t("common.no")}
         </button>
       </div>
     </div>
@@ -73,6 +75,7 @@ export function TaskWorkerActionButtons({
   onFinish: () => void;
   onFeedback: () => void;
 }) {
+  const t = useT();
   const hideNeedFeedback =
     personHasOpenFeedbackRequest(task, currentUserId) || personOwesOpenFeedbackReply(task, currentUserId);
   const weFinished = taskHasMultipleWorkers(task, people);
@@ -83,7 +86,7 @@ export function TaskWorkerActionButtons({
         onClick={onFinish}
         className="task-action-finish"
       >
-        {weFinished ? "We finished" : "I finished"}
+        {weFinished ? t("tasks.worker.weFinished") : t("tasks.worker.iFinished")}
       </button>
       {!hideNeedFeedback && (
         <button
@@ -91,7 +94,7 @@ export function TaskWorkerActionButtons({
           onClick={onFeedback}
           className="task-action-feedback"
         >
-          I need feedback
+          {t("tasks.worker.needFeedback")}
         </button>
       )}
     </>
@@ -123,11 +126,13 @@ export function TaskWorkerFlowPanel({
   formatDue: (iso: string) => string;
   addDaysToDateOnly: (iso: string, days: number) => string;
 }) {
+  const t = useT();
   const [notifyPersonIds, setNotifyPersonIds] = useState<string[]>([]);
   const [notifyDeptIds, setNotifyDeptIds] = useState<string[]>([]);
   const [postponeDate, setPostponeDate] = useState(task.dueDate);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const actorName = people.find((p) => p.id === currentUserId)?.name ?? "Someone";
+  const actorName = people.find((p) => p.id === currentUserId)?.name ?? t("common.someone");
+  const taskTitle = task.title.trim() || t("common.task");
 
   const feedbackExcludeIds = useMemo(
     () => taskInvolvedPersonIds(task, people),
@@ -151,7 +156,7 @@ export function TaskWorkerFlowPanel({
       ...feedbackExcludeIds,
     ]);
     if (recipients.length === 0) {
-      setSubmitError("Pick at least one person or department to notify.");
+      setSubmitError(t("tasks.worker.pickRecipient"));
       return;
     }
     try {
@@ -162,12 +167,12 @@ export function TaskWorkerFlowPanel({
       await onNotify(
         recipients,
         "task_feedback",
-        `${actorName} requested feedback on “${task.title.trim() || "a task"}”.`
+        t("tasks.worker.notifyFeedback", { actor: actorName, title: taskTitle })
       );
       onClose();
     } catch (e) {
       console.error("submitFeedback", e);
-      setSubmitError("Could not save the feedback request. Try again.");
+      setSubmitError(t("tasks.worker.feedbackSaveFailed"));
     }
   }
 
@@ -178,7 +183,7 @@ export function TaskWorkerFlowPanel({
       await onNotify(
         recipients,
         "task_finished",
-        `${actorName} marked their work finished on “${task.title.trim() || "a task"}”.`
+        t("tasks.worker.notifyFinished", { actor: actorName, title: taskTitle })
       );
     } catch (e) {
       console.error("confirmFinish", e);
@@ -193,7 +198,7 @@ export function TaskWorkerFlowPanel({
       await onNotify(
         recipients,
         "task_postponed",
-        `${actorName} postponed “${task.title.trim() || "a task"}” to ${formatDue(postponeDate)}.`
+        t("tasks.worker.notifyPostponed", { actor: actorName, title: taskTitle, date: formatDue(postponeDate) })
       );
     } catch (e) {
       console.error("confirmPostpone", e);
@@ -204,10 +209,8 @@ export function TaskWorkerFlowPanel({
   if (flow === "feedback") {
     return (
       <div className="mt-2 w-full rounded-lg border border-orange-200 bg-orange-50/50 p-3">
-        <p className="text-xs font-medium text-orange-950">Who should be notified?</p>
-        <p className="mt-0.5 text-[11px] text-amber-900/80">
-          Pick people or departments outside this task. Anyone already assigned is not listed.
-        </p>
+        <p className="text-xs font-medium text-orange-950">{t("tasks.worker.whoNotify")}</p>
+        <p className="mt-0.5 text-[11px] text-amber-900/80">{t("tasks.worker.whoNotifyHint")}</p>
         <div className="mt-2">
           <NotifyRecipientPicker
             people={people}
@@ -234,14 +237,14 @@ export function TaskWorkerFlowPanel({
             onClick={() => void submitFeedback()}
             className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
           >
-            Request feedback
+            {t("tasks.worker.requestFeedback")}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="btn-secondary"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       </div>
@@ -253,11 +256,9 @@ export function TaskWorkerFlowPanel({
       <div className="mt-2 w-full">
         <ConfirmPanel
           message={
-            weFinished
-              ? "Mark this task complete for everyone assigned? It will move to the Completed tab."
-              : "Mark this task complete? It will move to the Completed tab."
+            weFinished ? t("tasks.worker.finishConfirmAll") : t("tasks.worker.finishConfirmSolo")
           }
-          yesLabel="Yes, submit"
+          yesLabel={t("tasks.worker.yesSubmit")}
           yesEmphasis={true}
           onYes={() => void confirmFinish()}
           onNo={onClose}
@@ -269,13 +270,13 @@ export function TaskWorkerFlowPanel({
   return (
     <div className="mt-2 w-full">
       <ConfirmPanel
-        message="Postpone the due date to:"
-        yesLabel="Yes, it's fine"
-          onYes={() => void confirmPostpone()}
+        message={t("tasks.worker.postponeMessage")}
+        yesLabel={t("tasks.worker.yesFine")}
+        onYes={() => void confirmPostpone()}
         onNo={onClose}
       >
         <label className="mt-2 block text-xs text-slate-600">
-          New due date
+          {t("tasks.worker.newDueDate")}
           <input
             type="date"
             value={postponeDate}
