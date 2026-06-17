@@ -63,7 +63,6 @@ function App() {
     updatePersonalReminder,
     removePersonalReminder,
     createAppointment,
-    createAppointmentSeries,
     updateAppointment,
     cancelAppointment,
     removeAppointment,
@@ -380,7 +379,6 @@ function App() {
             currentUserId={currentUserId}
             seesAllOrgData={seesAllOrgData}
             onCreateAppointment={createAppointment}
-            onCreateAppointmentSeries={createAppointmentSeries}
             onUpdateAppointment={updateAppointment}
             onCancelAppointment={cancelAppointment}
             onRemoveAppointment={removeAppointment}

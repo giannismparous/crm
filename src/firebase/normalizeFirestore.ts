@@ -251,6 +251,8 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   if (typeof data.recurrenceCount === "number" && Number.isFinite(data.recurrenceCount)) {
     apt.recurrenceCount = data.recurrenceCount;
   }
+  const recurrenceCanceledFrom = toIso(data.recurrenceCanceledFrom);
+  if (recurrenceCanceledFrom) apt.recurrenceCanceledFrom = recurrenceCanceledFrom;
   return apt;
 }
 

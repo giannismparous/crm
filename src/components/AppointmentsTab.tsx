@@ -14,7 +14,6 @@ import { taskUpdatesToPlainText } from "../utils/sanitizeRichText";
 import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 import {
-  appointmentStartsAtMs,
   formatAppointmentParticipants,
   formatAppointmentTimeRange,
   isAppointmentRelevantToPerson,
@@ -34,7 +33,6 @@ import { syncCrmItemToGoogleCalendar } from "../firebase/googleCalendar";
 import { normalizeAppointmentParticipants } from "../utils/appointmentParticipants";
 import {
   DEFAULT_RECURRENCE_COUNT,
-  generateRecurrenceOccurrences,
   MAX_RECURRENCE_COUNT,
   MIN_RECURRENCE_COUNT,
   normalizeRecurrenceCount,
@@ -43,6 +41,13 @@ import {
   formatRecurrenceSummary,
   type AppointmentRecurrenceRule,
 } from "../utils/appointmentRecurrence";
+import {
+  appointmentMatchesListTab,
+  appointmentStartsAtMsForList,
+  appointmentsForListView,
+  isRecurringAppointment,
+  listDisplayOccurrence,
+} from "../utils/appointmentDisplay";
 import { useT } from "../contexts/I18nContext";
 
 type AppointmentListTab = "upcoming" | "past" | "canceled";
@@ -300,7 +305,6 @@ export function AppointmentsTab({
   currentUserId,
   seesAllOrgData = true,
   onCreateAppointment,
-  onCreateAppointmentSeries,
   onUpdateAppointment,
   onCancelAppointment,
   onRemoveAppointment,
@@ -324,13 +328,6 @@ export function AppointmentsTab({
     appointmentId?: string,
     options?: { skipCalendarSync?: boolean }
   ) => Promise<string>;
-  onCreateAppointmentSeries: (
-    payload: Omit<Appointment, "id" | "createdAt" | "status" | "startsAt" | "endsAt">,
-    occurrences: { startsAt: string; endsAt?: string }[],
-    meta: { seriesId: string; rule: AppointmentRecurrenceRule; count: number },
-    firstAppointmentId?: string,
-    options?: { skipCalendarSync?: boolean }
-  ) => Promise<string[]>;
   onUpdateAppointment: (
     id: string,
     patch: Partial<Appointment>,
@@ -390,11 +387,16 @@ export function AppointmentsTab({
 
   const nowMs = Date.now();
 
+  const listAppointments = useMemo(
+    () => appointmentsForListView(appointments),
+    [appointments]
+  );
+
   const scoped = useMemo(() => {
     const base =
       scope === "my" && currentUserId && seesAllOrgData
-        ? appointments.filter((a) => isAppointmentRelevantToPerson(a, currentUserId, people))
-        : appointments;
+        ? listAppointments.filter((a) => isAppointmentRelevantToPerson(a, currentUserId, people))
+        : listAppointments;
     const q = query.trim().toLowerCase();
     if (!q) return base;
     return base.filter((a) => {
@@ -402,27 +404,21 @@ export function AppointmentsTab({
         `${a.title} ${reviewItemsForSearch(a.reviewItems)} ${taskUpdatesToPlainText(sanitizeTaskUpdates(a.description ?? ""))} ${a.location} ${a.meetingLink}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [appointments, scope, seesAllOrgData, currentUserId, people, query]);
+  }, [listAppointments, scope, seesAllOrgData, currentUserId, people, query]);
 
   const filtered = useMemo(() => {
-    return scoped.filter((a) => {
-      if (listTab === "canceled") return a.status === "canceled";
-      if (a.status === "canceled") return false;
-      const ms = appointmentStartsAtMs(a);
-      if (listTab === "upcoming") return ms >= nowMs - 60 * 60 * 1000;
-      return ms < nowMs - 60 * 60 * 1000;
-    });
+    return scoped.filter((a) => appointmentMatchesListTab(a, listTab, nowMs));
   }, [scoped, listTab, nowMs]);
 
   const sorted = useMemo(() => {
     const list = [...filtered];
     list.sort((a, b) => {
-      const ta = appointmentStartsAtMs(a);
-      const tb = appointmentStartsAtMs(b);
+      const ta = appointmentStartsAtMsForList(a, nowMs);
+      const tb = appointmentStartsAtMsForList(b, nowMs);
       return listTab === "past" || listTab === "canceled" ? tb - ta : ta - tb;
     });
     return list;
-  }, [filtered, listTab]);
+  }, [filtered, listTab, nowMs]);
 
   const selected = useMemo(
     () => (selectedId ? appointments.find((a) => a.id === selectedId) : undefined),
@@ -441,7 +437,7 @@ export function AppointmentsTab({
     setShowForm(false);
     setEditing(false);
     if (apt.status === "canceled") setListTab("canceled");
-    else if (appointmentStartsAtMs(apt) < nowMs - 60 * 60 * 1000) setListTab("past");
+    else if (appointmentStartsAtMsForList(apt, nowMs) < nowMs - 60 * 60 * 1000) setListTab("past");
     else setListTab("upcoming");
     setSelectedId(focusAppointmentId);
     const t = window.setTimeout(() => {
@@ -523,7 +519,6 @@ export function AppointmentsTab({
     setBusy(true);
     setError(null);
 
-    const seriesIds: string[] = [];
     const createdTaskIds: string[] = [];
     let createdAppointmentIds: string[] = [];
 
@@ -548,7 +543,7 @@ export function AppointmentsTab({
           /* best-effort */
         }
       }
-      const aptIds = seriesIds.length > 0 ? seriesIds : createdAppointmentIds;
+      const aptIds = createdAppointmentIds;
       for (const id of aptIds) {
         try {
           if (canHardDelete) {
@@ -661,34 +656,28 @@ export function AppointmentsTab({
           createdById: currentUserId,
         };
 
+        let recurrenceRule: AppointmentRecurrenceRule | undefined;
+        let recurrenceCount: number | undefined;
         if (draft.recurring) {
-          const rule: AppointmentRecurrenceRule = {
+          recurrenceRule = {
             kind: draft.recurrenceKind,
             interval: normalizeRecurrenceInterval(draft.recurrenceInterval),
             ...(draft.recurrenceKind === "monthly_day"
               ? { dayOfMonth: normalizeRecurrenceDayOfMonth(draft.recurrenceDayOfMonth) }
               : {}),
           };
-          const count = normalizeRecurrenceCount(draft.recurrenceCount);
-          const occurrences = generateRecurrenceOccurrences(startsAt, endsAt, rule, count);
-          const ids = await onCreateAppointmentSeries(
-            basePayload,
-            occurrences,
-            { seriesId: crypto.randomUUID(), rule, count },
-            newAppointmentDraftId,
-            syncOpts
-          );
-          seriesIds.push(...ids);
-          createdAppointmentIds = ids;
-          appointmentId = ids[0] ?? newAppointmentDraftId;
-        } else {
-          appointmentId = await onCreateAppointment(
-            basePayload,
-            newAppointmentDraftId,
-            syncOpts
-          );
-          createdAppointmentIds = [appointmentId];
+          recurrenceCount = normalizeRecurrenceCount(draft.recurrenceCount);
         }
+
+        appointmentId = await onCreateAppointment(
+          {
+            ...basePayload,
+            ...(recurrenceRule && recurrenceCount ? { recurrenceRule, recurrenceCount } : {}),
+          },
+          newAppointmentDraftId,
+          syncOpts
+        );
+        createdAppointmentIds = [appointmentId];
         descriptionAtEditStartRef.current = description;
         setShowForm(false);
         setSelectedId(appointmentId);
@@ -709,14 +698,8 @@ export function AppointmentsTab({
         }
       }
 
-      const aptIdsForSync =
-        seriesIds.length > 0
-          ? seriesIds
-          : createdAppointmentIds.length > 0
-            ? createdAppointmentIds
-            : [appointmentId];
-      for (const aptId of aptIdsForSync) {
-        if (aptId) void syncCrmItemToGoogleCalendar("appointment", aptId);
+      if (appointmentId) {
+        void syncCrmItemToGoogleCalendar("appointment", appointmentId);
       }
       for (const taskId of desiredLinked) {
         void syncCrmItemToGoogleCalendar("task", taskId);
@@ -749,9 +732,7 @@ export function AppointmentsTab({
     }
   }
 
-  const upcomingCount = scoped.filter(
-    (a) => isAppointmentScheduled(a) && appointmentStartsAtMs(a) >= nowMs - 60 * 60 * 1000
-  ).length;
+  const upcomingCount = scoped.filter((a) => appointmentMatchesListTab(a, "upcoming", nowMs)).length;
 
   function closeForm() {
     discardDraftDescriptionOrphans();
@@ -1247,8 +1228,9 @@ export function AppointmentsTab({
             <ul className="space-y-2">
               {sorted.map((apt) => {
                 const isSelected = apt.id === selectedId;
-                const scheduled = isAppointmentScheduled(apt);
-                const start = new Date(apt.startsAt);
+                const scheduled = isAppointmentScheduled(apt) && !apt.recurrenceCanceledFrom;
+                const displayOcc = listDisplayOccurrence(apt, nowMs);
+                const start = new Date(displayOcc.startsAt);
                 const dateLabel = Number.isNaN(start.getTime())
                   ? "—"
                   : formatInOrgTime(start, {
@@ -1277,7 +1259,7 @@ export function AppointmentsTab({
                         <div className="min-w-0">
                           <div className="font-medium text-slate-900">
                             {apt.title || t("common.untitled")}
-                            {apt.recurrenceSeriesId && (
+                            {isRecurringAppointment(apt) && (
                               <span className="ml-2 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
                                 {t("appointments.recurringBadge")}
                               </span>
@@ -1285,7 +1267,17 @@ export function AppointmentsTab({
                           </div>
                           <div className="mt-0.5 text-xs text-slate-600">
                             {dateLabel}
-                            {formatAppointmentTimeRange(apt) ? ` · ${formatAppointmentTimeRange(apt)}` : ""}
+                            {formatAppointmentTimeRange({
+                              ...apt,
+                              startsAt: displayOcc.startsAt,
+                              endsAt: displayOcc.endsAt,
+                            })
+                              ? ` · ${formatAppointmentTimeRange({
+                                  ...apt,
+                                  startsAt: displayOcc.startsAt,
+                                  endsAt: displayOcc.endsAt,
+                                })}`
+                              : ""}
                           </div>
                           <div className="mt-1 truncate text-xs text-slate-500">
                             {formatAppointmentParticipants(apt, people, currentUserId)}

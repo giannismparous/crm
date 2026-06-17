@@ -1,5 +1,10 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { ORG_ID, ORG_TIMEZONE, type CrmType } from "./constants";
+import {
+  expandCrmAppointmentOccurrences,
+  isRecurringCrmAppointment,
+  lastPastOccurrenceEndBefore,
+} from "./recurrenceRrule";
 
 export interface CrmTask {
   id: string;
@@ -30,6 +35,11 @@ export interface CrmAppointment {
   reviewItems?: string[];
   taskId?: string;
   linkedTaskIds?: string[];
+  recurrenceRule?: { kind: string; interval: number; dayOfMonth?: number };
+  recurrenceCount?: number;
+  recurrenceCanceledFrom?: string;
+  recurrenceSeriesId?: string;
+  recurrenceIndex?: number;
 }
 
 export interface CrmPersonalReminder {
@@ -140,6 +150,23 @@ export function shouldSyncItemToCalendar(
   _options: { fromTodayOnly?: boolean } = {}
 ): boolean {
   if (shouldRemoveFromCalendar(crmType, item)) return false;
+
+  if (crmType === "appointment") {
+    const apt = item as CrmAppointment;
+    if (isRecurringCrmAppointment(apt)) {
+      if (apt.recurrenceCanceledFrom) {
+        return Boolean(lastPastOccurrenceEndBefore(apt, apt.recurrenceCanceledFrom));
+      }
+      if (apt.status === "canceled") return false;
+      const today = orgTodayDateKey();
+      const occs = expandCrmAppointmentOccurrences(apt);
+      return occs.some((o) => {
+        const key = isoDateKeyInOrgTz(o.startsAt);
+        return Boolean(key && key >= today);
+      });
+    }
+  }
+
   // Only upcoming items stay on Google Calendar. Past items are removed on sync — including
   // canceled tasks/meetings. Cancel/reopen only affects today+ events.
   return itemOnOrAfterToday(crmType, item);

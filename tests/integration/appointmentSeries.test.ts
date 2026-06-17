@@ -1,63 +1,54 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { generateRecurrenceOccurrences } from "../../src/utils/appointmentRecurrence";
 import { adminDb, ORG, resetEmulatorData } from "../helpers/emulatorAdmin";
 
 const emulatorUp = process.env.VITEST_EMULATOR_UP === "1";
 const allowSkip = process.env.CRM_TEST_ALLOW_SKIP === "1";
 
-describe.skipIf(!emulatorUp && allowSkip)("appointment series materialization", () => {
+describe.skipIf(!emulatorUp && allowSkip)("recurring appointment (single Firestore doc)", () => {
   afterEach(async () => {
     await resetEmulatorData();
   });
 
-  it("creates 12 weekly docs with shared series id and indices", async () => {
-    const seriesId = "series-weekly-12";
-    const first = "2024-06-03T07:00:00.000Z";
-    const occ = generateRecurrenceOccurrences(first, undefined, { kind: "weekly", interval: 1 }, 12);
-    expect(occ).toHaveLength(12);
-
+  it("stores one doc with recurrenceRule and recurrenceCount", async () => {
     const db = adminDb();
     const col = db.collection("organizations").doc(ORG).collection("appointments");
-    const batch = db.batch();
-    const ids: string[] = [];
-    occ.forEach((o, i) => {
-      const ref = col.doc();
-      ids.push(ref.id);
-      batch.set(ref, {
-        title: "Weekly",
-        startsAt: o.startsAt,
-        participantIds: [],
-        createdById: "founder-1",
-        status: "scheduled",
-        createdAt: new Date().toISOString(),
-        recurrenceSeriesId: seriesId,
-        recurrenceIndex: i,
-        recurrenceCount: 12,
-        description:
-          i === 0
-            ? '<img class="task-inline-image" data-storage-path="organizations/SimasiaAI/appointments/a0/x.jpg" />'
-            : `<img class="task-inline-image" data-storage-path="organizations/SimasiaAI/appointments/${ref.id}/x.jpg" />`,
-      });
+    const ref = col.doc();
+    await ref.set({
+      title: "Weekly",
+      startsAt: "2024-06-03T07:00:00.000Z",
+      participantIds: [],
+      createdById: "founder-1",
+      status: "scheduled",
+      createdAt: new Date().toISOString(),
+      recurrenceRule: { kind: "weekly", interval: 1 },
+      recurrenceCount: 12,
     });
-    await batch.commit();
 
-    const snap = await col.where("recurrenceSeriesId", "==", seriesId).get();
-    expect(snap.size).toBe(12);
-    const indices = snap.docs.map((d) => d.data().recurrenceIndex).sort((a, b) => a - b);
-    expect(indices).toEqual([...Array(12).keys()]);
+    const snap = await col.get();
+    expect(snap.size).toBe(1);
+    const data = snap.docs[0]!.data();
+    expect(data.recurrenceRule).toEqual({ kind: "weekly", interval: 1 });
+    expect(data.recurrenceCount).toBe(12);
+    expect(data.recurrenceSeriesId).toBeUndefined();
+  });
 
-    // Editing one occurrence does not mutate siblings
-    const target = snap.docs[0]!;
-    await target.ref.update({ title: "Edited once" });
-    const sibling = snap.docs[1]!;
-    expect((await sibling.ref.get()).data()?.title).toBe("Weekly");
-    expect((await target.ref.get()).data()?.title).toBe("Edited once");
-
-    const paths = snap.docs.map((d) => {
-      const html = String(d.data().description ?? "");
-      const m = html.match(/data-storage-path="([^"]+)"/);
-      return m?.[1];
+  it("truncates series with recurrenceCanceledFrom", async () => {
+    const db = adminDb();
+    const ref = db.collection("organizations").doc(ORG).collection("appointments").doc();
+    await ref.set({
+      title: "Weekly",
+      startsAt: "2024-06-03T07:00:00.000Z",
+      participantIds: [],
+      createdById: "founder-1",
+      status: "canceled",
+      createdAt: new Date().toISOString(),
+      recurrenceRule: { kind: "weekly", interval: 1 },
+      recurrenceCount: 12,
+      recurrenceCanceledFrom: "2024-06-20T07:00:00.000Z",
+      canceledAt: "2024-06-20T07:00:00.000Z",
     });
-    expect(new Set(paths).size).toBe(12);
+
+    const data = (await ref.get()).data();
+    expect(data?.recurrenceCanceledFrom).toBe("2024-06-20T07:00:00.000Z");
   });
 });

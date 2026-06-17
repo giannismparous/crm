@@ -15,11 +15,10 @@ import { useI18n, useT } from "../contexts/I18nContext";
 import { translatePriority, translateTaskStatus } from "../i18n/helpers";
 import { isPersonalReminderRelevantToPerson } from "../utils/personalReminderLinks";
 import {
-  appointmentStartsAtMs,
   formatAppointmentTimeRange,
   isAppointmentRelevantToPerson,
-  isAppointmentScheduled,
 } from "../utils/appointments";
+import { appointmentsForCalendarView } from "../utils/appointmentDisplay";
 import { taskInvolvesPerson } from "../utils/taskAssignees";
 import { isTaskOpen } from "../utils/personTaskStats";
 import {
@@ -153,17 +152,17 @@ function buildItemsByDay(
       scope === "my" && currentUserId
         ? appointments.filter((a) => isAppointmentRelevantToPerson(a, currentUserId, people))
         : appointments;
-    for (const a of aptsFiltered) {
-      if (!isAppointmentScheduled(a)) continue;
-      if (!a.startsAt) continue;
-      const key = isoToLocalDateKey(a.startsAt);
+    for (const item of appointmentsForCalendarView(aptsFiltered)) {
+      const { appointment: a, startsAt, endsAt } = item;
+      if (!startsAt) continue;
+      const key = isoToLocalDateKey(startsAt);
       push(key, {
         kind: "appointment",
         id: a.id,
         title: a.title,
-        startsAt: a.startsAt,
-        order: appointmentStartsAtMs(a),
-        timeLabel: formatAppointmentTimeRange(a),
+        startsAt,
+        order: new Date(startsAt).getTime(),
+        timeLabel: formatAppointmentTimeRange({ ...a, startsAt, endsAt }),
       });
     }
   }

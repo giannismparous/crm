@@ -3,6 +3,13 @@ import { CRM_SOURCE, ORG_TIMEZONE } from "./constants";
 import type { CrmAppointment, CrmPersonalReminder, CrmTask } from "./crmData";
 import { crmAppUrl } from "./config";
 import {
+  googleRecurrenceLines,
+  isRecurringCrmAppointment,
+  lastPastOccurrenceEndBefore,
+  normalizeRecurrenceCount,
+  normalizeRecurrenceRule,
+} from "./recurrenceRrule";
+import {
   departmentLabel,
   personNames,
   type CalendarBuildContext,
@@ -215,13 +222,28 @@ export function buildAppointmentEvent(
 
   const links = uniqueLinkEntries(sections, [{ label: "This appointment", url: link }]);
 
+  const rule = normalizeRecurrenceRule(apt.recurrenceRule);
+  const recurrenceCount = normalizeRecurrenceCount(apt.recurrenceCount);
+  const recurring = isRecurringCrmAppointment(apt);
+  let recurrence: string[] | undefined;
+  if (recurring && rule) {
+    const untilIso = apt.recurrenceCanceledFrom
+      ? lastPastOccurrenceEndBefore(apt, apt.recurrenceCanceledFrom)
+      : undefined;
+    if (apt.recurrenceCanceledFrom && !untilIso) {
+      return null;
+    }
+    recurrence = googleRecurrenceLines(rule, recurrenceCount, untilIso);
+  }
+
   return {
-    summary: calendarSummary(`Meeting · ${title}`, canceled),
+    summary: calendarSummary(`Meeting · ${title}`, canceled && !recurring),
     description: buildDescription(link, sections, links),
     location: apt.location?.trim() || apt.meetingLink?.trim() || "SimasiaAI CRM",
     start: { dateTime: startsAt, timeZone: ORG_TIMEZONE },
     end: { dateTime: endsAt, timeZone: ORG_TIMEZONE },
-    colorId: canceled ? "11" : "10",
+    colorId: canceled && !recurring ? "11" : "10",
+    ...(recurrence ? { recurrence } : {}),
     ...readOnlyEventFields(link),
     ...eventMeta("appointment", apt.id),
   };

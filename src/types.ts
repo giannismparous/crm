@@ -267,14 +267,16 @@ export type Appointment = {
   reviewItems?: string[];
   /** Explicitly linked open tasks (source of truth for meeting ↔ task links) */
   linkedTaskIds?: string[];
-  /** Shared id for materialized recurring instances */
+  /** @deprecated Legacy materialized series — only index 0 is shown in the list */
   recurrenceSeriesId?: string;
-  /** 0-based index within the series */
+  /** @deprecated Legacy materialized series instance index */
   recurrenceIndex?: number;
-  /** Recurrence pattern (stored on each instance in the series) */
+  /** Recurrence pattern — one Firestore doc represents the whole series */
   recurrenceRule?: AppointmentRecurrenceRule;
   /** Total meetings in the series when created */
   recurrenceCount?: number;
+  /** When set, occurrences at or after this time are hidden and removed from Google Calendar */
+  recurrenceCanceledFrom?: string;
 };
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "canceled";

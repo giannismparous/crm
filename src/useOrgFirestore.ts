@@ -64,7 +64,6 @@ import {
 import type {
   AppNotification,
   Appointment,
-  AppointmentRecurrenceRule,
   CommentReactionNotifyChange,
   ContactReminder,
   ImageAttachment,
@@ -90,7 +89,11 @@ import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./utils/sanitizeRic
 import { normalizeTaskComments, taskCommentsForFirestore } from "./utils/taskComments";
 import { normalizeTaskUpdateEntries, taskUpdateEntriesForFirestore } from "./utils/taskUpdateEntries";
 import { deleteImagesFromStorage, imageAttachmentsForFirestore } from "./utils/imageAttachments";
-import { cloneAttachmentsForAppointment, cloneRichTextHtmlForAppointment } from "./utils/richTextClone";
+import {
+  normalizeRecurrenceCount,
+  normalizeRecurrenceRule,
+} from "./utils/appointmentRecurrence";
+import { isRecurringAppointment } from "./utils/appointmentDisplay";
 import {
   storagePathsFromAppointment,
   storagePathsFromContact,
@@ -1451,7 +1454,13 @@ export function useOrgFirestore() {
         ...new Set((payload.participantDepartmentIds ?? []).filter(Boolean)),
       ];
       const linkedTaskIds = [...new Set((payload.linkedTaskIds ?? []).filter(Boolean))];
-      const { description: rawDescription, ...payloadRest } = payload;
+      const recurrenceRule = normalizeRecurrenceRule(payload.recurrenceRule);
+      const recurrenceCount =
+        recurrenceRule && payload.recurrenceCount != null
+          ? normalizeRecurrenceCount(payload.recurrenceCount)
+          : undefined;
+      const { description: rawDescription, recurrenceRule: _rr, recurrenceCount: _rc, ...payloadRest } =
+        payload;
       const description =
         typeof rawDescription === "string" ? sanitizeTaskUpdates(rawDescription) : undefined;
       const row: Appointment = {
@@ -1459,6 +1468,9 @@ export function useOrgFirestore() {
         participantIds,
         participantDepartmentIds,
         ...(linkedTaskIds.length > 0 ? { linkedTaskIds } : {}),
+        ...(recurrenceRule && recurrenceCount
+          ? { recurrenceRule, recurrenceCount }
+          : {}),
         id,
         status: "scheduled",
         createdAt: new Date().toISOString(),
@@ -1475,107 +1487,6 @@ export function useOrgFirestore() {
         void syncCrmItemToGoogleCalendar("appointment", id);
       }
       return id;
-    },
-    [db]
-  );
-
-  const createAppointmentSeries = useCallback(
-    async (
-      payload: Omit<Appointment, "id" | "createdAt" | "status" | "startsAt" | "endsAt">,
-      occurrences: { startsAt: string; endsAt?: string }[],
-      meta: {
-        seriesId: string;
-        rule: AppointmentRecurrenceRule;
-        count: number;
-      },
-      firstAppointmentId?: string,
-      options?: { skipCalendarSync?: boolean }
-    ) => {
-      if (occurrences.length === 0) throw new Error("No occurrences to create.");
-      const col = collection(db, "organizations", ORG, "appointments");
-      const participantIds = [...new Set((payload.participantIds ?? []).filter(Boolean))];
-      const participantDepartmentIds = [
-        ...new Set((payload.participantDepartmentIds ?? []).filter(Boolean)),
-      ];
-      const { description: rawDescription, linkedTaskIds: rawLinked, attachments: rawAttachments, ...payloadRest } = payload;
-      const description =
-        typeof rawDescription === "string" ? sanitizeTaskUpdates(rawDescription) : undefined;
-      const hasDescription = Boolean(description && richTextHasContent(description));
-      const baseAttachments = rawAttachments ?? [];
-      const createdAt = new Date().toISOString();
-      const createdIds: string[] = [];
-      const refs = [];
-
-      for (let i = 0; i < occurrences.length; i++) {
-        const occ = occurrences[i]!;
-        const ref =
-          i === 0 && firstAppointmentId
-            ? doc(db, "organizations", ORG, "appointments", firstAppointmentId)
-            : doc(col);
-        refs.push({ ref, occ, index: i });
-        createdIds.push(ref.id);
-      }
-
-      const sourceId = createdIds[0]!;
-      const descriptionsById = new Map<string, string>();
-      const attachmentsById = new Map<string, ImageAttachment[]>();
-
-      for (const id of createdIds) {
-        if (id === sourceId) {
-          if (hasDescription && description) descriptionsById.set(id, description);
-          if (baseAttachments.length > 0) attachmentsById.set(id, baseAttachments);
-          continue;
-        }
-        if (hasDescription && description) {
-          descriptionsById.set(id, await cloneRichTextHtmlForAppointment(description, id));
-        }
-        if (baseAttachments.length > 0) {
-          attachmentsById.set(id, await cloneAttachmentsForAppointment(baseAttachments, id));
-        }
-      }
-
-      const batch = writeBatch(db);
-      for (const { ref, occ, index: i } of refs) {
-        const id = ref.id;
-        const linkedTaskIds =
-          i === 0 ? [...new Set((rawLinked ?? []).filter(Boolean))] : [];
-        const instanceDescription = descriptionsById.get(id);
-        const instanceAttachments = attachmentsById.get(id);
-        const row: Appointment = {
-          ...payloadRest,
-          participantIds,
-          participantDepartmentIds,
-          id,
-          startsAt: occ.startsAt,
-          ...(occ.endsAt ? { endsAt: occ.endsAt } : {}),
-          ...(linkedTaskIds.length > 0 ? { linkedTaskIds } : {}),
-          status: "scheduled",
-          createdAt,
-          recurrenceSeriesId: meta.seriesId,
-          recurrenceIndex: i,
-          recurrenceRule: meta.rule,
-          recurrenceCount: meta.count,
-          ...(instanceDescription ? { description: instanceDescription } : {}),
-          ...(instanceAttachments && instanceAttachments.length > 0
-            ? { attachments: instanceAttachments }
-            : {}),
-        };
-        const forWrite = stripUndefinedDeep({
-          ...(row as unknown as Record<string, unknown>),
-          ...(row.attachments?.length
-            ? { attachments: imageAttachmentsForFirestore(row.attachments) }
-            : {}),
-        }) as Record<string, unknown>;
-        batch.set(ref, scrub(forWrite) as Record<string, unknown>);
-      }
-
-      await batch.commit();
-      if (!options?.skipCalendarSync) {
-        for (const id of createdIds) {
-          void syncCrmItemToGoogleCalendar("appointment", id);
-        }
-      }
-      return createdIds;
     },
     [db]
   );
@@ -1818,10 +1729,27 @@ export function useOrgFirestore() {
 
   const cancelAppointment = useCallback(
     async (id: string) => {
-      await updateAppointment(id, {
+      const apt = appointmentsRef.current.find((a) => a.id === id);
+      const now = new Date().toISOString();
+      const patch: Partial<Appointment> = {
         status: "canceled",
-        canceledAt: new Date().toISOString(),
-      });
+        canceledAt: now,
+      };
+      if (apt && isRecurringAppointment(apt)) {
+        patch.recurrenceCanceledFrom = now;
+      }
+
+      if (apt?.recurrenceSeriesId && (apt.recurrenceIndex ?? 0) === 0) {
+        const siblings = appointmentsRef.current.filter(
+          (a) => a.recurrenceSeriesId === apt.recurrenceSeriesId
+        );
+        for (const sibling of siblings) {
+          await updateAppointment(sibling.id, patch);
+        }
+        return;
+      }
+
+      await updateAppointment(id, patch);
     },
     [updateAppointment]
   );
@@ -1933,7 +1861,6 @@ export function useOrgFirestore() {
     updateReminder,
     removeReminder,
     createAppointment,
-    createAppointmentSeries,
     updateAppointment,
     cancelAppointment,
     removeAppointment,
