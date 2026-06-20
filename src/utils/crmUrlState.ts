@@ -8,6 +8,7 @@ const TAB_IDS: TabId[] = [
   "team",
   "contacts",
   "reminders",
+  "research",
   "calendar",
 ];
 

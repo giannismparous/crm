@@ -15,6 +15,8 @@ export const appEn = {
   "nav.contactsTitle": "Sales contacts — notes and reminders",
   "nav.reminders": "Reminders",
   "nav.remindersTitle": "Personal reminders — yours, with optional links",
+  "nav.research": "Research",
+  "nav.researchTitle": "Research — founder notes and files",
   "nav.calendar": "Calendar",
   "nav.calendarTitle": "Month view — appointments, tasks, and reminders",
   "app.signedIn": "Signed in",

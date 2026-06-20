@@ -15,8 +15,25 @@ import type {
   CommentReactionNotifyChange,
 } from "../types";
 import { reportActionError } from "../utils/actionFeedback";
-import { isTaskCanceled, isTaskCompleted, isTaskOpen } from "../utils/personTaskStats";
+import { isTaskCompleted, isTaskInCanceledList, isTaskOpen } from "../utils/personTaskStats";
 import type { TaskUpdateIntent } from "../utils/personTaskStats";
+import { markTaskCompletePatch } from "../utils/taskCompletion";
+import {
+  DEFAULT_RECURRENCE_COUNT,
+  formatRecurrenceSummary,
+  MAX_RECURRENCE_COUNT,
+  MIN_RECURRENCE_COUNT,
+  normalizeRecurrenceCount,
+  normalizeRecurrenceDayOfMonth,
+  normalizeRecurrenceInterval,
+  type AppointmentRecurrenceKind,
+} from "../utils/appointmentRecurrence";
+import {
+  isRecurringTask,
+  listDisplayOccurrence,
+  taskDisplayDueDate,
+  type TaskCancelScope,
+} from "../utils/taskDisplay";
 import { canSeeAllOrgData, type OrgRole } from "../auth/roles";
 import { TEAM_DEPARTMENTS, departmentPickerChipClass } from "../types";
 import {
@@ -76,6 +93,12 @@ type NewTaskDraftData = {
   priority: TaskPriority;
   projectId: string;
   draftTaskId: string;
+  recurring: boolean;
+  recurrenceKind: AppointmentRecurrenceKind;
+  recurrenceInterval: number;
+  recurrenceDayOfMonth: number;
+  recurrenceCount: number;
+  recurrenceOngoing: boolean;
 };
 
 function isNewTaskDraftEmpty(data: NewTaskDraftData): boolean {
@@ -123,10 +146,10 @@ function compareTasksByUrgency(a: Task, b: Task, listTab: TaskListTab): number {
   const created = b.createdAt.localeCompare(a.createdAt);
   if (created !== 0) return created;
   if (taskHasOpenFeedback(a) !== taskHasOpenFeedback(b)) return taskHasOpenFeedback(a) ? -1 : 1;
-  const aOver = isTaskOpen(a) && a.dueDate < today;
-  const bOver = isTaskOpen(b) && b.dueDate < today;
+  const aOver = isTaskOpen(a) && taskDisplayDueDate(a) < today;
+  const bOver = isTaskOpen(b) && taskDisplayDueDate(b) < today;
   if (aOver !== bOver) return aOver ? -1 : 1;
-  const dd = a.dueDate.localeCompare(b.dueDate);
+  const dd = taskDisplayDueDate(a).localeCompare(taskDisplayDueDate(b));
   if (dd !== 0) return dd;
   return prioRank(a.priority) - prioRank(b.priority);
 }
@@ -775,6 +798,7 @@ export function TasksTab({
   onAddTask,
   onUpdateTask,
   onCancelTask,
+  onCancelTaskOccurrence,
   onCommentPosted,
   onCommentReaction,
   onTaskActionNotify,
@@ -798,6 +822,11 @@ export function TasksTab({
     options?: { intent?: TaskUpdateIntent; actorId?: string }
   ) => Promise<void>;
   onCancelTask: (id: string) => Promise<void>;
+  onCancelTaskOccurrence?: (
+    id: string,
+    occurrenceIndex: number,
+    scope: TaskCancelScope
+  ) => Promise<void>;
   onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
   onCommentReaction?: (
     task: Task,
@@ -872,7 +901,7 @@ export function TasksTab({
     return tasks.filter((task) => {
       if (listTab === "open" && !isTaskOpen(task)) return false;
       if (listTab === "completed" && !isTaskCompleted(task)) return false;
-      if (listTab === "canceled" && !isTaskCanceled(task)) return false;
+      if (listTab === "canceled" && !isTaskInCanceledList(task)) return false;
       if (scope === "my" && canSeeAllOrgData(currentUserOrgRole)) {
         if (!isTaskWorker(task, currentUserId, people)) return false;
       } else if (
@@ -926,9 +955,9 @@ export function TasksTab({
   const taskStats = useMemo(() => {
     const today = orgTodayDateKey();
     const openTasks = tasks.filter((t) => isTaskOpen(t)).length;
-    const overdue = tasks.filter((t) => isTaskOpen(t) && t.dueDate < today).length;
+    const overdue = tasks.filter((t) => isTaskOpen(t) && taskDisplayDueDate(t) < today).length;
     const completed = tasks.filter((t) => isTaskCompleted(t)).length;
-    const canceled = tasks.filter((t) => isTaskCanceled(t)).length;
+    const canceled = tasks.filter((t) => isTaskInCanceledList(t)).length;
     return { openTasks, overdue, completed, canceled };
   }, [tasks]);
 
@@ -1137,6 +1166,16 @@ export function TasksTab({
                       highlighted={task.id === focusTaskId}
                       onChange={(patch, intent) => updateTask(task.id, patch, intent)}
                       onCancelTask={() => void cancelTask(task.id)}
+                      onCancelTaskOccurrence={
+                        onCancelTaskOccurrence
+                          ? (scope) =>
+                              void onCancelTaskOccurrence(
+                                task.id,
+                                listDisplayOccurrence(task).index,
+                                scope
+                              )
+                          : undefined
+                      }
                       onCommentPosted={onCommentPosted}
                       onCommentReaction={onCommentReaction}
                       onTaskActionNotify={onTaskActionNotify}
@@ -1172,6 +1211,16 @@ export function TasksTab({
                             showProjectChip={false}
                             onChange={(patch, intent) => updateTask(task.id, patch, intent)}
                             onCancelTask={() => void cancelTask(task.id)}
+                      onCancelTaskOccurrence={
+                        onCancelTaskOccurrence
+                          ? (scope) =>
+                              void onCancelTaskOccurrence(
+                                task.id,
+                                listDisplayOccurrence(task).index,
+                                scope
+                              )
+                          : undefined
+                      }
                             onCommentPosted={onCommentPosted}
                             onCommentReaction={onCommentReaction}
                             onTaskActionNotify={onTaskActionNotify}
@@ -1240,6 +1289,22 @@ export function NewTaskForm({
   const [projectId, setProjectId] = useState(
     () => saved?.data.projectId ?? defaultProjectId
   );
+  const [recurring, setRecurring] = useState(() => saved?.data.recurring ?? false);
+  const [recurrenceKind, setRecurrenceKind] = useState<AppointmentRecurrenceKind>(
+    () => saved?.data.recurrenceKind ?? "weekly"
+  );
+  const [recurrenceInterval, setRecurrenceInterval] = useState(
+    () => saved?.data.recurrenceInterval ?? 1
+  );
+  const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState(
+    () => saved?.data.recurrenceDayOfMonth ?? 1
+  );
+  const [recurrenceCount, setRecurrenceCount] = useState(
+    () => saved?.data.recurrenceCount ?? DEFAULT_RECURRENCE_COUNT
+  );
+  const [recurrenceOngoing, setRecurrenceOngoing] = useState(
+    () => saved?.data.recurrenceOngoing ?? true
+  );
 
   const draftData: NewTaskDraftData = {
     title,
@@ -1250,6 +1315,12 @@ export function NewTaskForm({
     priority,
     projectId: lockProject ? defaultProjectId : projectId,
     draftTaskId,
+    recurring,
+    recurrenceKind,
+    recurrenceInterval,
+    recurrenceDayOfMonth,
+    recurrenceCount,
+    recurrenceOngoing,
   };
 
   usePersistedFormDraft(
@@ -1291,6 +1362,20 @@ export function NewTaskForm({
     };
     const pid = (lockProject ? defaultProjectId : projectId).trim();
     if (pid) payload.projectId = pid;
+    if (recurring) {
+      payload.recurrenceRule = {
+        kind: recurrenceKind,
+        interval: normalizeRecurrenceInterval(recurrenceInterval),
+        ...(recurrenceKind === "monthly_day"
+          ? { dayOfMonth: normalizeRecurrenceDayOfMonth(recurrenceDayOfMonth) }
+          : {}),
+      };
+      if (recurrenceOngoing) {
+        payload.recurrenceOngoing = true;
+      } else {
+        payload.recurrenceCount = normalizeRecurrenceCount(recurrenceCount);
+      }
+    }
     await onSubmit(payload, { taskId: draftTaskId });
   }
 
@@ -1309,7 +1394,7 @@ export function NewTaskForm({
             className="input-base py-2"
           />
         </Field>
-        <Field label={t("tasks.form.due")}>
+        <Field label={recurring ? t("tasks.form.dueFirst") : t("tasks.form.due")}>
           <input
             type="date"
             required
@@ -1317,6 +1402,11 @@ export function NewTaskForm({
             onChange={(e) => setDueDate(e.target.value)}
             className="input-base py-2"
           />
+          {recurring && (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+              {t("tasks.form.dueRecurringHint")}
+            </p>
+          )}
         </Field>
         <div className="flex min-w-0 flex-col">
           <span className="mb-1 block text-xs font-medium text-slate-600">{t("tasks.form.assignTo")}</span>
@@ -1366,6 +1456,129 @@ export function NewTaskForm({
               placeholder={t("tasks.form.descriptionPlaceholder")}
             />
           </Field>
+        </div>
+
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3 sm:col-span-3">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              checked={recurring}
+              onChange={(e) => setRecurring(e.target.checked)}
+              className="rounded border-slate-300 text-accent focus:ring-accent/30"
+            />
+            {t("tasks.recurring")}
+          </label>
+
+          {recurring && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <p className="rounded-lg border border-violet-100 bg-violet-50/80 px-3 py-2.5 text-[11px] leading-relaxed text-violet-950 sm:col-span-2">
+                {t("tasks.form.recurringDueExplain")}
+              </p>
+              <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                {t("appointments.frequency")}
+                <select
+                  value={recurrenceKind}
+                  onChange={(e) =>
+                    setRecurrenceKind(e.target.value as AppointmentRecurrenceKind)
+                  }
+                  className="input-base mt-1 w-full py-1.5"
+                >
+                  <option value="daily">{t("appointments.freq.daily")}</option>
+                  <option value="weekly">{t("appointments.freq.weekly")}</option>
+                  <option value="monthly">{t("appointments.freq.monthly")}</option>
+                  <option value="monthly_day">{t("appointments.freq.monthlyDay")}</option>
+                </select>
+              </label>
+
+              <label className="block text-xs font-medium text-slate-600">
+                {recurrenceKind === "daily"
+                  ? t("appointments.everyDays")
+                  : recurrenceKind === "weekly"
+                    ? t("appointments.everyWeeks")
+                    : t("appointments.everyMonths")}
+                <input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={recurrenceInterval}
+                  onChange={(e) =>
+                    setRecurrenceInterval(normalizeRecurrenceInterval(e.target.value))
+                  }
+                  className="input-base mt-1 w-full py-1.5"
+                />
+              </label>
+
+              {recurrenceKind === "monthly_day" && (
+                <label className="block text-xs font-medium text-slate-600">
+                  {t("appointments.dayOfMonth")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={recurrenceDayOfMonth}
+                    onChange={(e) =>
+                      setRecurrenceDayOfMonth(normalizeRecurrenceDayOfMonth(e.target.value))
+                    }
+                    className="input-base mt-1 w-full py-1.5"
+                  />
+                </label>
+              )}
+
+              <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                {t("appointments.recurrenceDuration")}
+                <div className="mt-2 space-y-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                    <input
+                      type="radio"
+                      name="task-recurrence-duration"
+                      checked={recurrenceOngoing}
+                      onChange={() => setRecurrenceOngoing(true)}
+                    />
+                    {t("appointments.recurrenceOngoing")}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                    <input
+                      type="radio"
+                      name="task-recurrence-duration"
+                      checked={!recurrenceOngoing}
+                      onChange={() => setRecurrenceOngoing(false)}
+                    />
+                    {t("appointments.recurrenceFixed")}
+                  </label>
+                </div>
+              </label>
+
+              {!recurrenceOngoing && (
+                <label className="block text-xs font-medium text-slate-600">
+                  {t("tasks.occurrenceCount")}
+                  <input
+                    type="number"
+                    min={MIN_RECURRENCE_COUNT}
+                    max={MAX_RECURRENCE_COUNT}
+                    value={recurrenceCount}
+                    onChange={(e) =>
+                      setRecurrenceCount(normalizeRecurrenceCount(e.target.value))
+                    }
+                    className="input-base mt-1 w-full py-1.5"
+                  />
+                </label>
+              )}
+
+              <p className="text-[11px] text-slate-500 sm:col-span-2">
+                {formatRecurrenceSummary(
+                  {
+                    kind: recurrenceKind,
+                    interval: normalizeRecurrenceInterval(recurrenceInterval),
+                    ...(recurrenceKind === "monthly_day"
+                      ? { dayOfMonth: normalizeRecurrenceDayOfMonth(recurrenceDayOfMonth) }
+                      : {}),
+                  },
+                  recurrenceOngoing ? undefined : normalizeRecurrenceCount(recurrenceCount),
+                  { ongoing: recurrenceOngoing }
+                )}
+              </p>
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
@@ -1487,6 +1700,7 @@ function TaskCard({
   showProjectChip = true,
   onChange,
   onCancelTask,
+  onCancelTaskOccurrence,
   onCommentPosted,
   onCommentReaction,
   onTaskActionNotify,
@@ -1502,6 +1716,7 @@ function TaskCard({
   showProjectChip?: boolean;
   onChange: (patch: Partial<Task>, intent?: TaskUpdateIntent) => void | Promise<void>;
   onCancelTask: () => void | Promise<void>;
+  onCancelTaskOccurrence?: (scope: TaskCancelScope) => void | Promise<void>;
   onCommentPosted?: (task: Task, comment: TaskComment) => void | Promise<void>;
   onCommentReaction?: (
     task: Task,
@@ -1524,12 +1739,17 @@ function TaskCard({
   const t = useT();
   const { locale } = useI18n();
   const today = orgTodayDateKey();
+  const displayDueDate = taskDisplayDueDate(task);
+  const displayOccurrence = listDisplayOccurrence(task);
+  const recurring = isRecurringTask(task);
   const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
-  const canceled = isTaskCanceled(task);
+  const canceled = isTaskInCanceledList(task);
   const completed = isTaskCompleted(task);
-  const overdue = isTaskOpen(task) && task.dueDate < today;
-  const postponed = task.postponeCount > 0;
-  const [cancelOpen, setCancelOpen] = useState(false);
+  const overdue = isTaskOpen(task) && displayDueDate < today;
+  const postponed = !recurring && task.postponeCount > 0;
+  type CancelStep = "idle" | "choose" | "confirm_instance" | "confirm_future" | "confirm_series";
+  const [cancelStep, setCancelStep] = useState<CancelStep>("idle");
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [workerFlow, setWorkerFlow] = useState<WorkerFlow>(null);
   const isWorker = isTaskWorker(task, currentUserId, people);
@@ -1541,6 +1761,8 @@ function TaskCard({
   const hasOpenFeedback = taskHasOpenFeedback(task);
   const hasFeedbackHistory = taskHasFeedbackHistory(task);
   const selfAssigned = isSelfAssignedSingleWorkerTask(task, people);
+  const finishButtonAvailable =
+    isWorker && workerFlow === null && !task.finishedByIds.includes(currentUserId);
   const assigner = task.assignedById ? people.find((p) => p.id === task.assignedById) : undefined;
   const assignerName =
     !selfAssigned && assigner?.name
@@ -1564,6 +1786,11 @@ function TaskCard({
               onCommit={(title) => onChange({ title })}
               className="min-w-0 flex-1 bg-transparent text-base font-semibold text-slate-900 outline-none"
             />
+            {recurring && (
+              <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+                {t("tasks.recurring")}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs leading-snug text-slate-500">
             {showProjectChip && project && (
@@ -1574,7 +1801,15 @@ function TaskCard({
                 <span className="text-slate-300"> · </span>
               </>
             )}
-            <span className="font-medium text-slate-700">{t("tasks.card.due", { date: formatDue(task.dueDate) })}</span>
+            <span className="font-medium text-slate-700">
+              {t("tasks.card.due", { date: formatDue(displayDueDate) })}
+            </span>
+            {recurring && displayOccurrence.index > 0 && (
+              <span className="text-slate-500">
+                {" · "}
+                {t("tasks.occurrenceLabel", { n: String(displayOccurrence.index + 1) })}
+              </span>
+            )}
             {canceled && (
               <span className="text-slate-600">
                 {" · "}
@@ -1613,7 +1848,7 @@ function TaskCard({
           {!completed && !canceled ? (
             <>
               <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-2 gap-y-2">
-                {isWorker && workerFlow === null && !task.finishedByIds.includes(currentUserId) && (
+                {isWorker && finishButtonAvailable && (
                   <TaskWorkerActionButtons
                     task={task}
                     people={people}
@@ -1638,13 +1873,14 @@ function TaskCard({
                     {t("tasks.card.needsFeedback")}
                   </span>
                 )}
-                {isAssigner && (
+                {isAssigner && !finishButtonAvailable && (
                   <button
                     type="button"
                     onClick={() =>
                       void (async () => {
                         try {
-                          await onChange({ status: "done" }, "mark_complete");
+                          const patch = markTaskCompletePatch(task);
+                          await onChange(patch, "mark_complete");
                           await onBroadcastTaskEvent?.(
                             task,
                             "task_marked_complete",
@@ -1657,7 +1893,7 @@ function TaskCard({
                     }
                     className="task-action-complete"
                   >
-                    {t("common.markComplete")}
+                    {recurring ? t("tasks.completeOccurrence") : t("common.markComplete")}
                   </button>
                 )}
               </div>
@@ -1776,8 +2012,8 @@ function TaskCard({
       />
 
       <div className="mt-3 border-t border-slate-100 pt-3">
-        {!cancelOpen ? (
-          workerFlow === "postpone" && onTaskActionNotify ? (
+        {cancelStep === "idle" ? (
+          workerFlow === "postpone" && onTaskActionNotify && !recurring ? (
             <TaskWorkerFlowPanel
               task={task}
               people={people}
@@ -1826,7 +2062,7 @@ function TaskCard({
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                {!completed && !canceled && (isWorker || isAssigner) && (
+                {!completed && !canceled && !recurring && (isWorker || isAssigner) && (
                   <button
                     type="button"
                     onClick={() => setWorkerFlow("postpone")}
@@ -1839,7 +2075,9 @@ function TaskCard({
                 {!completed && !canceled && canCancelTask && (
                   <button
                     type="button"
-                    onClick={() => setCancelOpen(true)}
+                    onClick={() =>
+                      setCancelStep(recurring && onCancelTaskOccurrence ? "choose" : "confirm_series")
+                    }
                     className="rounded-md px-2 py-0.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800"
                   >
                     {t("tasks.card.cancel")}
@@ -1848,35 +2086,103 @@ function TaskCard({
               </div>
             </div>
           )
-        ) : (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-left shadow-sm">
-            <p className="text-xs leading-relaxed text-amber-950">{t("tasks.card.cancelExplain")}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+        ) : cancelStep === "choose" && onCancelTaskOccurrence ? (
+          <div className="space-y-2 rounded-lg border border-rose-100 bg-rose-50/50 p-3">
+            <p className="text-xs font-medium text-rose-900">{t("tasks.cancelScopePrompt")}</p>
+            <div className="flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() =>
-                  void (async () => {
-                    try {
-                      await onCancelTask();
-                      setCancelOpen(false);
-                    } catch (e) {
-                      reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
-                    }
-                  })()
-                }
-                className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                disabled={cancelBusy}
+                onClick={() => setCancelStep("confirm_instance")}
+                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-left text-xs font-semibold text-rose-800 hover:bg-rose-50"
               >
-                {t("tasks.card.yesCancel")}
+                {t("appointments.cancelThisInstance")}
               </button>
               <button
                 type="button"
-                onClick={() => setCancelOpen(false)}
-                className="btn-secondary"
+                disabled={cancelBusy}
+                onClick={() => setCancelStep("confirm_future")}
+                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-left text-xs font-semibold text-rose-800 hover:bg-rose-50"
               >
-                {t("tasks.card.keep")}
+                {t("tasks.cancelThisAndFuture")}
+              </button>
+              <button
+                type="button"
+                disabled={cancelBusy}
+                onClick={() => setCancelStep("confirm_series")}
+                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-left text-xs font-semibold text-rose-800 hover:bg-rose-50"
+              >
+                {t("tasks.cancelEntireSeries")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelStep("idle")}
+                className="text-xs font-medium text-slate-600 hover:underline"
+              >
+                {t("common.cancel")}
               </button>
             </div>
           </div>
+        ) : cancelStep === "confirm_instance" && onCancelTaskOccurrence ? (
+          <ConfirmPanel
+            message={t("tasks.cancelInstanceConfirm")}
+            yesLabel={t("tasks.card.yesCancel")}
+            noLabel={t("tasks.card.keep")}
+            onYes={() =>
+              void (async () => {
+                setCancelBusy(true);
+                try {
+                  await onCancelTaskOccurrence("instance");
+                  setCancelStep("idle");
+                } catch (e) {
+                  reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
+                } finally {
+                  setCancelBusy(false);
+                }
+              })()
+            }
+            onNo={() => setCancelStep("idle")}
+          />
+        ) : cancelStep === "confirm_future" && onCancelTaskOccurrence ? (
+          <ConfirmPanel
+            message={t("tasks.cancelFutureConfirm")}
+            yesLabel={t("tasks.card.yesCancel")}
+            noLabel={t("tasks.card.keep")}
+            onYes={() =>
+              void (async () => {
+                setCancelBusy(true);
+                try {
+                  await onCancelTaskOccurrence("this_and_future");
+                  setCancelStep("idle");
+                } catch (e) {
+                  reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
+                } finally {
+                  setCancelBusy(false);
+                }
+              })()
+            }
+            onNo={() => setCancelStep("idle")}
+          />
+        ) : (
+          <ConfirmPanel
+            message={t("tasks.card.cancelExplain")}
+            yesLabel={t("tasks.card.yesCancel")}
+            noLabel={t("tasks.card.keep")}
+            onYes={() =>
+              void (async () => {
+                setCancelBusy(true);
+                try {
+                  await onCancelTask();
+                  setCancelStep("idle");
+                } catch (e) {
+                  reportActionError(e instanceof Error ? e.message : t("tasks.card.error.cancel"));
+                } finally {
+                  setCancelBusy(false);
+                }
+              })()
+            }
+            onNo={() => setCancelStep("idle")}
+          />
         )}
       </div>
     </article>

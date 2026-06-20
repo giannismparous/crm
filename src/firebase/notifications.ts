@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
@@ -15,6 +16,7 @@ import { translateDepartment, translateRole } from "../i18n/helpers";
 import { loadLocale } from "../i18n/localeStorage";
 import { translate } from "../i18n/translate";
 import type { OrgRole } from "../auth/roles";
+import { formatInOrgTime } from "../utils/orgTimezone";
 
 const PREVIEW_LEN = 160;
 
@@ -46,6 +48,7 @@ const NOTIFICATION_KINDS = new Set<NotificationKind>([
   "reminder_due",
   "member_joined",
   "chat_message",
+  "appointment_rsvp",
 ]);
 
 function normalizeKind(raw: unknown): NotificationKind {
@@ -496,6 +499,78 @@ export async function upsertReminderDueNotifications(
     });
   }
 
+  await batch.commit();
+}
+
+export async function upsertAppointmentRsvpNotifications(
+  db: Firestore,
+  orgId: string,
+  appointmentId: string,
+  appointmentTitle: string,
+  occurrenceIndex: number,
+  startsAt: string,
+  _endsAt: string | undefined,
+  recipientIds: string[]
+): Promise<void> {
+  const unique = [...new Set(recipientIds.filter(Boolean))];
+  if (unique.length === 0) return;
+
+  const col = collection(db, "organizations", orgId, "notifications");
+  const locale = loadLocale();
+  const createdAt = new Date().toISOString();
+  const title = appointmentTitle.trim() || translate(locale, "appointments.untitled");
+  const when = formatInOrgTime(startsAt, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const preview = translate(locale, "notifications.appointmentRsvpPreview", { when });
+
+  const recipientsToCreate: string[] = [];
+  await Promise.all(
+    unique.map(async (recipientId) => {
+      const notifId = `${appointmentId}_rsvp_${occurrenceIndex}_${recipientId}`;
+      const existing = await getDoc(doc(col, notifId));
+      if (!existing.exists()) recipientsToCreate.push(recipientId);
+    })
+  );
+  if (recipientsToCreate.length === 0) return;
+
+  const batch = writeBatch(db);
+  for (const recipientId of recipientsToCreate) {
+    const notifId = `${appointmentId}_rsvp_${occurrenceIndex}_${recipientId}`;
+    batch.set(doc(col, notifId), {
+      id: notifId,
+      recipientId,
+      kind: "appointment_rsvp",
+      taskId: appointmentId,
+      taskTitle: title,
+      commentId: String(occurrenceIndex),
+      mentionLabel: when,
+      authorId: "",
+      authorName: translate(locale, "notifications.appointmentRsvpAuthor"),
+      bodyPreview: preview,
+      read: false,
+      createdAt,
+    });
+  }
+
+  await batch.commit();
+}
+
+export async function markAppointmentRsvpNotificationRead(
+  db: Firestore,
+  orgId: string,
+  appointmentId: string,
+  occurrenceIndex: number,
+  recipientId: string
+): Promise<void> {
+  const notifId = `${appointmentId}_rsvp_${occurrenceIndex}_${recipientId}`;
+  const ref = doc(db, "organizations", orgId, "notifications", notifId);
+  const batch = writeBatch(db);
+  batch.set(ref, { read: true }, { merge: true });
   await batch.commit();
 }
 

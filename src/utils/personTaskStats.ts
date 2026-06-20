@@ -1,5 +1,11 @@
 import type { Person, PersonTaskStats, Task } from "../types";
 import { getTaskWorkerIds } from "./taskAssignees";
+import {
+  activeTaskOccurrences,
+  completedOccurrenceIndexSet,
+  isRecurringTask,
+  taskInCanceledTab,
+} from "./taskDisplay";
 
 export type TaskUpdateIntent =
   | "mark_complete"
@@ -44,12 +50,26 @@ export function isTaskCanceled(task: Task): boolean {
   return task.status === "canceled";
 }
 
-export function isTaskCompleted(task: Task): boolean {
-  return task.status === "done";
+export function isTaskCompleted(task: Task, nowMs = Date.now()): boolean {
+  if (task.status === "done") return true;
+  if (!isRecurringTask(task)) return false;
+  const active = activeTaskOccurrences(task, nowMs);
+  if (active.length === 0) return false;
+  const completed = completedOccurrenceIndexSet(task);
+  return active.every((o) => completed.has(o.index));
 }
 
-export function isTaskOpen(task: Task): boolean {
-  return !isTaskCompleted(task) && !isTaskCanceled(task);
+export function isTaskOpen(task: Task, nowMs = Date.now()): boolean {
+  if (task.status === "canceled") return false;
+  if (!isRecurringTask(task)) return task.status !== "done";
+  const active = activeTaskOccurrences(task, nowMs);
+  const completed = completedOccurrenceIndexSet(task);
+  return active.some((o) => !completed.has(o.index));
+}
+
+/** Shown in the canceled tab (includes partially canceled recurring series). */
+export function isTaskInCanceledList(task: Task): boolean {
+  return taskInCanceledTab(task);
 }
 
 function countFeedbackResponses(task: Task): number {

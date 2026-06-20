@@ -35,6 +35,11 @@ export const tasksEl = {
   "tasks.group.unassigned": "Χωρίς ανάθεση",
   "tasks.form.newTask": "Νέα εργασία",
   "tasks.form.due": "Προθεσμία",
+  "tasks.form.dueFirst": "Πρώτη προθεσμία",
+  "tasks.form.dueRecurringHint":
+    "Ημερομηνία έναρξης της σειράς. Οι επόμενες προθεσμίες υπολογίζονται αυτόματα από αυτή την ημερομηνία και τον κανόνα επανάληψης παρακάτω.",
+  "tasks.form.recurringDueExplain":
+    "Πώς λειτουργούν οι προθεσμίες: η ημερομηνία πάνω είναι η 1η επανάληψη. Κάθε επόμενη ακολουθεί τον κανόνα (π.χ. κάθε 1 εβδομάδα → ίδια ημέρα κάθε εβδομάδα). Στη λίστα εμφανίζεται μία γραμμή με την επόμενη ανοιχτή προθεσμία· στο ημερολόγιο φαίνεται κάθε επανάληψη. Όταν ολοκληρώνετε μια επανάληψη, η εμφανιζόμενη προθεσμία περνά στην επόμενη.",
   "tasks.form.assignTo": "Ανάθεση σε",
   "tasks.form.priority": "Προτεραιότητα",
   "tasks.form.project": "Έργο",
@@ -55,6 +60,17 @@ export const tasksEl = {
   "tasks.card.cancel": "Ακύρωση",
   "tasks.card.cancelExplain":
     "Η ακύρωση μεταφέρει την εργασία στην καρτέλα Ακυρωμένες για όλους. Χρησιμοποιήστε την όταν η δουλειά εγκαταλείφθηκε, διπλοεγγράφηκε ή δημιουργήθηκε λάθος — όχι όταν ολοκληρώθηκε (χρησιμοποιήστε Σήμανση ως ολοκληρωμένη ή Τελείωσα).",
+  "tasks.recurring": "Επαναλαμβανόμενη",
+  "tasks.occurrenceCount": "Αριθμός επαναλήψεων",
+  "tasks.occurrenceLabel": "Επανάληψη #{{n}}",
+  "tasks.completeOccurrence": "Ολοκλήρωση αυτής της επανάληψης",
+  "tasks.cancelScopePrompt": "Ποιες επαναλήψεις να ακυρωθούν;",
+  "tasks.cancelThisAndFuture": "Αυτή και όλες οι μελλοντικές",
+  "tasks.cancelEntireSeries": "Ολόκληρη η σειρά",
+  "tasks.cancelInstanceConfirm":
+    "Ακύρωση μόνο αυτής της επανάληψης; Οι προηγούμενες μένουν ως έχουν.",
+  "tasks.cancelFutureConfirm":
+    "Ακύρωση αυτής και όλων των μελλοντικών επαναλήψεων; Οι προηγούμενες μένουν ως έχουν.",
   "tasks.card.yesCancel": "Ναι, ακύρωση",
   "tasks.card.keep": "Διατήρηση",
   "tasks.card.reopenConfirm":
@@ -85,7 +101,7 @@ export const tasksEl = {
   "tasks.worker.yesFine": "Ναι, εντάξει",
   "tasks.worker.notifyFeedback": "Ο/Η {{actor}} ζήτησε σχόλια για την «{{title}}».",
   "tasks.worker.notifyFinished": "Ο/Η {{actor}} σήμανε την δουλειά του ως ολοκληρωμένη στην «{{title}}».",
-  "tasks.worker.notifyPostponed": "Ο/Η {{actor}} αναβάλε την «{{title}}» για {{date}}.",
+  "tasks.worker.notifyPostponed": "Ο/Η {{actor}} ανέβαλε την «{{title}}» για {{date}}.",
   "tasks.comments.title": "Σχόλια",
   "tasks.comments.showOlder_one": "Εμφάνιση {{count}} παλαιότερου σχολίου",
   "tasks.comments.showOlder_other": "Εμφάνιση {{count}} παλαιότερων σχολίων",

@@ -56,6 +56,8 @@ html[data-theme="dark"] body {
 
   .simple-rich-text {
     @apply cursor-text;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   /* Exactly 5 lines (text-sm / leading-relaxed) + py-2; clips on line boundaries via 1lh. */
@@ -121,6 +123,9 @@ html[data-theme="dark"] body {
   .simple-rich-text u {
     text-decoration: underline;
   }
+  .simple-rich-text a.rich-text-link {
+    @apply font-medium text-accent underline decoration-accent/40 underline-offset-2 hover:text-accent-dim;
+  }
   .simple-rich-text span[style*="background"] {
     background-color: #fde047 !important;
     color: #422006;
@@ -176,9 +181,14 @@ html[data-theme="dark"] body {
   .simple-rich-text video.loadable-pending {
     @apply h-full w-full object-contain opacity-0 transition-opacity duration-300 ease-out;
   }
-  .simple-rich-text img.loadable-ready,
-  .simple-rich-text video.loadable-ready {
+  .simple-rich-text img.loadable-ready:not([style*="width"]),
+  .simple-rich-text video.loadable-ready:not([style*="width"]) {
     @apply h-auto w-auto max-w-full opacity-100;
+  }
+  .simple-rich-text img.loadable-ready[style*="width"],
+  .simple-rich-text video.loadable-ready[style*="width"] {
+    @apply max-w-full opacity-100;
+    height: auto;
   }
   .simple-rich-text.is-collapsed .loadable-media-shell:has(.loadable-ready),
   .simple-rich-text.is-collapsed .task-inline-image-wrap:has(.loadable-ready),
@@ -687,6 +697,20 @@ html[data-theme="dark"] .shadow-sm.ring-1 {
 
 .chat-message-in {
   animation: chat-message-in 0.3s ease-out both;
+}
+
+@keyframes chat-message-pending {
+  0%,
+  100% {
+    opacity: 0.88;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+.chat-message-pending {
+  animation: chat-message-pending 1.2s ease-in-out infinite;
 }
 
 @keyframes chat-message-out {

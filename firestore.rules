@@ -190,6 +190,10 @@ service cloud.firestore {
       allow read, write: if isFounder(orgId) || salesPartnerCanAccessContacts(orgId);
     }
 
+    match /organizations/{orgId}/research/{researchId} {
+      allow read, write: if isFounder(orgId);
+    }
+
     match /organizations/{orgId}/notifications/{notificationId} {
       allow read, update, delete: if signedIn()
         && resource.data.recipientId == request.auth.uid;

@@ -35,6 +35,11 @@ export const tasksEn = {
   "tasks.group.unassigned": "Unassigned",
   "tasks.form.newTask": "New task",
   "tasks.form.due": "Due",
+  "tasks.form.dueFirst": "First due date",
+  "tasks.form.dueRecurringHint":
+    "Starting date for the series. Later due dates are calculated automatically from this date and the repeat rule below.",
+  "tasks.form.recurringDueExplain":
+    "How due dates work: the date above is the first occurrence. Each next one follows your repeat rule (e.g. every 1 week → same weekday each week). The task list shows one row with the next open due date; the calendar shows every occurrence. When you complete an occurrence, the displayed due date moves to the next one.",
   "tasks.form.assignTo": "Assign to",
   "tasks.form.priority": "Priority",
   "tasks.form.project": "Project",
@@ -55,6 +60,17 @@ export const tasksEn = {
   "tasks.card.cancel": "Cancel",
   "tasks.card.cancelExplain":
     "Cancelling moves this task to the Canceled tab for everyone. Use it when work was abandoned, duplicated, or created by mistake — not when the work is actually done (use Mark complete or I finished).",
+  "tasks.recurring": "Recurring",
+  "tasks.occurrenceCount": "Number of occurrences",
+  "tasks.occurrenceLabel": "Occurrence #{{n}}",
+  "tasks.completeOccurrence": "Complete this occurrence",
+  "tasks.cancelScopePrompt": "Which occurrences should be canceled?",
+  "tasks.cancelThisAndFuture": "This and all future occurrences",
+  "tasks.cancelEntireSeries": "Entire series",
+  "tasks.cancelInstanceConfirm":
+    "Cancel only this occurrence in the series? Earlier occurrences stay as they were.",
+  "tasks.cancelFutureConfirm":
+    "Cancel this occurrence and all future ones? Earlier occurrences stay as they were.",
   "tasks.card.yesCancel": "Yes, cancel",
   "tasks.card.keep": "Keep",
   "tasks.card.reopenConfirm":

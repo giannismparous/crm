@@ -2,8 +2,11 @@ import type { Firestore } from "firebase-admin/firestore";
 import { ORG_ID, ORG_TIMEZONE, type CrmType } from "./constants";
 import {
   expandCrmAppointmentOccurrences,
+  expandCrmTaskOccurrences,
   isRecurringCrmAppointment,
+  isRecurringCrmTask,
   lastPastOccurrenceEndBefore,
+  lastPastTaskOccurrenceDueBefore,
 } from "./recurrenceRrule";
 
 export interface CrmTask {
@@ -18,6 +21,12 @@ export interface CrmTask {
   assignedById?: string;
   projectId?: string;
   appointmentId?: string;
+  recurrenceRule?: { kind: string; interval: number; dayOfMonth?: number };
+  recurrenceCount?: number;
+  recurrenceCanceledFrom?: string;
+  recurrenceOngoing?: boolean;
+  canceledOccurrenceIndices?: number[];
+  completedOccurrenceIndices?: number[];
 }
 
 export interface CrmAppointment {
@@ -38,8 +47,17 @@ export interface CrmAppointment {
   recurrenceRule?: { kind: string; interval: number; dayOfMonth?: number };
   recurrenceCount?: number;
   recurrenceCanceledFrom?: string;
+  recurrenceOngoing?: boolean;
   recurrenceSeriesId?: string;
   recurrenceIndex?: number;
+  canceledOccurrenceIndices?: number[];
+  occurrenceRsvp?: Record<string, Record<string, "yes" | "no">>;
+  occurrenceFields?: Record<string, {
+    location?: string;
+    meetingLink?: string;
+    description?: string;
+    reviewItems?: string[];
+  }>;
 }
 
 export interface CrmPersonalReminder {
@@ -150,6 +168,19 @@ export function shouldSyncItemToCalendar(
   _options: { fromTodayOnly?: boolean } = {}
 ): boolean {
   if (shouldRemoveFromCalendar(crmType, item)) return false;
+
+  if (crmType === "task") {
+    const task = item as CrmTask;
+    if (isRecurringCrmTask(task)) {
+      if (task.status === "canceled") return false;
+      if (task.recurrenceCanceledFrom) {
+        return Boolean(lastPastTaskOccurrenceDueBefore(task, task.recurrenceCanceledFrom));
+      }
+      const today = orgTodayDateKey();
+      const occs = expandCrmTaskOccurrences(task);
+      return occs.some((o) => o.dueDate >= today);
+    }
+  }
 
   if (crmType === "appointment") {
     const apt = item as CrmAppointment;

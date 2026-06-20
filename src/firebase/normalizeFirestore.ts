@@ -7,11 +7,14 @@ import type {
   PersonalReminder,
   Person,
   Project,
+  ResearchItem,
   SalesContact,
   Task,
   TaskPriority,
   TaskStatus,
 } from "../types";
+import { normalizeOccurrenceRsvp } from "../utils/appointmentRsvp";
+import { normalizeOccurrenceFieldsMap } from "../utils/appointmentOccurrenceFields";
 import { normalizeReviewItems } from "../utils/appointmentReview";
 import { normalizeRecurrenceRule } from "../utils/appointmentRecurrence";
 import { normalizeFeedbackRequests, taskHasOpenFeedback } from "../utils/taskFeedback";
@@ -162,6 +165,28 @@ export function normalizeTask(id: string, data: Record<string, unknown>): Task {
   if (projectId) task.projectId = projectId;
   const appointmentId = String(data.appointmentId ?? "").trim();
   if (appointmentId) task.appointmentId = appointmentId;
+  const recurrenceRule = normalizeRecurrenceRule(data.recurrenceRule);
+  if (recurrenceRule) task.recurrenceRule = recurrenceRule;
+  if (typeof data.recurrenceCount === "number" && Number.isFinite(data.recurrenceCount)) {
+    task.recurrenceCount = data.recurrenceCount;
+  }
+  if (data.recurrenceOngoing === true) task.recurrenceOngoing = true;
+  const recurrenceCanceledFrom = toIso(data.recurrenceCanceledFrom);
+  if (recurrenceCanceledFrom) task.recurrenceCanceledFrom = recurrenceCanceledFrom;
+  if (Array.isArray(data.canceledOccurrenceIndices)) {
+    const indices = data.canceledOccurrenceIndices
+      .map((v) => Math.floor(Number(v)))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (indices.length > 0) task.canceledOccurrenceIndices = [...new Set(indices)].sort((a, b) => a - b);
+  }
+  if (Array.isArray(data.completedOccurrenceIndices)) {
+    const indices = data.completedOccurrenceIndices
+      .map((v) => Math.floor(Number(v)))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (indices.length > 0) {
+      task.completedOccurrenceIndices = [...new Set(indices)].sort((a, b) => a - b);
+    }
+  }
   task.needsFeedback =
     taskHasOpenFeedback(task) ||
     Boolean(data.needsFeedback) ||
@@ -251,8 +276,19 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   if (typeof data.recurrenceCount === "number" && Number.isFinite(data.recurrenceCount)) {
     apt.recurrenceCount = data.recurrenceCount;
   }
+  if (data.recurrenceOngoing === true) apt.recurrenceOngoing = true;
   const recurrenceCanceledFrom = toIso(data.recurrenceCanceledFrom);
   if (recurrenceCanceledFrom) apt.recurrenceCanceledFrom = recurrenceCanceledFrom;
+  if (Array.isArray(data.canceledOccurrenceIndices)) {
+    const indices = data.canceledOccurrenceIndices
+      .map((v) => Math.floor(Number(v)))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (indices.length > 0) apt.canceledOccurrenceIndices = [...new Set(indices)].sort((a, b) => a - b);
+  }
+  const occurrenceRsvp = normalizeOccurrenceRsvp(data.occurrenceRsvp);
+  if (occurrenceRsvp) apt.occurrenceRsvp = occurrenceRsvp;
+  const occurrenceFields = normalizeOccurrenceFieldsMap(data.occurrenceFields);
+  if (occurrenceFields) apt.occurrenceFields = occurrenceFields;
   return apt;
 }
 
@@ -278,4 +314,18 @@ export function normalizeContact(
     generalNotes: String(data.generalNotes ?? ""),
     reminders,
   };
+}
+
+export function normalizeResearchItem(id: string, data: Record<string, unknown>): ResearchItem {
+  const item: ResearchItem = {
+    id: typeof data.id === "string" ? data.id : id,
+    title: String(data.title ?? "").trim(),
+    notes: String(data.notes ?? ""),
+    createdById: String(data.createdById ?? ""),
+    createdAt: toIso(data.createdAt) || new Date().toISOString(),
+    updatedAt: toIso(data.updatedAt) || toIso(data.createdAt) || new Date().toISOString(),
+  };
+  const attachments = normalizeImageAttachments(data.attachments);
+  if (attachments.length > 0) item.attachments = attachments;
+  return item;
 }

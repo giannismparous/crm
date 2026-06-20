@@ -1,4 +1,6 @@
 import { isOrgStoragePath } from "./imageAttachments";
+import { linkifySegments } from "./chatLinks";
+import { readWidthRaw } from "./mediaPlaceholder";
 import { RICH_TEXT_HIGHLIGHT_COLOR } from "./richTextHighlight";
 
 function safeStoragePathAttr(raw: string): string {
@@ -101,14 +103,11 @@ function normalizeSerializedHtml(html: string): string {
 }
 
 function sanitizeImgWidthPx(el: HTMLElement): string {
-  const raw = (() => {
-    const inline = el.style.width?.trim();
-    if (inline) return inline;
-    const styleAttr = el.getAttribute("style") ?? "";
-    const fromAttr = /(?:^|\s)width\s*:\s*([^;]+)/i.exec(styleAttr)?.[1]?.trim();
-    if (fromAttr) return fromAttr;
-    return (el.getAttribute("width") ?? "").trim();
-  })();
+  let raw = readWidthRaw(el);
+  if (!raw) {
+    const wrap = el.closest(".task-inline-image-wrap, .loadable-media-shell, .task-inline-video-wrap");
+    if (wrap) raw = readWidthRaw(wrap as HTMLElement);
+  }
   const m = IMG_WIDTH_PX.exec(raw);
   if (!m) return "";
   const n = Math.min(MAX_IMG_WIDTH, Math.max(MIN_IMG_WIDTH, Math.round(Number(m[1]))));
@@ -128,10 +127,7 @@ function sanitizeMediaIntrinsic(el: HTMLImageElement | HTMLVideoElement): string
 
 function walkInline(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    const text = stripInvisibleChars(node.textContent ?? "")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    return text;
+    return linkifyTextToHtml(node.textContent ?? "");
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
@@ -228,15 +224,17 @@ function walkInline(node: Node): string {
   }
   if (tag === "a") {
     const href = el.getAttribute("href")?.trim() ?? "";
-    if (!/^https:\/\//i.test(href)) return "";
-    if (!el.classList.contains("task-inline-file")) return inner;
-    const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
-    const pathAttr = safeStoragePathAttr(storagePath);
-    const name = (el.getAttribute("data-name") ?? el.textContent ?? "File").replace(/"/g, "&quot;");
-    const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
-    const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
-    const label = (el.textContent ?? name).replace(/</g, "").replace(/>/g, "");
-    return `<a href="${href.replace(/"/g, "&quot;")}" class="task-inline-file"${pathAttr} data-name="${name}"${fpAttr} target="_blank" rel="noopener noreferrer">${label}</a>`;
+    if (!isSafeHttpUrl(href)) return inner;
+    if (el.classList.contains("task-inline-file")) {
+      const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
+      const pathAttr = safeStoragePathAttr(storagePath);
+      const name = (el.getAttribute("data-name") ?? el.textContent ?? "File").replace(/"/g, "&quot;");
+      const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
+      const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
+      const label = (el.textContent ?? name).replace(/</g, "").replace(/>/g, "");
+      return `<a href="${escapeAttr(href)}" class="task-inline-file"${pathAttr} data-name="${name}"${fpAttr} target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
+    return serializeExternalLink(el, inner);
   }
   return inner;
 }
@@ -338,6 +336,38 @@ function escapeHtmlText(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function escapeAttr(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function isSafeHttpUrl(href: string): boolean {
+  return /^https?:\/\//i.test(href.trim());
+}
+
+/** Turn plain-text URLs into safe external links. */
+export function linkifyTextToHtml(raw: string): string {
+  const text = stripInvisibleChars(raw);
+  if (!text) return "";
+  const segments = linkifySegments(text);
+  return segments
+    .map((seg) => {
+      if (seg.type === "link" && isSafeHttpUrl(seg.value)) {
+        const href = escapeAttr(seg.value);
+        const label = escapeHtmlText(seg.value);
+        return `<a href="${href}" class="rich-text-link" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      }
+      return escapeHtmlText(seg.value);
+    })
+    .join("");
+}
+
+function serializeExternalLink(el: HTMLElement, inner: string): string {
+  const href = el.getAttribute("href")?.trim() ?? "";
+  if (!isSafeHttpUrl(href)) return inner;
+  const label = inner.trim() || escapeHtmlText(href);
+  return `<a href="${escapeAttr(href)}" class="rich-text-link" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
 export function looksLikeHtml(body: string): boolean {
   return /<[a-z][\s\S]*>/i.test(body);
 }
@@ -361,7 +391,7 @@ export function repairRichTextBody(body: string): string {
     return capConsecutiveBreaks(
       raw
         .split("\n")
-        .map((line) => escapeHtmlText(line))
+        .map((line) => linkifyTextToHtml(line))
         .join("<br>"),
       aggressive
     );

@@ -1,4 +1,6 @@
 import type { Person, Task } from "../types";
+import { markTaskCompletePatch } from "./taskCompletion";
+import { isRecurringTask } from "./taskDisplay";
 import { TEAM_DEPARTMENTS } from "../types";
 import { normalizeDepartmentId } from "../i18n/helpers";
 
@@ -105,7 +107,7 @@ export function submitWorkerFinished(
   task: Task,
   personId: string,
   people: Person[]
-): Pick<Task, "finishedByIds" | "status"> {
+): Pick<Task, "finishedByIds" | "status" | "completedOccurrenceIndices"> {
   const workers = getTaskWorkerIds(task, people);
   const multi = taskHasMultipleWorkers(task, people);
 
@@ -117,6 +119,15 @@ export function submitWorkerFinished(
     workers.length === 0
       ? finishedByIds.includes(personId)
       : workers.every((id) => finishedByIds.includes(id));
+
+  if (isRecurringTask(task) && allDone) {
+    const patch = markTaskCompletePatch(task);
+    return {
+      finishedByIds: [],
+      status: patch.status ?? task.status,
+      completedOccurrenceIndices: patch.completedOccurrenceIndices,
+    };
+  }
 
   return {
     finishedByIds,

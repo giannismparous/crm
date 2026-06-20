@@ -4,6 +4,8 @@ import {
   DEFAULT_AUDIO_WIDTH,
   DEFAULT_FILE_HEIGHT,
   DEFAULT_FILE_WIDTH,
+  inlineDisplaySizeForImage,
+  inlineDisplaySizeForVideo,
   parseWidthPx,
   placeholderSizeForImage,
   placeholderSizeForVideo,
@@ -223,11 +225,15 @@ function finalizeInlineMediaContainer(container: HTMLElement, media: HTMLImageEl
     storeIntrinsicDimensions(media, media.videoWidth, media.videoHeight);
   }
 
-  container.style.width = "";
-  container.style.height = "";
+  const size =
+    media instanceof HTMLImageElement
+      ? inlineDisplaySizeForImage(media)
+      : inlineDisplaySizeForVideo(media);
+  container.style.width = `${size.width}px`;
+  container.style.height = "auto";
   media.style.display = "block";
   media.style.maxWidth = "100%";
-  media.style.width = "";
+  media.style.width = `${size.width}px`;
   media.style.height = "auto";
   media.style.objectFit = "";
 }
@@ -286,7 +292,32 @@ function applyInlinePlaceholder(el: HTMLElement, width: number, height: number) 
 }
 
 function clearInlinePlaceholder(el: HTMLElement) {
-  if (!parseWidthPx(el)) el.style.width = "";
+  const specified = parseWidthPx(el);
+  if (el instanceof HTMLImageElement) {
+    if (specified) {
+      el.style.width = `${specified}px`;
+    } else {
+      const { width, height } = inlineDisplaySizeForImage(el);
+      el.style.width = `${width}px`;
+      el.style.height = `${height}px`;
+      el.style.minHeight = "";
+      el.style.objectFit = "contain";
+      return;
+    }
+  } else if (el instanceof HTMLVideoElement) {
+    if (specified) {
+      el.style.width = `${specified}px`;
+    } else {
+      const { width, height } = inlineDisplaySizeForVideo(el);
+      el.style.width = `${width}px`;
+      el.style.height = `${height}px`;
+      el.style.minHeight = "";
+      el.style.objectFit = "contain";
+      return;
+    }
+  } else if (!specified) {
+    el.style.width = "";
+  }
   el.style.height = "auto";
   el.style.minHeight = "";
 }

@@ -54,6 +54,8 @@ export function notificationHeadline(n: AppNotification): string {
       });
     case "chat_message":
       return translate(locale, "notifications.chatMessage", { who });
+    case "appointment_rsvp":
+      return translate(locale, "notifications.appointmentRsvp");
     case "task_comment":
     default:
       return translate(locale, "notifications.taskComment", { who });
@@ -74,6 +76,9 @@ export function notificationTaskLine(n: AppNotification): string {
   }
   if (n.kind === "chat_message") {
     return n.taskTitle.trim() || translate(locale, "notifications.line.conversation");
+  }
+  if (n.kind === "appointment_rsvp") {
+    return n.mentionLabel?.trim() || n.taskTitle.trim() || translate(locale, "appointments.untitled");
   }
   return n.taskTitle.trim() || translate(locale, "common.untitledTask");
 }

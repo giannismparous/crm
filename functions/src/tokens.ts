@@ -4,11 +4,10 @@ import type { GoogleCalendarIntegration } from "./constants";
 import { googleClientId, googleClientSecret, googleRedirectUri, integrationRef } from "./config";
 
 export function createOAuthClient() {
-  return new google.auth.OAuth2(
-    googleClientId.value(),
-    googleClientSecret.value(),
-    googleRedirectUri.value()
-  );
+  const clientId = googleClientId.value() || process.env.GOOGLE_OAUTH_CLIENT_ID || "";
+  const clientSecret = googleClientSecret.value() || process.env.GOOGLE_OAUTH_CLIENT_SECRET || "";
+  const redirectUri = googleRedirectUri.value() || process.env.GOOGLE_OAUTH_REDIRECT_URI || "";
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 export async function loadIntegration(

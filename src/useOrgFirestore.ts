@@ -49,6 +49,7 @@ import {
   normalizePersonalReminder,
   normalizeProject,
   normalizeReminder,
+  normalizeResearchItem,
   normalizeTask,
 } from "./firebase/normalizeFirestore";
 import { createRegistrationSeed, subscribeRegistrationSeeds } from "./firebase/registrationSeeds";
@@ -74,6 +75,7 @@ import type {
   Project,
   CreateRegistrationSeedInput,
   RegistrationSeed,
+  ResearchItem,
   SalesContact,
   Task,
   TaskComment,
@@ -93,12 +95,23 @@ import {
   normalizeRecurrenceCount,
   normalizeRecurrenceRule,
 } from "./utils/appointmentRecurrence";
-import { isRecurringAppointment } from "./utils/appointmentDisplay";
+import { isRecurringAppointment, expandAppointmentOccurrences } from "./utils/appointmentDisplay";
+import { isOccurrencePast, type AppointmentCancelScope } from "./utils/appointmentOccurrence";
+import {
+  expandTaskOccurrences,
+  isRecurringTask,
+  taskAnchorIso,
+  type TaskCancelScope,
+} from "./utils/taskDisplay";
+import { normalizeOccurrenceFieldsMap } from "./utils/appointmentOccurrenceFields";
+import { tryFireAppointmentRsvpNotifications } from "./utils/appointmentRsvpNotifications";
+import { isAppointmentRelevantToPerson } from "./utils/appointments";
 import {
   storagePathsFromAppointment,
   storagePathsFromContact,
   storagePathsFromContactReminder,
   storagePathsFromPersonalReminder,
+  storagePathsFromResearchItem,
   storagePathsFromTask,
 } from "./utils/entityStoragePaths";
 import { normalizeUpdatesByUser } from "./utils/taskUpdates";
@@ -166,6 +179,7 @@ export function useOrgFirestore() {
   const [contacts, setContacts] = useState<SalesContact[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [personalReminders, setPersonalReminders] = useState<PersonalReminder[]>([]);
+  const [researchItems, setResearchItems] = useState<ResearchItem[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [registrationSeeds, setRegistrationSeeds] = useState<RegistrationSeed[]>([]);
   const [accessProfile, setAccessProfile] = useState<{
@@ -190,6 +204,8 @@ export function useOrgFirestore() {
   contactsRef.current = contacts;
   const personalRemindersRef = useRef<PersonalReminder[]>([]);
   personalRemindersRef.current = personalReminders;
+  const researchItemsRef = useRef<ResearchItem[]>([]);
+  researchItemsRef.current = researchItems;
 
   /** Linked to Firebase Auth (`authUid`) — excludes legacy seed rows. */
   const people = useMemo(() => registeredPeopleFromOrg(peopleRaw), [peopleRaw]);
@@ -523,6 +539,7 @@ export function useOrgFirestore() {
   const seesAllOrgData = canSeeAllOrgData(currentUserOrgRole);
   const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
   const canManageProjects = hasPrivilege(currentUserOrgRole, "manageProjects");
+  const canAccessResearch = hasPrivilege(currentUserOrgRole, "accessResearch");
   const canSeeContacts = canAccessContacts(currentUserPerson, currentUserOrgRole);
 
   const visiblePeople = people;
@@ -565,6 +582,7 @@ export function useOrgFirestore() {
   }, [personalReminders, people, currentUserPersonId, currentUserOrgRole, seesAllOrgData]);
 
   const visibleContacts = canSeeContacts ? contacts : [];
+  const visibleResearchItems = canAccessResearch ? researchItems : [];
 
   useEffect(() => {
     if (!user || !canSeeContacts) {
@@ -628,6 +646,28 @@ export function useOrgFirestore() {
   }, [user, canSeeContacts, db]);
 
   useEffect(() => {
+    if (!user || !canAccessResearch) {
+      setResearchItems([]);
+      return;
+    }
+
+    const researchCol = collection(db, "organizations", ORG, "research");
+    const unResearch = onSnapshot(
+      researchCol,
+      (snap) => {
+        const list = snap.docs.map((d) =>
+          normalizeResearchItem(d.id, d.data() as Record<string, unknown>)
+        );
+        list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        setResearchItems(list);
+      },
+      (e) => setError(e.message)
+    );
+
+    return () => unResearch();
+  }, [user, canAccessResearch, db]);
+
+  useEffect(() => {
     if (!user || !currentUserPersonId) {
       setNotifications([]);
       return;
@@ -644,7 +684,12 @@ export function useOrgFirestore() {
         const list = snap.docs.map((d) =>
           normalizeNotification(d.id, d.data() as Record<string, unknown>)
         );
-        list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        list.sort((a, b) => {
+          const pinA = a.kind === "appointment_rsvp" && !a.read;
+          const pinB = b.kind === "appointment_rsvp" && !b.read;
+          if (pinA !== pinB) return pinA ? -1 : 1;
+          return b.createdAt.localeCompare(a.createdAt);
+        });
         setNotifications(list);
       },
       (e) => {
@@ -693,6 +738,39 @@ export function useOrgFirestore() {
       window.clearInterval(intervalId);
     };
   }, [user, currentUserPersonId, personalReminders, people, db]);
+
+  const appointmentRsvpProcessingRef = useRef(false);
+
+  useEffect(() => {
+    if (!user || !currentUserPersonId || appointments.length === 0) return;
+
+    let cancelled = false;
+
+    async function runAppointmentRsvpChecks() {
+      if (appointmentRsvpProcessingRef.current) return;
+      appointmentRsvpProcessingRef.current = true;
+      try {
+        const relevant = appointments.filter((a) =>
+          isAppointmentRelevantToPerson(a, currentUserPersonId, people)
+        );
+        for (const apt of relevant) {
+          if (cancelled) break;
+          await tryFireAppointmentRsvpNotifications(db, ORG, apt, people);
+        }
+      } catch (e) {
+        console.error("appointmentRsvpNotifications", e);
+      } finally {
+        appointmentRsvpProcessingRef.current = false;
+      }
+    }
+
+    void runAppointmentRsvpChecks();
+    const intervalId = window.setInterval(() => void runAppointmentRsvpChecks(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [user, currentUserPersonId, appointments, people, db]);
 
   useEffect(() => {
     if (!user || !canAccessSettings) {
@@ -1025,6 +1103,35 @@ export function useOrgFirestore() {
     [updateTask]
   );
 
+  const cancelTaskOccurrence = useCallback(
+    async (id: string, occurrenceIndex: number, scope: TaskCancelScope, canceledById: string) => {
+      const task = tasksRef.current.find((t) => t.id === id);
+      if (!task) return;
+
+      const occ = expandTaskOccurrences(task).find((o) => o.index === occurrenceIndex);
+      if (!occ) return;
+
+      if (scope === "entire_series" || !isRecurringTask(task)) {
+        await cancelTask(id, canceledById);
+        return;
+      }
+
+      if (scope === "instance") {
+        const existing = new Set(task.canceledOccurrenceIndices ?? []);
+        existing.add(occurrenceIndex);
+        await updateTask(id, {
+          canceledOccurrenceIndices: [...existing].sort((a, b) => a - b),
+        });
+        return;
+      }
+
+      await updateTask(id, {
+        recurrenceCanceledFrom: taskAnchorIso(occ.dueDate),
+      });
+    },
+    [cancelTask, updateTask]
+  );
+
   const sendTaskCreatedNotifications = useCallback(
     async (taskIds: string[], actorId: string) => {
       const actor = people.find((p) => p.id === actorId);
@@ -1079,10 +1186,28 @@ export function useOrgFirestore() {
       const id = ref.id;
       const assigneeIds = [...new Set((payload.assigneeIds ?? []).filter(Boolean))];
       const assigneeDepartmentIds = [...new Set((payload.assigneeDepartmentIds ?? []).filter(Boolean))];
+      const recurrenceRule = normalizeRecurrenceRule(payload.recurrenceRule);
+      const recurrenceOngoing = Boolean(payload.recurrenceOngoing && recurrenceRule);
+      const recurrenceCount =
+        recurrenceRule && !recurrenceOngoing && payload.recurrenceCount != null
+          ? normalizeRecurrenceCount(payload.recurrenceCount)
+          : undefined;
+      const {
+        recurrenceRule: _rr,
+        recurrenceCount: _rc,
+        recurrenceOngoing: _ro,
+        ...payloadRest
+      } = payload;
       const row: Task = {
-        ...payload,
+        ...payloadRest,
         assigneeIds,
         assigneeDepartmentIds,
+        ...(recurrenceRule && (recurrenceOngoing || recurrenceCount)
+          ? {
+              recurrenceRule,
+              ...(recurrenceOngoing ? { recurrenceOngoing: true } : { recurrenceCount }),
+            }
+          : {}),
         finishedByIds: payload.finishedByIds ?? [],
         feedbackByIds: payload.feedbackByIds ?? [],
         feedbackRequests: payload.feedbackRequests ?? [],
@@ -1220,6 +1345,11 @@ export function useOrgFirestore() {
       }
       batch.delete(doc(db, "organizations", ORG, "projects", id));
       await batch.commit();
+      for (const t of tasksRef.current) {
+        if (t.projectId === id) {
+          void syncCrmItemToGoogleCalendar("task", t.id);
+        }
+      }
     },
     [db, currentUserOrgRole]
   );
@@ -1455,11 +1585,12 @@ export function useOrgFirestore() {
       ];
       const linkedTaskIds = [...new Set((payload.linkedTaskIds ?? []).filter(Boolean))];
       const recurrenceRule = normalizeRecurrenceRule(payload.recurrenceRule);
+      const recurrenceOngoing = Boolean(payload.recurrenceOngoing && recurrenceRule);
       const recurrenceCount =
-        recurrenceRule && payload.recurrenceCount != null
+        recurrenceRule && !recurrenceOngoing && payload.recurrenceCount != null
           ? normalizeRecurrenceCount(payload.recurrenceCount)
           : undefined;
-      const { description: rawDescription, recurrenceRule: _rr, recurrenceCount: _rc, ...payloadRest } =
+      const { description: rawDescription, recurrenceRule: _rr, recurrenceCount: _rc, recurrenceOngoing: _ro, ...payloadRest } =
         payload;
       const description =
         typeof rawDescription === "string" ? sanitizeTaskUpdates(rawDescription) : undefined;
@@ -1468,8 +1599,11 @@ export function useOrgFirestore() {
         participantIds,
         participantDepartmentIds,
         ...(linkedTaskIds.length > 0 ? { linkedTaskIds } : {}),
-        ...(recurrenceRule && recurrenceCount
-          ? { recurrenceRule, recurrenceCount }
+        ...(recurrenceRule && (recurrenceOngoing || recurrenceCount)
+          ? {
+              recurrenceRule,
+              ...(recurrenceOngoing ? { recurrenceOngoing: true } : { recurrenceCount }),
+            }
           : {}),
         id,
         status: "scheduled",
@@ -1550,6 +1684,14 @@ export function useOrgFirestore() {
             ? imageAttachmentsForFirestore(forWrite.attachments as ImageAttachment[])
             : deleteField();
       }
+      if ("occurrenceFields" in forWrite) {
+        const normalized = normalizeOccurrenceFieldsMap(forWrite.occurrenceFields);
+        if (!normalized || Object.keys(normalized).length === 0) {
+          forWrite.occurrenceFields = deleteField();
+        } else {
+          forWrite.occurrenceFields = normalized;
+        }
+      }
       const body = scrub(stripUndefinedDeep(forWrite) as Record<string, unknown>) as Record<string, unknown>;
       if (Object.keys(body).length === 0) return;
       await updateDoc(ref, body as DocumentData);
@@ -1570,6 +1712,9 @@ export function useOrgFirestore() {
               );
             })
           );
+          for (const r of linked) {
+            void syncCrmItemToGoogleCalendar("personalReminder", r.id);
+          }
         }
       }
     },
@@ -1727,6 +1872,73 @@ export function useOrgFirestore() {
     [db]
   );
 
+  const createResearchItem = useCallback(
+    async (
+      payload: Omit<ResearchItem, "id" | "createdAt" | "updatedAt">,
+      itemId?: string
+    ): Promise<string> => {
+      const ref = itemId
+        ? doc(db, "organizations", ORG, "research", itemId)
+        : doc(collection(db, "organizations", ORG, "research"));
+      const id = ref.id;
+      const notes =
+        typeof payload.notes === "string" ? sanitizeTaskUpdates(payload.notes) : "";
+      const now = new Date().toISOString();
+      const row: Record<string, unknown> = {
+        id,
+        title: String(payload.title ?? "").trim(),
+        notes: richTextHasContent(notes) ? notes : "",
+        createdById: payload.createdById,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (payload.attachments?.length) {
+        row.attachments = imageAttachmentsForFirestore(payload.attachments);
+      }
+      await setDoc(ref, scrub(row));
+      return id;
+    },
+    [db]
+  );
+
+  const updateResearchItem = useCallback(
+    async (id: string, patch: Partial<ResearchItem>) => {
+      const ref = doc(db, "organizations", ORG, "research", id);
+      const forWrite = { ...patch } as Record<string, unknown>;
+      delete forWrite.id;
+      delete forWrite.createdAt;
+      delete forWrite.createdById;
+      if ("title" in forWrite) {
+        forWrite.title = String(forWrite.title ?? "").trim();
+      }
+      if ("notes" in forWrite) {
+        const safe = sanitizeTaskUpdates(String(forWrite.notes ?? ""));
+        forWrite.notes = richTextHasContent(safe) ? safe : "";
+      }
+      if (Array.isArray(forWrite.attachments)) {
+        forWrite.attachments =
+          forWrite.attachments.length > 0
+            ? imageAttachmentsForFirestore(forWrite.attachments as ImageAttachment[])
+            : deleteField();
+      }
+      forWrite.updatedAt = new Date().toISOString();
+      await updateDoc(ref, scrub(forWrite) as DocumentData);
+    },
+    [db]
+  );
+
+  const removeResearchItem = useCallback(
+    async (id: string) => {
+      const before = researchItemsRef.current.find((r) => r.id === id);
+      const storagePaths = before ? storagePathsFromResearchItem(before) : [];
+      await deleteDoc(doc(db, "organizations", ORG, "research", id));
+      if (storagePaths.length > 0) {
+        void deleteImagesFromStorage(storagePaths);
+      }
+    },
+    [db]
+  );
+
   const cancelAppointment = useCallback(
     async (id: string) => {
       const apt = appointmentsRef.current.find((a) => a.id === id);
@@ -1752,6 +1964,38 @@ export function useOrgFirestore() {
       await updateAppointment(id, patch);
     },
     [updateAppointment]
+  );
+
+  const cancelAppointmentOccurrence = useCallback(
+    async (id: string, occurrenceIndex: number, scope: AppointmentCancelScope) => {
+      const apt = appointmentsRef.current.find((a) => a.id === id);
+      if (!apt) return;
+
+      const occ = expandAppointmentOccurrences(apt).find((o) => o.index === occurrenceIndex);
+      if (!occ) return;
+      if (isOccurrencePast(occ)) {
+        throw new Error("Cannot modify a meeting that has already ended.");
+      }
+
+      if (scope === "entire_series" || !isRecurringAppointment(apt)) {
+        await cancelAppointment(id);
+        return;
+      }
+
+      if (scope === "instance") {
+        const existing = new Set(apt.canceledOccurrenceIndices ?? []);
+        existing.add(occurrenceIndex);
+        await updateAppointment(id, {
+          canceledOccurrenceIndices: [...existing].sort((a, b) => a - b),
+        });
+        return;
+      }
+
+      await updateAppointment(id, {
+        recurrenceCanceledFrom: occ.startsAt,
+      });
+    },
+    [cancelAppointment, updateAppointment]
   );
 
   const removeAppointment = useCallback(
@@ -1825,6 +2069,7 @@ export function useOrgFirestore() {
     allTasks: tasks,
     projects: visibleProjects,
     contacts: visibleContacts,
+    researchItems: visibleResearchItems,
     appointments: visibleAppointments,
     personalReminders: visiblePersonalReminders,
     notifications,
@@ -1837,6 +2082,7 @@ export function useOrgFirestore() {
     canAccessSettings,
     canManageProjects,
     canAccessContacts: canSeeContacts,
+    canAccessResearch,
     seesAllOrgData,
     markNotificationRead,
     markChatNotificationsRead,
@@ -1850,6 +2096,7 @@ export function useOrgFirestore() {
     createTask,
     sendTaskCreatedNotifications,
     cancelTask,
+    cancelTaskOccurrence,
     removeTask,
     createProject,
     updateProject,
@@ -1863,10 +2110,14 @@ export function useOrgFirestore() {
     createAppointment,
     updateAppointment,
     cancelAppointment,
+    cancelAppointmentOccurrence,
     removeAppointment,
     addPersonalReminder,
     updatePersonalReminder,
     removePersonalReminder,
+    createResearchItem,
+    updateResearchItem,
+    removeResearchItem,
     updatePerson,
     updatePersonOrgRole,
     issueRegistrationSeed,

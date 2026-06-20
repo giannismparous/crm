@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import type {
   Appointment,
+  AppointmentOccurrenceFields,
+  AppointmentRsvpAnswer,
   PersonalReminder,
   Person,
   Project,
@@ -10,6 +12,18 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "../types";
+import { AppointmentOccurrencePanel } from "./AppointmentOccurrencePanel";
+import { buildRsvpPatch } from "../utils/appointmentRsvp";
+import { buildOccurrenceContentPatch } from "../utils/appointmentOccurrenceFields";
+import {
+  getOccurrenceLocation,
+  getOccurrenceReviewItems,
+} from "../utils/appointmentOccurrenceFields";
+import { reportActionError } from "../utils/actionFeedback";
+import { syncCrmItemToGoogleCalendar } from "../firebase/googleCalendar";
+import type { AppointmentCancelScope } from "../utils/appointmentOccurrence";
+import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../firebase/config";
+import { markAppointmentRsvpNotificationRead } from "../firebase/notifications";
 import { PriorityFilter, PriorityUrgencyIcon, TASK_PRIORITY_CALENDAR_CHIP } from "./TasksTab";
 import { useI18n, useT } from "../contexts/I18nContext";
 import { translatePriority, translateTaskStatus } from "../i18n/helpers";
@@ -19,8 +33,8 @@ import {
   isAppointmentRelevantToPerson,
 } from "../utils/appointments";
 import { appointmentsForCalendarView } from "../utils/appointmentDisplay";
+import { tasksForCalendarView } from "../utils/taskDisplay";
 import { taskInvolvesPerson } from "../utils/taskAssignees";
-import { isTaskOpen } from "../utils/personTaskStats";
 import {
   datetimeLocalToIso,
   formatInOrgTime,
@@ -87,8 +101,26 @@ function reminderTimeLabel(iso: string): string {
   return formatInOrgTime(iso, { hour: "numeric", minute: "2-digit" });
 }
 
+function appointmentDetailLine(apt: Appointment, occurrenceIndex: number): string | undefined {
+  const parts: string[] = [];
+  const location = getOccurrenceLocation(apt, occurrenceIndex).trim();
+  const review = getOccurrenceReviewItems(apt, occurrenceIndex);
+  if (location) parts.push(location);
+  if (review.length > 0) parts.push(review[0]!);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 type CalendarItem =
-  | { kind: "appointment"; id: string; title: string; startsAt: string; order: number; timeLabel: string }
+  | {
+      kind: "appointment";
+      id: string;
+      title: string;
+      startsAt: string;
+      occurrenceIndex: number;
+      order: number;
+      timeLabel: string;
+      detailLine?: string;
+    }
   | {
       kind: "task";
       id: string;
@@ -96,6 +128,7 @@ type CalendarItem =
       status: TaskStatus;
       priority: TaskPriority;
       dueDate: string;
+      occurrenceIndex: number;
       projectName?: string;
       projectColor?: string;
       order: number;
@@ -153,7 +186,7 @@ function buildItemsByDay(
         ? appointments.filter((a) => isAppointmentRelevantToPerson(a, currentUserId, people))
         : appointments;
     for (const item of appointmentsForCalendarView(aptsFiltered)) {
-      const { appointment: a, startsAt, endsAt } = item;
+      const { appointment: a, startsAt, endsAt, occurrenceIndex } = item;
       if (!startsAt) continue;
       const key = isoToLocalDateKey(startsAt);
       push(key, {
@@ -161,8 +194,10 @@ function buildItemsByDay(
         id: a.id,
         title: a.title,
         startsAt,
+        occurrenceIndex,
         order: new Date(startsAt).getTime(),
         timeLabel: formatAppointmentTimeRange({ ...a, startsAt, endsAt }),
+        detailLine: appointmentDetailLine(a, occurrenceIndex),
       });
     }
   }
@@ -173,21 +208,22 @@ function buildItemsByDay(
         ? tasks.filter((t) => taskInvolvesPerson(t, currentUserId, people))
         : tasks;
 
-    for (const t of tasksFiltered) {
-      if (!isTaskOpen(t)) continue;
+    for (const item of tasksForCalendarView(tasksFiltered)) {
+      const { task: t, dueDate, occurrenceIndex } = item;
+      if (!dueDate || dueDate.length < 10) continue;
       if (priorityFilter.length > 0 && !priorityFilter.includes(t.priority)) continue;
-      if (!t.dueDate || t.dueDate.length < 10) continue;
       const project = t.projectId ? projectById.get(t.projectId) : undefined;
-      push(t.dueDate, {
+      push(dueDate, {
         kind: "task",
         id: t.id,
         title: t.title,
         status: t.status,
         priority: t.priority,
-        dueDate: t.dueDate,
+        dueDate,
+        occurrenceIndex,
         projectName: project?.name,
         projectColor: project?.color,
-        order: 0,
+        order: occurrenceIndex,
       });
     }
   }
@@ -260,8 +296,9 @@ export function CalendarTab({
   people,
   currentUserId,
   seesAllOrgData = true,
-  onOpenAppointment,
   onOpenTask,
+  onUpdateAppointment,
+  onCancelAppointmentOccurrence,
   onUpdatePersonalReminder,
   onOpenPersonalReminder,
 }: {
@@ -272,8 +309,14 @@ export function CalendarTab({
   people: Person[];
   currentUserId: string;
   seesAllOrgData?: boolean;
-  onOpenAppointment: (appointmentId: string) => void;
+  onOpenAppointment: (appointmentId: string, occurrenceIndex?: number) => void;
   onOpenTask: (taskId: string) => void;
+  onUpdateAppointment: (id: string, patch: Partial<Appointment>) => Promise<void>;
+  onCancelAppointmentOccurrence: (
+    id: string,
+    occurrenceIndex: number,
+    scope: AppointmentCancelScope
+  ) => Promise<void>;
   onUpdatePersonalReminder: (
     reminderId: string,
     patch: Partial<PersonalReminder>
@@ -306,6 +349,18 @@ export function CalendarTab({
   const [showReminders, setShowReminders] = useState(() => saved.showReminders);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(() => saved.priorityFilter);
   const [selectedKey, setSelectedKey] = useState(() => saved.selectedKey);
+  const [focusedAppointment, setFocusedAppointment] = useState<{
+    id: string;
+    occurrenceIndex: number;
+  } | null>(null);
+  const [rsvpBusy, setRsvpBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [contentBusy, setContentBusy] = useState(false);
+
+  const focusedApt = useMemo(
+    () => (focusedAppointment ? appointments.find((a) => a.id === focusedAppointment.id) ?? null : null),
+    [appointments, focusedAppointment]
+  );
 
   usePersistedTabState("calendar", {
     scope,
@@ -358,6 +413,63 @@ export function CalendarTab({
     const d = new Date();
     setCursor({ y: d.getFullYear(), m: d.getMonth() });
     setSelectedKey(orgDateKey(d));
+  }
+
+  function openAppointmentDetail(id: string, occurrenceIndex: number) {
+    setFocusedAppointment({ id, occurrenceIndex });
+  }
+
+  async function handleRsvp(answer: AppointmentRsvpAnswer) {
+    if (!focusedApt || !focusedAppointment) return;
+    setRsvpBusy(true);
+    try {
+      await onUpdateAppointment(
+        focusedApt.id,
+        buildRsvpPatch(focusedApt, focusedAppointment.occurrenceIndex, currentUserId, answer)
+      );
+      await markAppointmentRsvpNotificationRead(
+        getFirestoreDb(),
+        SIMASIA_AI_ORG_ID,
+        focusedApt.id,
+        focusedAppointment.occurrenceIndex,
+        currentUserId
+      );
+    } finally {
+      setRsvpBusy(false);
+    }
+  }
+
+  async function handleSaveOccurrenceContent(fields: AppointmentOccurrenceFields) {
+    if (!focusedApt || !focusedAppointment) return;
+    setContentBusy(true);
+    try {
+      const patch = buildOccurrenceContentPatch(
+        focusedApt,
+        focusedAppointment.occurrenceIndex,
+        fields
+      );
+      await onUpdateAppointment(focusedApt.id, patch);
+      void syncCrmItemToGoogleCalendar("appointment", focusedApt.id);
+    } catch (e) {
+      reportActionError(e instanceof Error ? e.message : t("appointments.error.save"));
+    } finally {
+      setContentBusy(false);
+    }
+  }
+
+  async function handleCancel(scope: AppointmentCancelScope) {
+    if (!focusedAppointment) return;
+    setCancelBusy(true);
+    try {
+      await onCancelAppointmentOccurrence(
+        focusedAppointment.id,
+        focusedAppointment.occurrenceIndex,
+        scope
+      );
+      setFocusedAppointment(null);
+    } finally {
+      setCancelBusy(false);
+    }
   }
 
   return (
@@ -525,14 +637,14 @@ export function CalendarTab({
                     {visible.map((item) =>
                       item.kind === "appointment" ? (
                         <button
-                          key={`a-${item.id}`}
+                          key={`a-${item.id}-${item.occurrenceIndex}`}
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onOpenAppointment(item.id);
+                            openAppointmentDetail(item.id, item.occurrenceIndex);
                           }}
                           className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${APPOINTMENT_CHIP.stripe} ${APPOINTMENT_CHIP.bg} ${APPOINTMENT_CHIP.text} ${APPOINTMENT_CHIP.hover}`}
-                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}`}
+                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}${item.detailLine ? " · " + item.detailLine : ""}`}
                         >
                           {item.timeLabel ? (
                             <span className={`font-semibold ${APPOINTMENT_CHIP.time}`}>{item.timeLabel} </span>
@@ -604,7 +716,36 @@ export function CalendarTab({
           </div>
         </div>
 
-        <aside className="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
+        <aside className="hidden min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
+          {focusedApt && focusedAppointment ? (
+            <div className="max-h-[min(70vh,32rem)] overflow-x-hidden overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => setFocusedAppointment(null)}
+                className="mb-3 text-xs font-medium text-accent hover:underline"
+              >
+                {t("calendar.backToDay")}
+              </button>
+              <AppointmentOccurrencePanel
+                appointment={focusedApt}
+                people={people}
+                currentUserId={currentUserId}
+                occurrenceIndex={focusedAppointment.occurrenceIndex}
+                onOccurrenceIndexChange={(index) =>
+                  setFocusedAppointment((prev) => (prev ? { ...prev, occurrenceIndex: index } : prev))
+                }
+                onRsvp={handleRsvp}
+                onCancel={handleCancel}
+                allTasks={tasks}
+                onOpenTask={onOpenTask}
+                rsvpBusy={rsvpBusy}
+                cancelBusy={cancelBusy}
+                contentBusy={contentBusy}
+                onSaveOccurrenceContent={handleSaveOccurrenceContent}
+              />
+            </div>
+          ) : (
+            <>
           <h2 className="font-display text-base font-semibold text-slate-900">
             {selectedKey
               ? formatInOrgTime(datetimeLocalToIso(`${selectedKey}T12:00`), {
@@ -621,10 +762,10 @@ export function CalendarTab({
             <ul className="mt-3 max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto text-sm">
               {selectedItems.map((item) =>
                 item.kind === "appointment" ? (
-                  <li key={`a-${item.id}`}>
+                  <li key={`a-${item.id}-${item.occurrenceIndex}`}>
                     <button
                       type="button"
-                      onClick={() => onOpenAppointment(item.id)}
+                      onClick={() => openAppointmentDetail(item.id, item.occurrenceIndex)}
                       className={`w-full rounded-lg border px-3 py-2 text-left ring-1 transition ${APPOINTMENT_CHIP.border} ${APPOINTMENT_CHIP.bg}/80 ${APPOINTMENT_CHIP.ring} ${APPOINTMENT_CHIP.hoverBorder} ${APPOINTMENT_CHIP.hoverBg}`}
                     >
                       <div className={`text-[10px] font-bold uppercase tracking-wide ${APPOINTMENT_CHIP.label}`}>
@@ -633,6 +774,9 @@ export function CalendarTab({
                       <div className="mt-0.5 font-medium text-slate-900">{item.title}</div>
                       {item.timeLabel ? (
                         <div className="mt-1 text-xs text-slate-600">{item.timeLabel}</div>
+                      ) : null}
+                      {item.detailLine ? (
+                        <div className="mt-1 truncate text-xs text-slate-500">{item.detailLine}</div>
                       ) : null}
                     </button>
                   </li>
@@ -731,6 +875,8 @@ export function CalendarTab({
               <span className={`h-2 w-2 rounded-sm ${REMINDER_CHIP.legend}`} /> {t("calendar.legend.reminders")}
             </span>
           </div>
+            </>
+          )}
         </aside>
       </div>
     </div>

@@ -98,6 +98,7 @@ export const commonEn = {
   "common.minutesAgo": "{{count}}m ago",
   "common.hoursAgo": "{{count}}h ago",
   "common.today": "Today",
+  "common.yesterday": "Yesterday",
   "common.addMe": "Add me",
   "common.removeMe": "Remove me",
   "common.accept": "Accept",

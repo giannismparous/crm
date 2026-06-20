@@ -3,6 +3,11 @@ import type { TranslateVars } from "./types";
 import { translate } from "./translate";
 import type { AppLocale } from "./types";
 
+/** BCP 47 tag for `Intl` date/time formatting from app locale. */
+export function intlLocaleForApp(locale: AppLocale): string {
+  return locale === "el" ? "el-GR" : "en-GB";
+}
+
 const DEPT_KEYS: Record<string, string> = {
   Sales: "departments.sales",
   Marketing: "departments.marketing",

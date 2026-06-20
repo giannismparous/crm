@@ -3,16 +3,15 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import { Plus, Trash2 } from "lucide-react";
-import type { Appointment, AppointmentRecurrenceKind, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
+import type { Appointment, AppointmentOccurrenceFields, AppointmentRecurrenceKind, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
 import { isTaskOpen } from "../utils/personTaskStats";
 import { reviewItemsForSearch } from "../utils/appointmentReview";
 import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
 import { newAppointmentDocId } from "../firebase/firestoreIds";
 import { deleteImagesFromStorage } from "../utils/imageAttachments";
-import { isStoredRichTextBody, richTextHasContent, storagePathsInUpdatesHtml } from "../utils/richTextImages";
+import { richTextHasContent, storagePathsInUpdatesHtml } from "../utils/richTextImages";
 import { taskUpdatesToPlainText } from "../utils/sanitizeRichText";
-import { ImageAttachmentGallery } from "./ImageAttachmentGallery";
-import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
+import { SimpleRichText } from "./SimpleRichText";
 import {
   formatAppointmentParticipants,
   formatAppointmentTimeRange,
@@ -20,7 +19,8 @@ import {
   isAppointmentScheduled,
 } from "../utils/appointments";
 import { ParticipantMultiSelect } from "./ParticipantMultiSelect";
-import { ConfirmPanel } from "./TaskWorkerActions";
+import { AppointmentOccurrencePanel } from "./AppointmentOccurrencePanel";
+import { ReviewItemsEditor } from "./ReviewItemsEditor";
 import {
   datetimeLocalToIso,
   defaultOrgDatetimeLocal,
@@ -48,7 +48,20 @@ import {
   isRecurringAppointment,
   listDisplayOccurrence,
 } from "../utils/appointmentDisplay";
+import { buildRsvpPatch, firstSelectableOccurrenceIndex } from "../utils/appointmentRsvp";
+import {
+  buildOccurrenceContentPatch,
+  getOccurrenceDescription,
+  getOccurrenceLocation,
+  getOccurrenceMeetingLink,
+  getOccurrenceReviewItems,
+  occurrenceFieldsForCreate,
+} from "../utils/appointmentOccurrenceFields";
+import { reportActionError } from "../utils/actionFeedback";
 import { useT } from "../contexts/I18nContext";
+import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../firebase/config";
+import { markAppointmentRsvpNotificationRead } from "../firebase/notifications";
+import type { AppointmentCancelScope } from "../utils/appointmentOccurrence";
 
 type AppointmentListTab = "upcoming" | "past" | "canceled";
 
@@ -88,6 +101,7 @@ type AppointmentDraft = {
   recurrenceInterval: number;
   recurrenceDayOfMonth: number;
   recurrenceCount: number;
+  recurrenceOngoing: boolean;
 };
 
 function isRecurrenceDraftDefault(draft: AppointmentDraft): boolean {
@@ -96,7 +110,8 @@ function isRecurrenceDraftDefault(draft: AppointmentDraft): boolean {
     draft.recurrenceKind === "weekly" &&
     draft.recurrenceInterval === 1 &&
     draft.recurrenceDayOfMonth === 1 &&
-    draft.recurrenceCount === DEFAULT_RECURRENCE_COUNT
+    draft.recurrenceCount === DEFAULT_RECURRENCE_COUNT &&
+    !draft.recurrenceOngoing
   );
 }
 
@@ -152,65 +167,12 @@ function emptyDraft(currentUserId: string): AppointmentDraft {
     recurrenceInterval: 1,
     recurrenceDayOfMonth: 1,
     recurrenceCount: DEFAULT_RECURRENCE_COUNT,
+    recurrenceOngoing: true,
   };
 }
 
 function linkedTaskIdsForAppointment(apt: Appointment, allTasks: Task[]): string[] {
   return tasksForAppointment(apt, allTasks).map((t) => t.id);
-}
-
-function ReviewItemsEditor({
-  items,
-  onChange,
-}: {
-  items: string[];
-  onChange: (items: string[]) => void;
-}) {
-  const t = useT();
-  return (
-    <div className="sm:col-span-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-600">{t("appointments.whatToReview")}</p>
-        <button
-          type="button"
-          onClick={() => onChange([...items, ""])}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <Plus className="h-3 w-3" aria-hidden />
-          {t("appointments.addItem")}
-        </button>
-      </div>
-      {items.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-slate-500">{t("appointments.reviewHint")}</p>
-      ) : (
-        <ul className="mt-2 space-y-1.5">
-          {items.map((item, index) => (
-            <li key={index} className="flex items-center gap-2">
-              <span className="w-3 shrink-0 text-center text-sm font-bold leading-none text-slate-400" aria-hidden>
-                •
-              </span>
-              <input
-                value={item}
-                onChange={(e) =>
-                  onChange(items.map((v, i) => (i === index ? e.target.value : v)))
-                }
-                className="input-base min-w-0 flex-1 py-1.5"
-                placeholder={t("appointments.reviewPlaceholder")}
-              />
-              <button
-                type="button"
-                onClick={() => onChange(items.filter((_, i) => i !== index))}
-                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                aria-label={t("appointments.removeItemAria", { n: String(index + 1) })}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 }
 
 function isTaskLinkableForAppointment(task: Task, today: string, appointmentId?: string): boolean {
@@ -306,7 +268,7 @@ export function AppointmentsTab({
   seesAllOrgData = true,
   onCreateAppointment,
   onUpdateAppointment,
-  onCancelAppointment,
+  onCancelAppointmentOccurrence,
   onRemoveAppointment,
   onCreateTask,
   onSendTaskCreatedNotifications,
@@ -314,6 +276,7 @@ export function AppointmentsTab({
   onRemoveTask,
   onOpenTask,
   focusAppointmentId,
+  focusAppointmentOccurrenceIndex,
   onFocusAppointmentHandled,
 }: {
   appointments: Appointment[];
@@ -333,7 +296,11 @@ export function AppointmentsTab({
     patch: Partial<Appointment>,
     options?: { skipCalendarSync?: boolean }
   ) => Promise<void>;
-  onCancelAppointment: (id: string) => Promise<void>;
+  onCancelAppointmentOccurrence: (
+    id: string,
+    occurrenceIndex: number,
+    scope: AppointmentCancelScope
+  ) => Promise<void>;
   onRemoveAppointment: (id: string) => Promise<void>;
   onCreateTask: (
     payload: Omit<Task, "id" | "createdAt">,
@@ -348,6 +315,7 @@ export function AppointmentsTab({
   ) => Promise<void>;
   onOpenTask: (taskId: string) => void;
   focusAppointmentId?: string | null;
+  focusAppointmentOccurrenceIndex?: number | null;
   onFocusAppointmentHandled?: () => void;
 }) {
   const t = useT();
@@ -367,7 +335,9 @@ export function AppointmentsTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [descriptionImagesUploading, setDescriptionImagesUploading] = useState(false);
-  const [cancelConfirmId, setCancelConfirmId] = useState("");
+  const [selectedOccurrenceIndex, setSelectedOccurrenceIndex] = useState(0);
+  const [rsvpBusy, setRsvpBusy] = useState(false);
+  const [contentBusy, setContentBusy] = useState(false);
   const [newAppointmentDraftId, setNewAppointmentDraftId] = useState(newAppointmentDocId);
   const descriptionAtEditStartRef = useRef("");
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -440,12 +410,37 @@ export function AppointmentsTab({
     else if (appointmentStartsAtMsForList(apt, nowMs) < nowMs - 60 * 60 * 1000) setListTab("past");
     else setListTab("upcoming");
     setSelectedId(focusAppointmentId);
+    if (focusAppointmentOccurrenceIndex != null) {
+      setSelectedOccurrenceIndex(focusAppointmentOccurrenceIndex);
+    }
     const t = window.setTimeout(() => {
       cardRefs.current[focusAppointmentId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       onFocusAppointmentHandled?.();
     }, 80);
     return () => window.clearTimeout(t);
-  }, [focusAppointmentId, appointments, nowMs, onFocusAppointmentHandled]);
+  }, [focusAppointmentId, focusAppointmentOccurrenceIndex, appointments, nowMs, onFocusAppointmentHandled]);
+
+  async function handleRsvp(answer: "yes" | "no") {
+    if (!selected) return;
+    setRsvpBusy(true);
+    try {
+      await onUpdateAppointment(
+        selected.id,
+        buildRsvpPatch(selected, selectedOccurrenceIndex, currentUserId, answer)
+      );
+      await markAppointmentRsvpNotificationRead(
+        getFirestoreDb(),
+        SIMASIA_AI_ORG_ID,
+        selected.id,
+        selectedOccurrenceIndex,
+        currentUserId
+      );
+    } catch (e) {
+      reportActionError(e instanceof Error ? e.message : t("appointments.rsvp.error"));
+    } finally {
+      setRsvpBusy(false);
+    }
+  }
 
   function discardDraftDescriptionOrphans() {
     const keep = new Set(storagePathsInUpdatesHtml(descriptionAtEditStartRef.current));
@@ -471,10 +466,13 @@ export function AppointmentsTab({
       title: apt.title,
       startsAt: toDatetimeLocalValue(apt.startsAt),
       endsAt: apt.endsAt ? toDatetimeLocalValue(apt.endsAt) : "",
-      description: apt.description ?? "",
-      reviewItems: apt.reviewItems?.length ? [...apt.reviewItems] : [],
-      location: apt.location,
-      meetingLink: apt.meetingLink ?? "",
+      description: getOccurrenceDescription(apt, selectedOccurrenceIndex),
+      reviewItems: (() => {
+        const items = getOccurrenceReviewItems(apt, selectedOccurrenceIndex);
+        return items.length ? [...items] : [];
+      })(),
+      location: getOccurrenceLocation(apt, selectedOccurrenceIndex),
+      meetingLink: getOccurrenceMeetingLink(apt, selectedOccurrenceIndex),
       participantIds: [...apt.participantIds.filter(Boolean)],
       participantDepartmentIds: [...(apt.participantDepartmentIds ?? [])],
       linkedTaskIds: linkedTaskIdsForAppointment(apt, allTasks),
@@ -484,8 +482,9 @@ export function AppointmentsTab({
       recurrenceInterval: 1,
       recurrenceDayOfMonth: 1,
       recurrenceCount: DEFAULT_RECURRENCE_COUNT,
+      recurrenceOngoing: true,
     });
-    descriptionAtEditStartRef.current = apt.description ?? "";
+    descriptionAtEditStartRef.current = getOccurrenceDescription(apt, selectedOccurrenceIndex);
     setDescriptionImagesUploading(false);
     setEditing(true);
     setShowForm(true);
@@ -549,7 +548,7 @@ export function AppointmentsTab({
           if (canHardDelete) {
             await onRemoveAppointment(id);
           } else {
-            await onCancelAppointment(id);
+            await onCancelAppointmentOccurrence(id, 0, "entire_series");
           }
         } catch {
           /* best-effort */
@@ -604,10 +603,35 @@ export function AppointmentsTab({
 
       let appointmentId: string;
       if (editing && selected) {
-        const patch = { ...fields, linkedTaskIds: desiredLinked } as Partial<Appointment>;
+        const patch = {
+          title,
+          startsAt,
+          endsAt,
+          participantIds: participants.participantIds,
+          participantDepartmentIds: participants.participantDepartmentIds,
+          linkedTaskIds: desiredLinked,
+        } as Partial<Appointment>;
         if (!draft.endsAt) patch.endsAt = "";
-        if (!richTextHasContent(description)) patch.description = "";
-        patch.reviewItems = reviewItems;
+        if (isRecurringAppointment(selected)) {
+          if (richTextHasContent(description)) patch.description = description;
+          else patch.description = "";
+          Object.assign(
+            patch,
+            buildOccurrenceContentPatch(selected, selectedOccurrenceIndex, {
+              location: draft.location.trim(),
+              meetingLink: draft.meetingLink.trim(),
+              description,
+              reviewItems,
+            })
+          );
+        } else {
+          patch.location = draft.location.trim();
+          if (richTextHasContent(description)) patch.description = description;
+          else patch.description = "";
+          patch.reviewItems = reviewItems;
+          const meetingLink = draft.meetingLink.trim();
+          patch.meetingLink = meetingLink || undefined;
+        }
         await onUpdateAppointment(selected.id, patch, syncOpts);
         appointmentId = selected.id;
         descriptionAtEditStartRef.current = description;
@@ -658,6 +682,7 @@ export function AppointmentsTab({
 
         let recurrenceRule: AppointmentRecurrenceRule | undefined;
         let recurrenceCount: number | undefined;
+        let recurrenceOngoing: boolean | undefined;
         if (draft.recurring) {
           recurrenceRule = {
             kind: draft.recurrenceKind,
@@ -666,17 +691,32 @@ export function AppointmentsTab({
               ? { dayOfMonth: normalizeRecurrenceDayOfMonth(draft.recurrenceDayOfMonth) }
               : {}),
           };
-          recurrenceCount = normalizeRecurrenceCount(draft.recurrenceCount);
+          if (draft.recurrenceOngoing) {
+            recurrenceOngoing = true;
+          } else {
+            recurrenceCount = normalizeRecurrenceCount(draft.recurrenceCount);
+          }
         }
 
-        appointmentId = await onCreateAppointment(
-          {
-            ...basePayload,
-            ...(recurrenceRule && recurrenceCount ? { recurrenceRule, recurrenceCount } : {}),
-          },
-          newAppointmentDraftId,
-          syncOpts
+        const isRecurringCreate = Boolean(
+          recurrenceRule && (recurrenceOngoing || recurrenceCount)
         );
+        const createPayload: Omit<Appointment, "id" | "createdAt" | "status"> = {
+          ...basePayload,
+          ...(recurrenceRule && (recurrenceOngoing || recurrenceCount)
+            ? {
+                recurrenceRule,
+                ...(recurrenceOngoing ? { recurrenceOngoing: true } : { recurrenceCount }),
+              }
+            : {}),
+        };
+        if (isRecurringCreate) {
+          delete createPayload.reviewItems;
+          const occ0 = occurrenceFieldsForCreate(true, 0, { reviewItems });
+          if (occ0) createPayload.occurrenceFields = { "0": occ0 };
+        }
+
+        appointmentId = await onCreateAppointment(createPayload, newAppointmentDraftId, syncOpts);
         createdAppointmentIds = [appointmentId];
         descriptionAtEditStartRef.current = description;
         setShowForm(false);
@@ -719,14 +759,30 @@ export function AppointmentsTab({
     }
   }
 
-  async function handleCancel(id: string) {
+  async function handleSaveOccurrenceContent(fields: AppointmentOccurrenceFields) {
+    if (!selected) return;
+    setContentBusy(true);
+    try {
+      const patch = buildOccurrenceContentPatch(selected, selectedOccurrenceIndex, fields);
+      await onUpdateAppointment(selected.id, patch);
+      void syncCrmItemToGoogleCalendar("appointment", selected.id);
+    } catch (e) {
+      reportActionError(e instanceof Error ? e.message : t("appointments.error.save"));
+    } finally {
+      setContentBusy(false);
+    }
+  }
+
+  async function handleCancelOccurrence(scope: AppointmentCancelScope) {
+    if (!selected) return;
     setBusy(true);
     try {
-      await onCancelAppointment(id);
-      setSelectedId("");
-      setCancelConfirmId("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("appointments.error.cancel"));
+      await onCancelAppointmentOccurrence(selected.id, selectedOccurrenceIndex, scope);
+      if (scope === "entire_series" || scope === "this_and_future") {
+        setSelectedId("");
+      }
+    } catch (e) {
+      reportActionError(e instanceof Error ? e.message : t("appointments.error.save"));
     } finally {
       setBusy(false);
     }
@@ -871,6 +927,31 @@ export function AppointmentsTab({
                       </label>
                     )}
 
+                    <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                      {t("appointments.recurrenceDuration")}
+                      <div className="mt-2 space-y-2">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                          <input
+                            type="radio"
+                            name="recurrence-duration"
+                            checked={draft.recurrenceOngoing}
+                            onChange={() => setDraft((d) => ({ ...d, recurrenceOngoing: true }))}
+                          />
+                          {t("appointments.recurrenceOngoing")}
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                          <input
+                            type="radio"
+                            name="recurrence-duration"
+                            checked={!draft.recurrenceOngoing}
+                            onChange={() => setDraft((d) => ({ ...d, recurrenceOngoing: false }))}
+                          />
+                          {t("appointments.recurrenceFixed")}
+                        </label>
+                      </div>
+                    </label>
+
+                    {!draft.recurrenceOngoing && (
                     <label className="block text-xs font-medium text-slate-600">
                       {t("appointments.meetingCount")}
                       <input
@@ -887,6 +968,7 @@ export function AppointmentsTab({
                         className="input-base mt-1 w-full py-1.5"
                       />
                     </label>
+                    )}
 
                     <p className="text-[11px] text-slate-500 sm:col-span-2">
                       {formatRecurrenceSummary(
@@ -899,7 +981,8 @@ export function AppointmentsTab({
                               }
                             : {}),
                         },
-                        normalizeRecurrenceCount(draft.recurrenceCount)
+                        draft.recurrenceOngoing ? undefined : normalizeRecurrenceCount(draft.recurrenceCount),
+                        { ongoing: draft.recurrenceOngoing }
                       )}
                     </p>
                   </div>
@@ -1248,7 +1331,10 @@ export function AppointmentsTab({
                         cardRefs.current[apt.id] = el;
                       }}
                       type="button"
-                      onClick={() => setSelectedId(apt.id)}
+                      onClick={() => {
+                        setSelectedId(apt.id);
+                        setSelectedOccurrenceIndex(firstSelectableOccurrenceIndex(apt, nowMs));
+                      }}
                       className={`w-full rounded-xl border px-4 py-3 text-left transition ${
                         isSelected
                           ? "border-emerald-300 bg-emerald-50/90 ring-2 ring-emerald-200"
@@ -1299,159 +1385,23 @@ export function AppointmentsTab({
 
         {selected && (
         <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-[calc(3rem+1.25rem)]">
-            <div className="space-y-3">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-slate-900">{selected.title}</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  {formatInOrgTime(selected.startsAt, {
-                    weekday: "long",
-                    month: "long",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                  {selected.endsAt
-                    ? ` – ${formatInOrgTime(selected.endsAt, { hour: "numeric", minute: "2-digit" })}`
-                    : ""}
-                </p>
-                {selected.recurrenceRule && (
-                  <p className="mt-1 text-xs text-indigo-700">
-                    {formatRecurrenceSummary(selected.recurrenceRule, selected.recurrenceCount)}
-                  </p>
-                )}
-              </div>
-
-              <dl className="space-y-2 text-sm">
-                <div>
-                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.participants")}</dt>
-                  <dd className="mt-0.5 text-slate-800">
-                    {formatAppointmentParticipants(selected, people, currentUserId)}
-                  </dd>
-                </div>
-                {(selected.reviewItems?.length ?? 0) > 0 && (
-                  <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                      {t("appointments.whatToReview")}
-                    </dt>
-                    <dd className="mt-1">
-                      <ul className="list-disc space-y-0.5 pl-4 text-slate-800">
-                        {selected.reviewItems!.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </dd>
-                  </div>
-                )}
-                {(() => {
-                  const linked = tasksForAppointment(selected, allTasks);
-                  if (linked.length === 0) return null;
-                  return (
-                    <div>
-                      <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("common.task")}</dt>
-                      <dd className="mt-1 space-y-1">
-                        {linked.map((task) => (
-                          <button
-                            key={task.id}
-                            type="button"
-                            onClick={() => onOpenTask(task.id)}
-                            className="block w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-sm font-medium text-accent hover:bg-accent/5"
-                          >
-                            {task.title || t("common.untitledTask")}
-                          </button>
-                        ))}
-                      </dd>
-                    </div>
-                  );
-                })()}
-                {selected.createdById && (
-                  <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.createdBy")}</dt>
-                    <dd className="mt-0.5 text-slate-800">
-                      {people.find((p) => p.id === selected.createdById)?.name ?? "—"}
-                    </dd>
-                  </div>
-                )}
-                {selected.location && (
-                  <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.location")}</dt>
-                    <dd className="mt-0.5 text-slate-800">{selected.location}</dd>
-                  </div>
-                )}
-                {selected.meetingLink && (
-                  <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("appointments.meetingLink")}</dt>
-                    <dd className="mt-0.5">
-                      <a
-                        href={selected.meetingLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="break-all font-medium text-accent hover:underline"
-                      >
-                        {selected.meetingLink}
-                      </a>
-                    </dd>
-                  </div>
-                )}
-                {(richTextHasContent(selected.description ?? "") ||
-                  (selected.attachments?.length ?? 0) > 0) && (
-                  <div>
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                      {t("common.description")}
-                    </dt>
-                    <dd className="mt-0.5 space-y-2 text-slate-800">
-                      {richTextHasContent(selected.description ?? "") &&
-                        (isStoredRichTextBody(selected.description ?? "") ? (
-                          <SimpleRichTextView
-                            html={selected.description ?? ""}
-                            collapseKey={`appointment-desc-view-${selected.id}`}
-                          />
-                        ) : (
-                          <p className="whitespace-pre-wrap">{selected.description}</p>
-                        ))}
-                      {(selected.attachments?.length ?? 0) > 0 && (
-                        <ImageAttachmentGallery
-                          scopeKey={`appointment-${selected.id}`}
-                          attachments={selected.attachments}
-                        />
-                      )}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-
-              {isAppointmentScheduled(selected) && (
-                <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(selected)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    {t("common.edit")}
-                  </button>
-                  {cancelConfirmId === selected.id ? (
-                    <div className="w-full">
-                      <ConfirmPanel
-                        message={t("appointments.cancelConfirm")}
-                        yesLabel={t("appointments.yesCancel")}
-                        noLabel={t("appointments.keepScheduled")}
-                        yesEmphasis
-                        onYes={() => void handleCancel(selected.id)}
-                        onNo={() => setCancelConfirmId("")}
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setCancelConfirmId(selected.id)}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-60"
-                    >
-                      {t("appointments.cancelAppointment")}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            <AppointmentOccurrencePanel
+              appointment={selected}
+              people={people}
+              currentUserId={currentUserId}
+              occurrenceIndex={selectedOccurrenceIndex}
+              onOccurrenceIndexChange={setSelectedOccurrenceIndex}
+              onRsvp={handleRsvp}
+              onCancel={handleCancelOccurrence}
+              allTasks={allTasks}
+              onOpenTask={onOpenTask}
+              rsvpBusy={rsvpBusy}
+              cancelBusy={busy}
+              contentBusy={contentBusy}
+              showEdit={isAppointmentScheduled(selected)}
+              onEdit={() => openEdit(selected)}
+              onSaveOccurrenceContent={handleSaveOccurrenceContent}
+            />
         </aside>
         )}
       </div>

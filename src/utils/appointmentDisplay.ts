@@ -1,8 +1,9 @@
 import type { Appointment } from "../types";
+import { generateRecurrenceOccurrences } from "./appointmentRecurrence";
 import {
-  generateRecurrenceOccurrences,
-  normalizeRecurrenceCount,
-} from "./appointmentRecurrence";
+  canceledOccurrenceIndexSet,
+  effectiveRecurrenceCount,
+} from "./appointmentOccurrence";
 
 const LIST_GRACE_MS = 60 * 60 * 1000;
 
@@ -25,6 +26,7 @@ export function isLegacyMaterializedSibling(apt: Appointment): boolean {
 /** Single-doc recurring series (current model). */
 export function isRecurringAppointment(apt: Appointment): boolean {
   if (isLegacyMaterializedSibling(apt)) return false;
+  if (apt.recurrenceOngoing && apt.recurrenceRule) return true;
   const count = apt.recurrenceCount;
   return Boolean(apt.recurrenceRule && count && count > 1);
 }
@@ -33,8 +35,8 @@ export function expandAppointmentOccurrences(apt: Appointment): AppointmentOccur
   if (isLegacyMaterializedSeries(apt)) {
     return [{ startsAt: apt.startsAt, endsAt: apt.endsAt, index: apt.recurrenceIndex ?? 0 }];
   }
-  if (apt.recurrenceRule && apt.recurrenceCount && apt.recurrenceCount > 1) {
-    const count = normalizeRecurrenceCount(apt.recurrenceCount);
+  if (apt.recurrenceRule && (apt.recurrenceOngoing || (apt.recurrenceCount && apt.recurrenceCount > 1))) {
+    const count = effectiveRecurrenceCount(apt);
     const generated = generateRecurrenceOccurrences(
       apt.startsAt,
       apt.endsAt,
@@ -53,12 +55,16 @@ function recurrenceCutoffMs(apt: Appointment): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** Occurrences still active (not truncated by recurrenceCanceledFrom). */
+/** Occurrences still active (not truncated by recurrenceCanceledFrom or per-instance cancel). */
 export function activeAppointmentOccurrences(apt: Appointment): AppointmentOccurrence[] {
   const cutoff = recurrenceCutoffMs(apt);
+  const canceled = canceledOccurrenceIndexSet(apt);
   const all = expandAppointmentOccurrences(apt);
-  if (cutoff === null) return all;
-  return all.filter((o) => new Date(o.startsAt).getTime() < cutoff);
+  return all.filter((o) => {
+    if (canceled.has(o.index)) return false;
+    if (cutoff === null) return true;
+    return new Date(o.startsAt).getTime() < cutoff;
+  });
 }
 
 export function appointmentStartsAtMsForList(apt: Appointment, nowMs = Date.now()): number {

@@ -9,9 +9,12 @@
 const { initializeApp, cert, getApps } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { loadServiceAccount } = require("./load-service-account.cjs");
+const { ensureGoogleOAuthClientSecret } = require("./ensure-google-oauth-secret.cjs");
 const { refreshAllConnectedGoogleCalendarsOnce } = require("../functions/lib/sync");
 
 const force = process.argv.includes("--force");
+
+ensureGoogleOAuthClientSecret();
 
 if (!getApps().length) {
   initializeApp({ credential: cert(loadServiceAccount()) });

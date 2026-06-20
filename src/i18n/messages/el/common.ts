@@ -98,6 +98,7 @@ export const commonEl = {
   "common.minutesAgo": "πριν {{count}} λεπτά",
   "common.hoursAgo": "πριν {{count}} ώρες",
   "common.today": "Σήμερα",
+  "common.yesterday": "Χθες",
   "common.addMe": "Πρόσθεσέ με",
   "common.removeMe": "Αφαίρεσέ με",
   "common.accept": "Αποδοχή",

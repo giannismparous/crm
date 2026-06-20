@@ -166,6 +166,7 @@ export type TabId =
   | "team"
   | "contacts"
   | "reminders"
+  | "research"
   | "messages"
   | "calendar";
 
@@ -234,6 +235,8 @@ export type Project = {
 
 export type AppointmentStatus = "scheduled" | "canceled";
 
+export type AppointmentRsvpAnswer = "yes" | "no";
+
 export type AppointmentRecurrenceKind = "daily" | "weekly" | "monthly" | "monthly_day";
 
 export type AppointmentRecurrenceRule = {
@@ -273,10 +276,25 @@ export type Appointment = {
   recurrenceIndex?: number;
   /** Recurrence pattern — one Firestore doc represents the whole series */
   recurrenceRule?: AppointmentRecurrenceRule;
-  /** Total meetings in the series when created */
+  /** Total meetings in the series when created (fixed count mode) */
   recurrenceCount?: number;
+  /** When true, occurrences are generated on a rolling ~3-month horizon */
+  recurrenceOngoing?: boolean;
   /** When set, occurrences at or after this time are hidden and removed from Google Calendar */
   recurrenceCanceledFrom?: string;
+  /** Individual canceled occurrence indices (single-instance cancel) */
+  canceledOccurrenceIndices?: number[];
+  /** Per-occurrence RSVP: occurrenceIndex → personId → yes/no (missing = pending) */
+  occurrenceRsvp?: Record<string, Record<string, AppointmentRsvpAnswer>>;
+  /** Per-occurrence content overrides (location, link, description, review checklist) */
+  occurrenceFields?: Record<string, AppointmentOccurrenceFields>;
+};
+
+export type AppointmentOccurrenceFields = {
+  location?: string;
+  meetingLink?: string;
+  description?: string;
+  reviewItems?: string[];
 };
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "canceled";
@@ -364,7 +382,8 @@ export type NotificationKind =
   | "reminder_shared"
   | "reminder_due"
   | "member_joined"
-  | "chat_message";
+  | "chat_message"
+  | "appointment_rsvp";
 
 /** Max notifications loaded per user (Firestore query limit). */
 export const NOTIFICATION_INBOX_LIMIT = 50;
@@ -429,6 +448,18 @@ export type Task = {
   completedAt?: string;
   canceledAt?: string;
   canceledById?: string;
+  /** Recurrence pattern — one Firestore doc represents the whole series */
+  recurrenceRule?: AppointmentRecurrenceRule;
+  /** Total occurrences when created (fixed count mode) */
+  recurrenceCount?: number;
+  /** When true, occurrences are generated on a rolling ~3-month horizon */
+  recurrenceOngoing?: boolean;
+  /** Occurrences on or after this date are hidden and removed from Google Calendar */
+  recurrenceCanceledFrom?: string;
+  /** Individual canceled occurrence indices */
+  canceledOccurrenceIndices?: number[];
+  /** Individual completed occurrence indices (recurring tasks) */
+  completedOccurrenceIndices?: number[];
 };
 
 /** Tasks list bucket in the Tasks tab. */
@@ -449,6 +480,17 @@ export type ContactReminder = {
   notes: string;
   done: boolean;
   attachments?: ImageAttachment[];
+};
+
+/** Founder-only research note — rich text notes and file attachments. */
+export type ResearchItem = {
+  id: string;
+  title: string;
+  notes: string;
+  attachments?: ImageAttachment[];
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 /** Per-person reminder — may link to a contact, open task, and/or appointment. */

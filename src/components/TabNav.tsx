@@ -3,9 +3,9 @@ import { ChevronDown } from "lucide-react";
 import { useT } from "../contexts/I18nContext";
 import type { TabId } from "../types";
 
-const TAB_IDS: TabId[] = ["tasks", "projects", "appointments", "team", "contacts", "reminders", "calendar"];
+const TAB_IDS: TabId[] = ["tasks", "projects", "appointments", "team", "contacts", "reminders", "research", "calendar"];
 
-function useVisibleTabs(showContactsTab: boolean) {
+function useVisibleTabs(showContactsTab: boolean, showResearchTab: boolean) {
   const t = useT();
   return useMemo(() => {
     const tabs = TAB_IDS.map((id) => ({
@@ -13,22 +13,29 @@ function useVisibleTabs(showContactsTab: boolean) {
       label: t(`nav.${id}`),
       title: t(`nav.${id}Title`),
     }));
-    return showContactsTab ? tabs : tabs.filter((tab) => tab.id !== "contacts");
-  }, [showContactsTab, t]);
+    return tabs.filter((tab) => {
+      if (tab.id === "contacts" && !showContactsTab) return false;
+      if (tab.id === "research" && !showResearchTab) return false;
+      return true;
+    });
+  }, [showContactsTab, showResearchTab, t]);
 }
 
 export function TabNav({
   active,
   onChange,
   showContactsTab = true,
+  showResearchTab = false,
 }: {
   active: TabId;
   onChange: (t: TabId) => void;
   /** Founders and Sales department partners. */
   showContactsTab?: boolean;
+  /** Founders only. */
+  showResearchTab?: boolean;
 }) {
   const t = useT();
-  const visibleTabs = useVisibleTabs(showContactsTab);
+  const visibleTabs = useVisibleTabs(showContactsTab, showResearchTab);
 
   return (
     <nav className="segment-track w-max max-w-none shrink-0" aria-label={t("nav.ariaPrimary")}>
@@ -57,15 +64,17 @@ export function TabNavMenu({
   active,
   onChange,
   showContactsTab = true,
+  showResearchTab = false,
 }: {
   active: TabId;
   onChange: (t: TabId) => void;
   showContactsTab?: boolean;
+  showResearchTab?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const visibleTabs = useVisibleTabs(showContactsTab);
+  const visibleTabs = useVisibleTabs(showContactsTab, showResearchTab);
   const activeTab = visibleTabs.find((tab) => tab.id === active) ?? visibleTabs[0];
 
   useEffect(() => {

@@ -9,6 +9,7 @@ import { AuthScreen } from "./components/AuthScreen";
 import { ProfileSetupScreen } from "./components/ProfileSetupScreen";
 import { CalendarTab } from "./components/CalendarTab";
 import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
+import { ResearchTab } from "./components/ResearchTab";
 import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
@@ -18,7 +19,7 @@ import { useNotificationAlerts } from "./hooks/useNotificationAlerts";
 import { useChatMessageAlerts } from "./hooks/useChatMessageAlerts";
 import { MessagesChatStack } from "./components/chat/MessagesChatStack";
 import { useOrgFirestore } from "./useOrgFirestore";
-import type { AppNotification } from "./types";
+import type { AppNotification, AppointmentRsvpAnswer } from "./types";
 import { ActionFeedbackBanner } from "./components/ActionFeedbackBanner";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { useUserAppearance } from "./hooks/useAppearance";
@@ -29,6 +30,7 @@ import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./u
 import { PersonNavProvider } from "./contexts/PersonNavContext";
 import { useT } from "./contexts/I18nContext";
 import { useSyncUserLocale } from "./hooks/useSyncUserLocale";
+import { buildRsvpPatch } from "./utils/appointmentRsvp";
 
 function App() {
   const {
@@ -41,6 +43,7 @@ function App() {
     allTasks,
     projects,
     contacts,
+    researchItems,
     appointments,
     personalReminders,
     currentUserPersonId,
@@ -49,6 +52,7 @@ function App() {
     createTask,
     sendTaskCreatedNotifications,
     cancelTask,
+    cancelTaskOccurrence,
     removeTask,
     createProject,
     updateProject,
@@ -62,9 +66,12 @@ function App() {
     addPersonalReminder,
     updatePersonalReminder,
     removePersonalReminder,
+    createResearchItem,
+    updateResearchItem,
+    removeResearchItem,
     createAppointment,
     updateAppointment,
-    cancelAppointment,
+    cancelAppointmentOccurrence,
     removeAppointment,
     updatePerson,
     notifications,
@@ -80,6 +87,7 @@ function App() {
     canAccessSettings,
     canManageProjects,
     canAccessContacts,
+    canAccessResearch,
     seesAllOrgData,
     issueRegistrationSeed,
     completeProfileSetup,
@@ -111,6 +119,9 @@ function App() {
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
+  const [focusAppointmentOccurrenceIndex, setFocusAppointmentOccurrenceIndex] = useState<number | null>(
+    null
+  );
   const [focusReminderId, setFocusReminderId] = useState<string | null>(null);
   const [focusPersonId, setFocusPersonId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -122,6 +133,10 @@ function App() {
   useEffect(() => {
     if (!canAccessContacts && tab === "contacts") setTab("tasks");
   }, [canAccessContacts, tab, setTab]);
+
+  useEffect(() => {
+    if (!canAccessResearch && tab === "research") setTab("tasks");
+  }, [canAccessResearch, tab, setTab]);
 
   useEffect(() => {
     writeTabToLocation(tab);
@@ -196,6 +211,13 @@ function App() {
       setTab("reminders");
       return;
     }
+    if (n.kind === "appointment_rsvp") {
+      setTab("appointments");
+      setFocusAppointmentId(n.taskId);
+      const idx = Number.parseInt(n.commentId, 10);
+      setFocusAppointmentOccurrenceIndex(Number.isFinite(idx) ? idx : null);
+      return;
+    }
     if (n.kind === "member_joined" && n.taskId) {
       openTeamMember(n.taskId);
       return;
@@ -214,9 +236,10 @@ function App() {
     setFocusContactId(contactId);
   }
 
-  function openAppointmentFromCalendar(appointmentId: string) {
+  function openAppointmentFromCalendar(appointmentId: string, occurrenceIndex?: number) {
     setTab("appointments");
     setFocusAppointmentId(appointmentId);
+    setFocusAppointmentOccurrenceIndex(occurrenceIndex ?? null);
   }
 
   const openTeamMember = useCallback(
@@ -242,6 +265,17 @@ function App() {
   const bellNotifications = useMemo(
     () => notifications.filter((n) => n.kind !== "chat_message"),
     [notifications]
+  );
+
+  const handleAppointmentRsvpFromBell = useCallback(
+    async (n: AppNotification, answer: AppointmentRsvpAnswer) => {
+      const apt = appointments.find((a) => a.id === n.taskId);
+      if (!apt || !currentUserId) return;
+      const idx = Number.parseInt(n.commentId, 10);
+      if (!Number.isFinite(idx)) return;
+      await updateAppointment(apt.id, buildRsvpPatch(apt, idx, currentUserId, answer));
+    },
+    [appointments, currentUserId, updateAppointment]
   );
 
   useNotificationAlerts(bellNotifications, Boolean(user && currentUserPersonId));
@@ -300,9 +334,12 @@ function App() {
       </span>
       <NotificationsBell
         notifications={bellNotifications}
+        appointments={appointments}
+        currentUserId={currentUserId}
         onSelect={openNotification}
         onMarkRead={markNotificationRead}
         onMarkAllRead={markAllNotificationsRead}
+        onAppointmentRsvp={handleAppointmentRsvpFromBell}
       />
       <UserAccountMenu
         name={currentUserName}
@@ -324,10 +361,10 @@ function App() {
           </span>
           <div className="flex min-w-0 justify-center">
             <div className="xl:hidden">
-              <TabNavMenu active={tab} onChange={setTab} showContactsTab={canAccessContacts} />
+              <TabNavMenu active={tab} onChange={setTab} showContactsTab={canAccessContacts} showResearchTab={canAccessResearch} />
             </div>
             <div className="nav-scroll hidden min-w-0 max-w-full xl:block">
-              <TabNav active={tab} onChange={setTab} showContactsTab={canAccessContacts} />
+              <TabNav active={tab} onChange={setTab} showContactsTab={canAccessContacts} showResearchTab={canAccessResearch} />
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-self-end gap-1 sm:gap-2">{headerActions}</div>
@@ -347,6 +384,9 @@ function App() {
             onAddTask={createTask}
             onUpdateTask={updateTask}
             onCancelTask={(id) => cancelTask(id, currentUserPersonId)}
+            onCancelTaskOccurrence={(id, occurrenceIndex, scope) =>
+              cancelTaskOccurrence(id, occurrenceIndex, scope, currentUserPersonId)
+            }
             onCommentPosted={notifyTaskComment}
             onCommentReaction={notifyCommentReaction}
             onTaskActionNotify={notifyTaskAction}
@@ -380,7 +420,7 @@ function App() {
             seesAllOrgData={seesAllOrgData}
             onCreateAppointment={createAppointment}
             onUpdateAppointment={updateAppointment}
-            onCancelAppointment={cancelAppointment}
+            onCancelAppointmentOccurrence={cancelAppointmentOccurrence}
             onRemoveAppointment={removeAppointment}
             onCreateTask={createTask}
             onSendTaskCreatedNotifications={sendTaskCreatedNotifications}
@@ -388,7 +428,11 @@ function App() {
             onRemoveTask={removeTask}
             onOpenTask={openTaskFromCalendar}
             focusAppointmentId={focusAppointmentId}
-            onFocusAppointmentHandled={() => setFocusAppointmentId(null)}
+            focusAppointmentOccurrenceIndex={focusAppointmentOccurrenceIndex}
+            onFocusAppointmentHandled={() => {
+              setFocusAppointmentId(null);
+              setFocusAppointmentOccurrenceIndex(null);
+            }}
           />
         ) : tab === "team" ? (
           <TeamTab
@@ -429,6 +473,15 @@ function App() {
             focusReminderId={focusReminderId}
             onFocusReminderHandled={() => setFocusReminderId(null)}
           />
+        ) : tab === "research" ? (
+          <ResearchTab
+            items={researchItems}
+            people={people}
+            currentUserId={currentUserId}
+            onCreateItem={createResearchItem}
+            onUpdateItem={updateResearchItem}
+            onRemoveItem={removeResearchItem}
+          />
         ) : (
           <CalendarTab
             appointments={appointments}
@@ -440,6 +493,8 @@ function App() {
             seesAllOrgData={seesAllOrgData}
             onOpenAppointment={openAppointmentFromCalendar}
             onOpenTask={openTaskFromCalendar}
+            onUpdateAppointment={updateAppointment}
+            onCancelAppointmentOccurrence={cancelAppointmentOccurrence}
             onUpdatePersonalReminder={updatePersonalReminder}
             onOpenPersonalReminder={() => setTab("reminders")}
           />

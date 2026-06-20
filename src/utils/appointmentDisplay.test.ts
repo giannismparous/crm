@@ -52,13 +52,14 @@ describe("appointmentDisplay", () => {
 
   it("shows next upcoming occurrence in list display", () => {
     const apt = baseApt({
-      startsAt: "2020-01-01T07:00:00.000Z",
+      startsAt: "2030-06-15T07:00:00.000Z",
       recurrenceRule: { kind: "weekly", interval: 1 },
-      recurrenceCount: 52,
+      recurrenceCount: 12,
     });
     const now = new Date("2030-06-01T12:00:00.000Z").getTime();
     const occ = listDisplayOccurrence(apt, now);
     expect(new Date(occ.startsAt).getTime()).toBeGreaterThan(now);
+    expect(occ.startsAt).toBe("2030-06-15T07:00:00.000Z");
   });
 
   it("moves canceled recurring series to canceled tab and drops upcoming", () => {

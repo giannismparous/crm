@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import { Check, CheckCheck, ChevronDown } from "lucide-react";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../../firebase/config";
 import {
@@ -20,18 +21,21 @@ import type {
 import { formatInOrgTime, formatInTimezone, getActiveTimezone } from "../../utils/orgTimezone";
 import { canUnsendChatMessage } from "../../utils/chatUnsend";
 import { isValidTimezone } from "../../utils/userTimezone";
-import { useT } from "../../contexts/I18nContext";
+import { useI18n, useT } from "../../contexts/I18nContext";
 import { ChatConversationHistory } from "../ChatConversationHistory";
 import { ChatMessageBody } from "../ChatMessageBody";
 import { ImageAttachmentGallery } from "../ImageAttachmentGallery";
 import { InlineImageAttachments } from "../InlineImageAttachments";
 import { PersonPresenceAvatar } from "../PersonPresenceAvatar";
+import { PersonAvatar } from "../PersonAvatar";
+import { formatChatDateSeparatorLabel, messageOrgDateKey } from "../../utils/chatMessageDates";
 import {
   CHAT_BUBBLE_SIZE,
   CHAT_DOCK_MARGIN,
   CHAT_PANEL_GAP,
   CHAT_PANEL_TAIL_OFFSET,
 } from "./chatDockLayout";
+import { ChatDateSeparator } from "./ChatDateSeparator";
 
 const ORG = SIMASIA_AI_ORG_ID;
 const CHAT_WIDTH = 492;
@@ -39,6 +43,18 @@ const CHAT_MESSAGE_UNSEND_MS = 280;
 
 function formatMessageTime(iso: string): string {
   return formatInOrgTime(iso, { hour: "numeric", minute: "2-digit" });
+}
+
+const CHAT_MSG_AVATAR_SIZE = "xs" as const;
+const CHAT_MSG_AVATAR_SPACER_CLASS = "w-6 shrink-0";
+
+function showMessageAvatar(
+  messages: ChatMessage[],
+  index: number,
+  showDateSeparator: boolean
+): boolean {
+  if (showDateSeparator || index === 0) return true;
+  return messages[index - 1]!.authorId !== messages[index]!.authorId;
 }
 
 function ChatMessagesLoading() {
@@ -103,6 +119,7 @@ export function ChatBubbleWindow({
   onMarkRead: (conversationId: string, at?: string) => void | Promise<void>;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const db = getFirestoreDb();
   const { messages, loading, hasOlder, loadingOlder, loadOlder } = useChatWindowMessages(
     db,
@@ -128,6 +145,7 @@ export function ChatBubbleWindow({
   const nowMs = usePresenceTick();
 
   const title = conversationDisplayTitle(conversation, people, currentUserId);
+  const me = people.find((p) => p.id === currentUserId);
   const peerId =
     conversation.kind === "dm" ? conversation.memberIds.find((id) => id !== currentUserId) : undefined;
   const peer = peerId ? people.find((p) => p.id === peerId) : undefined;
@@ -222,12 +240,16 @@ export function ChatBubbleWindow({
     if (!body.trim() && attachments.length === 0) return;
 
     setSendError(null);
+    flushSync(() => {
+      setDraft("");
+      setDraftAttachments([]);
+    });
     setSending(true);
     try {
       await onSendMessage(conversation.id, { body, attachments });
-      setDraft("");
-      setDraftAttachments([]);
     } catch (err) {
+      setDraft(body);
+      setDraftAttachments(attachments);
       setSendError(err instanceof Error ? err.message : t("chat.error.send"));
     } finally {
       setSending(false);
@@ -320,7 +342,7 @@ export function ChatBubbleWindow({
         ) : messages.length === 0 ? (
           <p className="py-10 text-center text-xs text-slate-400">{t("chat.emptyThread")}</p>
         ) : (
-          <div className="chat-messages-reveal space-y-2">
+          <div className="chat-messages-reveal">
             {hasOlder && (
               <div className="flex justify-center pb-1">
                 <button
@@ -333,9 +355,19 @@ export function ChatBubbleWindow({
                 </button>
               </div>
             )}
-            {messages.map((m) => {
+            {messages.map((m, index) => {
+              const dateKey = messageOrgDateKey(m.createdAt);
+              const prevDateKey =
+                index > 0 ? messageOrgDateKey(messages[index - 1]!.createdAt) : "";
+              const showDateSeparator = Boolean(dateKey && dateKey !== prevDateKey);
+              const showAvatar = showMessageAvatar(messages, index, showDateSeparator);
+              const groupedWithPrev =
+                index > 0 &&
+                !showDateSeparator &&
+                messages[index - 1]!.authorId === m.authorId;
               const mine = m.authorId === currentUserId;
               const author = people.find((p) => p.id === m.authorId);
+              const avatarPerson = mine ? me : author;
               const enteringIndex = enteringMessageIds.indexOf(m.id);
               const isEntering = enteringIndex >= 0;
               const isExiting = exitingMessageIds.includes(m.id);
@@ -343,27 +375,37 @@ export function ChatBubbleWindow({
               const canUnsend =
                 mine && !isExiting && canUnsendChatMessage(m, currentUserId, nowMs);
               return (
+                <Fragment key={m.id}>
+                  {showDateSeparator && (
+                    <ChatDateSeparator label={formatChatDateSeparatorLabel(dateKey, locale)} />
+                  )}
                 <div
-                  key={m.id}
                   className={`grid transition-[grid-template-rows] duration-[280ms] ease-in ${
                     isExiting ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
-                  }`}
+                  } ${groupedWithPrev ? "mt-0.5" : "mt-2"}`}
                 >
                   <div className="min-h-0 overflow-hidden">
                     <div
-                      className={`group/msg flex ${mine ? "justify-end" : "justify-start"} ${
+                      className={`group/msg flex items-start gap-2 ${mine ? "justify-end" : "justify-start"} ${
                         isExiting
                           ? `chat-message-out ${mine ? "chat-message-out--mine" : "chat-message-out--theirs"}`
                           : ""
                       } ${isEntering ? "chat-message-in" : ""}`}
                       style={isEntering ? { animationDelay: `${staggerMs}ms` } : undefined}
                     >
+                      {!mine && (
+                        showAvatar ? (
+                          <PersonAvatar person={avatarPerson} size={CHAT_MSG_AVATAR_SIZE} />
+                        ) : (
+                          <span className={CHAT_MSG_AVATAR_SPACER_CLASS} aria-hidden />
+                        )
+                      )}
                   <div
-                    className={`max-w-[88%] rounded-2xl px-3 py-1.5 ${
+                    className={`max-w-[calc(100%-2rem)] rounded-2xl px-3 py-1.5 sm:max-w-[88%] ${
                       mine ? "bg-accent text-white" : "bg-slate-100 text-slate-900"
                     }`}
                   >
-                    {!mine && conversation.kind !== "dm" && (
+                    {!mine && conversation.kind !== "dm" && showAvatar && (
                       <p className="mb-0.5 text-[10px] font-semibold opacity-70">
                         {author?.name.trim() || t("common.member")}
                       </p>
@@ -409,10 +451,18 @@ export function ChatBubbleWindow({
                         mine={mine}
                       />
                     </div>
+                  </div>
+                      {mine && (
+                        showAvatar ? (
+                          <PersonAvatar person={avatarPerson} size={CHAT_MSG_AVATAR_SIZE} />
+                        ) : (
+                          <span className={CHAT_MSG_AVATAR_SPACER_CLASS} aria-hidden />
+                        )
+                      )}
                     </div>
                   </div>
-                  </div>
                 </div>
+                </Fragment>
               );
             })}
             <div ref={bottomRef} />
@@ -438,9 +488,10 @@ export function ChatBubbleWindow({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder={t("chat.messagePlaceholder")}
+            placeholder={sending ? t("common.sending") : t("chat.messagePlaceholder")}
             className="input-base min-h-[40px] w-full resize-none pb-9 text-sm"
             onKeyDown={(e) => {
+              if (sending || draftUploading) return;
               if (e.key === "Enter" && !e.shiftKey) {
                 if (isKeyboardComposing(e)) return;
                 e.preventDefault();
@@ -459,9 +510,28 @@ export function ChatBubbleWindow({
         <button
           type="submit"
           disabled={sending || draftUploading || (!draft.trim() && draftAttachments.length === 0)}
-          className="mt-1.5 w-full rounded-lg bg-accent py-1.5 text-xs font-semibold text-white hover:bg-accent-dim disabled:opacity-50"
+          aria-busy={sending}
+          className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-1.5 text-xs font-semibold text-white hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {sending ? t("common.sending") : draftUploading ? t("common.uploading") : t("chat.send")}
+          {sending ? (
+            <>
+              <span
+                className="h-3 w-3 animate-spin rounded-full border-2 border-white/35 border-t-white"
+                aria-hidden
+              />
+              {t("common.sending")}
+            </>
+          ) : draftUploading ? (
+            <>
+              <span
+                className="h-3 w-3 animate-spin rounded-full border-2 border-white/35 border-t-white"
+                aria-hidden
+              />
+              {t("common.uploading")}
+            </>
+          ) : (
+            t("chat.send")
+          )}
         </button>
       </form>
     </div>

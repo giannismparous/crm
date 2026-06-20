@@ -126,18 +126,25 @@ async function findGoogleEventsByCrmItem(
   crmType: CrmType,
   crmId: string
 ): Promise<calendar_v3.Schema$Event[]> {
-  const res = await withGoogleCalendarRetry(() =>
-    calendar.events.list({
-      calendarId,
-      privateExtendedProperty: [
-        `crmSource=${CRM_SOURCE}`,
-        `crmType=${crmType}`,
-        `crmId=${crmId}`,
-      ],
-      maxResults: 25,
-    })
-  );
-  return res.data.items ?? [];
+  const out: calendar_v3.Schema$Event[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await withGoogleCalendarRetry(() =>
+      calendar.events.list({
+        calendarId,
+        privateExtendedProperty: [
+          `crmSource=${CRM_SOURCE}`,
+          `crmType=${crmType}`,
+          `crmId=${crmId}`,
+        ],
+        maxResults: 250,
+        pageToken,
+      })
+    );
+    out.push(...(res.data.items ?? []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return out;
 }
 
 async function deleteDuplicateGoogleEvents(
@@ -444,9 +451,54 @@ export async function fullSyncForUser(
 }
 
 const RICH_DESCRIPTIONS_MIGRATION_ID = "googleCalendarRichDescriptions";
+const APPOINTMENT_RSVP_MIGRATION_ID = "appointmentRsvpCalendarDescriptions";
 
 function richDescriptionsMigrationRef(db: Firestore) {
   return db.doc("organizations/SimasiaAI/system/calendarMigrations");
+}
+
+async function runRefreshAllConnectedGoogleCalendars(
+  db: Firestore,
+  migrationId: string,
+  options: { force?: boolean } = {}
+): Promise<RefreshAllCalendarsResult> {
+  const migrationRef = richDescriptionsMigrationRef(db);
+  const migrationSnap = await migrationRef.get();
+  const migrationData = migrationSnap.data() as Record<string, unknown> | undefined;
+  if (!options.force && migrationData?.[migrationId]) {
+    return { users: 0, events: 0, skipped: true, errors: [] };
+  }
+
+  const userIds = await listConnectedUserIds(db);
+  let totalEvents = 0;
+  const errors: string[] = [];
+
+  for (const uid of userIds) {
+    try {
+      const count = await refreshMappedGoogleCalendarEventsForUser(db, uid);
+      totalEvents += count;
+      await calendarSyncPause();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${uid}: ${msg}`);
+      console.error(`refreshAllConnectedGoogleCalendars ${migrationId} ${uid}:`, err);
+      await saveIntegration(db, uid, { lastError: msg }).catch(() => undefined);
+    }
+  }
+
+  await migrationRef.set(
+    {
+      [migrationId]: {
+        completedAt: new Date().toISOString(),
+        usersProcessed: userIds.length,
+        eventsRefreshed: totalEvents,
+        ...(errors.length > 0 ? { errors } : {}),
+      },
+    },
+    { merge: true }
+  );
+
+  return { users: userIds.length, events: totalEvents, skipped: false, errors };
 }
 
 /** Re-upsert every CRM item that already has a Google event map for this user. */
@@ -498,43 +550,15 @@ export async function refreshAllConnectedGoogleCalendarsOnce(
   db: Firestore,
   options: { force?: boolean } = {}
 ): Promise<RefreshAllCalendarsResult> {
-  const migrationRef = richDescriptionsMigrationRef(db);
-  const migrationSnap = await migrationRef.get();
-  const migrationData = migrationSnap.data() as Record<string, unknown> | undefined;
-  if (!options.force && migrationData?.[RICH_DESCRIPTIONS_MIGRATION_ID]) {
-    return { users: 0, events: 0, skipped: true, errors: [] };
-  }
+  return runRefreshAllConnectedGoogleCalendars(db, RICH_DESCRIPTIONS_MIGRATION_ID, options);
+}
 
-  const userIds = await listConnectedUserIds(db);
-  let totalEvents = 0;
-  const errors: string[] = [];
-
-  for (const uid of userIds) {
-    try {
-      const count = await refreshMappedGoogleCalendarEventsForUser(db, uid);
-      totalEvents += count;
-      await calendarSyncPause();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${uid}: ${msg}`);
-      console.error(`refreshAllConnectedGoogleCalendarsOnce ${uid}:`, err);
-      await saveIntegration(db, uid, { lastError: msg }).catch(() => undefined);
-    }
-  }
-
-  await migrationRef.set(
-    {
-      [RICH_DESCRIPTIONS_MIGRATION_ID]: {
-        completedAt: new Date().toISOString(),
-        usersProcessed: userIds.length,
-        eventsRefreshed: totalEvents,
-        ...(errors.length > 0 ? { errors } : {}),
-      },
-    },
-    { merge: true }
-  );
-
-  return { users: userIds.length, events: totalEvents, skipped: false, errors };
+/** Refresh mapped events after appointment RSVP descriptions ship. */
+export async function refreshAllConnectedGoogleCalendarsForRsvpOnce(
+  db: Firestore,
+  options: { force?: boolean } = {}
+): Promise<RefreshAllCalendarsResult> {
+  return runRefreshAllConnectedGoogleCalendars(db, APPOINTMENT_RSVP_MIGRATION_ID, options);
 }
 
 /** Remove all CRM-synced Google Calendar events while the user is still connected (before token revoke). */

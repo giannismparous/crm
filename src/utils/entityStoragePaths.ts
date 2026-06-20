@@ -1,4 +1,4 @@
-import type { Appointment, ContactReminder, PersonalReminder, SalesContact, Task } from "../types";
+import type { Appointment, ContactReminder, PersonalReminder, ResearchItem, SalesContact, Task } from "../types";
 import { storagePathsInUpdatesHtml } from "./richTextImages";
 
 function addAttachmentPaths(paths: Set<string>, attachments?: { storagePath: string }[]): void {
@@ -39,6 +39,13 @@ export function storagePathsFromAppointment(appointment: Appointment): string[] 
   const paths = new Set<string>();
   addHtmlPaths(paths, appointment.description);
   addAttachmentPaths(paths, appointment.attachments);
+  return [...paths];
+}
+
+export function storagePathsFromResearchItem(item: ResearchItem): string[] {
+  const paths = new Set<string>();
+  addHtmlPaths(paths, item.notes);
+  addAttachmentPaths(paths, item.attachments);
   return [...paths];
 }
 

@@ -26,6 +26,8 @@ export type RolePrivileges = {
   manageOrgRoles: boolean;
   /** Create, edit, and delete projects. */
   manageProjects: boolean;
+  /** Founder-only research section. */
+  accessResearch: boolean;
 };
 
 export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
@@ -36,6 +38,7 @@ export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
     issueRegistrationSeeds: true,
     manageOrgRoles: true,
     manageProjects: true,
+    accessResearch: true,
   },
   partner: {
     fullAccess: true,
@@ -44,6 +47,7 @@ export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
     issueRegistrationSeeds: false,
     manageOrgRoles: false,
     manageProjects: false,
+    accessResearch: false,
   },
 };
 

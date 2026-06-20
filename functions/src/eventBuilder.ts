@@ -3,12 +3,24 @@ import { CRM_SOURCE, ORG_TIMEZONE } from "./constants";
 import type { CrmAppointment, CrmPersonalReminder, CrmTask } from "./crmData";
 import { crmAppUrl } from "./config";
 import {
+  effectiveCrmAppointmentRecurrenceCount,
+  effectiveCrmTaskRecurrenceCount,
   googleRecurrenceLines,
+  googleRecurrenceLinesForDateTime,
   isRecurringCrmAppointment,
+  isRecurringCrmTask,
+  crmAppointmentCanceledExdateStartsAt,
+  crmTaskSkippedExdateKeys,
   lastPastOccurrenceEndBefore,
-  normalizeRecurrenceCount,
+  lastPastTaskOccurrenceDueBefore,
   normalizeRecurrenceRule,
+  expandAllCrmAppointmentOccurrences,
 } from "./recurrenceRrule";
+import { formatRsvpSectionForCalendar, formatOccurrenceDateForCalendar } from "./appointmentRsvp";
+import {
+  crmAppointmentSeriesCalendarFields,
+  formatPerOccurrenceCalendarSection,
+} from "./appointmentOccurrenceFields";
 import {
   departmentLabel,
   personNames,
@@ -165,13 +177,35 @@ export function buildTaskEvent(
     ...(project ? [{ label: "Projects tab", url: deepLink(`/?tab=projects`) }] : []),
   ]);
 
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  const recurring = isRecurringCrmTask(task);
+  let recurrence: string[] | undefined;
+  if (recurring && rule) {
+    const recurrenceCount = effectiveCrmTaskRecurrenceCount(task);
+    const untilIso = task.recurrenceCanceledFrom
+      ? lastPastTaskOccurrenceDueBefore(task, task.recurrenceCanceledFrom)
+      : undefined;
+    if (task.recurrenceCanceledFrom && !untilIso) {
+      return null;
+    }
+    recurrence = googleRecurrenceLines(
+      rule,
+      recurrenceCount,
+      untilIso,
+      crmTaskSkippedExdateKeys(task)
+    );
+  }
+
+  const seriesCanceled = canceled && !recurring;
+
   return {
-    summary: calendarSummary(`Task · ${title}`, canceled),
+    summary: calendarSummary(`Task · ${title}`, seriesCanceled),
     description: buildDescription(link, sections, links),
     location: "SimasiaAI CRM",
     start: { date: dueDate },
     end: { date: addDay(dueDate) },
-    colorId: canceled ? "11" : "9",
+    colorId: seriesCanceled ? "11" : "9",
+    ...(recurrence ? { recurrence } : {}),
     ...readOnlyEventFields(link),
     ...eventMeta("task", task.id),
   };
@@ -189,23 +223,36 @@ export function buildAppointmentEvent(
   const title = apt.title.trim() || "Meeting";
   const link = deepLink(`/?tab=appointments&appointment=${apt.id}`);
   const canceled = apt.status === "canceled";
-  const details = apt.description?.trim() ? stripHtml(apt.description) : "";
+  const seriesFields = crmAppointmentSeriesCalendarFields(apt);
+  const details = seriesFields.description.trim() ? stripHtml(seriesFields.description) : "";
   const participants = personNames(apt.participantIds, ctx);
   const inviteDepts = departmentLabel(apt.participantDepartmentIds);
   const creator = apt.createdById ? ctx.people.get(apt.createdById)?.name : undefined;
-  const review = [...new Set((apt.reviewItems ?? []).map((x) => x.trim()).filter(Boolean))];
+  const review = [...new Set(seriesFields.reviewItems.map((x) => x.trim()).filter(Boolean))];
+  const occurrences = expandAllCrmAppointmentOccurrences(apt);
 
   const sections: string[] = [
     "Type: Meeting / Appointment",
     creator ? section("Created by", creator) : "",
     participants ? section("Participants", participants) : "",
     inviteDepts ? section("Invited departments", inviteDepts) : "",
-    apt.location?.trim() ? section("Location", apt.location.trim()) : "",
-    apt.meetingLink?.trim() ? section("Meeting link", apt.meetingLink.trim()) : "",
+    seriesFields.location.trim() ? section("Location", seriesFields.location.trim()) : "",
+    seriesFields.meetingLink.trim() ? section("Meeting link", seriesFields.meetingLink.trim()) : "",
   ];
 
   if (review.length > 0) {
     sections.push(section("What to review", bulletLines(review)));
+  }
+
+  const rsvpSection = formatRsvpSectionForCalendar(apt, ctx);
+  if (rsvpSection) sections.push(rsvpSection);
+
+  const perOccurrence = formatPerOccurrenceCalendarSection(apt, (index) => {
+    const occ = occurrences.find((o) => o.index === index);
+    return occ ? formatOccurrenceDateForCalendar(occ.startsAt) : `Meeting ${index + 1}`;
+  });
+  if (perOccurrence) {
+    sections.push(section("Meeting-specific details", perOccurrence));
   }
 
   if (related.linkedTasks.length > 0) {
@@ -223,23 +270,31 @@ export function buildAppointmentEvent(
   const links = uniqueLinkEntries(sections, [{ label: "This appointment", url: link }]);
 
   const rule = normalizeRecurrenceRule(apt.recurrenceRule);
-  const recurrenceCount = normalizeRecurrenceCount(apt.recurrenceCount);
   const recurring = isRecurringCrmAppointment(apt);
   let recurrence: string[] | undefined;
   if (recurring && rule) {
+    const recurrenceCount = effectiveCrmAppointmentRecurrenceCount(apt);
     const untilIso = apt.recurrenceCanceledFrom
       ? lastPastOccurrenceEndBefore(apt, apt.recurrenceCanceledFrom)
       : undefined;
     if (apt.recurrenceCanceledFrom && !untilIso) {
       return null;
     }
-    recurrence = googleRecurrenceLines(rule, recurrenceCount, untilIso);
+    recurrence = googleRecurrenceLinesForDateTime(
+      rule,
+      recurrenceCount,
+      untilIso,
+      crmAppointmentCanceledExdateStartsAt(apt)
+    );
   }
 
   return {
     summary: calendarSummary(`Meeting · ${title}`, canceled && !recurring),
     description: buildDescription(link, sections, links),
-    location: apt.location?.trim() || apt.meetingLink?.trim() || "SimasiaAI CRM",
+    location:
+      seriesFields.location.trim() ||
+      seriesFields.meetingLink.trim() ||
+      "SimasiaAI CRM",
     start: { dateTime: startsAt, timeZone: ORG_TIMEZONE },
     end: { dateTime: endsAt, timeZone: ORG_TIMEZONE },
     colorId: canceled && !recurring ? "11" : "10",

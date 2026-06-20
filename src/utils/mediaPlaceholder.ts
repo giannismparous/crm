@@ -12,8 +12,10 @@ export const MIN_INLINE_MEDIA_WIDTH = 48;
 const WIDTH_PX = /^(\d+(?:\.\d+)?)px$/i;
 const STYLE_WIDTH = /(?:^|\s)width\s*:\s*([^;]+)/i;
 const DEFAULT_ASPECT = DEFAULT_MEDIA_HEIGHT / DEFAULT_MEDIA_WIDTH;
+const INLINE_WIDTH_PARENT_SELECTOR =
+  ".task-inline-image-wrap, .loadable-media-shell, .task-inline-video-wrap";
 
-function readWidthRaw(el: HTMLElement): string {
+export function readWidthRaw(el: HTMLElement): string {
   const inline = el.style.width?.trim();
   if (inline) return inline;
   const styleAttr = el.getAttribute("style") ?? "";
@@ -22,11 +24,34 @@ function readWidthRaw(el: HTMLElement): string {
   return (el.getAttribute("width") ?? "").trim();
 }
 
-export function parseWidthPx(el: HTMLElement): number | null {
-  const raw = readWidthRaw(el);
-  const m = WIDTH_PX.exec(raw);
+function parseWidthRaw(raw: string): number | null {
+  const m = WIDTH_PX.exec(raw.trim());
   if (!m) return null;
   return Math.min(MAX_INLINE_MEDIA_WIDTH, Math.max(MIN_INLINE_MEDIA_WIDTH, Math.round(Number(m[1]))));
+}
+
+export function parseWidthPx(el: HTMLElement): number | null {
+  const direct = parseWidthRaw(readWidthRaw(el));
+  if (direct) return direct;
+  const parent = el.closest<HTMLElement>(INLINE_WIDTH_PARENT_SELECTOR);
+  if (parent && parent !== el) {
+    return parseWidthRaw(readWidthRaw(parent));
+  }
+  return null;
+}
+
+/** Copy display width from wrapper → img/video so persisted HTML keeps user resize. */
+export function syncPersistedInlineMediaWidths(root: HTMLElement): void {
+  root
+    .querySelectorAll<HTMLImageElement | HTMLVideoElement>("img.task-inline-image, video.task-inline-video")
+    .forEach((media) => {
+      if (parseWidthRaw(readWidthRaw(media))) return;
+      const parent = media.closest<HTMLElement>(INLINE_WIDTH_PARENT_SELECTOR);
+      const w = parent ? parseWidthPx(parent) : null;
+      if (!w) return;
+      media.style.width = `${w}px`;
+      media.style.height = "auto";
+    });
 }
 
 function readIntrinsicDimensions(el: HTMLElement): { width: number; height: number } | null {

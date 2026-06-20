@@ -148,7 +148,10 @@ function recurrenceDayLabel(locale: AppLocale, day: number): string {
   return ordinalDayEn(day);
 }
 
-function meetingsSuffix(locale: AppLocale, count?: number): string {
+function meetingsSuffix(locale: AppLocale, count?: number, ongoing?: boolean): string {
+  if (ongoing) {
+    return translate(locale, "appointments.recurrence.ongoingSuffix");
+  }
   return count && count > 1
     ? translate(locale, "appointments.recurrence.meetingsSuffix", { count: String(count) })
     : "";
@@ -156,11 +159,12 @@ function meetingsSuffix(locale: AppLocale, count?: number): string {
 
 export function formatRecurrenceSummary(
   rule: AppointmentRecurrenceRule,
-  count?: number
+  count?: number,
+  options?: { ongoing?: boolean }
 ): string {
   const locale = loadLocale();
   const interval = normalizeRecurrenceInterval(rule.interval);
-  const times = meetingsSuffix(locale, count);
+  const times = meetingsSuffix(locale, count, options?.ongoing);
 
   switch (rule.kind) {
     case "daily":

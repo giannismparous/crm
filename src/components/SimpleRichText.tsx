@@ -8,7 +8,7 @@ import {
   type RefObject,
 } from "react";
 import { File as FileIcon, ImagePlus, Music, Video } from "lucide-react";
-import { looksLikeHtml, sanitizeTaskUpdates } from "../utils/sanitizeRichText";
+import { looksLikeHtml, repairRichTextBody, sanitizeTaskUpdates } from "../utils/sanitizeRichText";
 import { isKeyboardComposing } from "../utils/keyboardComposition";
 import {
   deleteImagesFromStorage,
@@ -45,6 +45,7 @@ import {
 } from "../utils/richTextImages";
 import { MAX_AUDIO_BYTES, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../types";
 import { bindLoadableImages, refreshRichTextMediaLayout } from "../utils/bindLoadableImages";
+import { syncPersistedInlineMediaWidths } from "../utils/mediaPlaceholder";
 import { RICH_TEXT_HIGHLIGHT_COLOR } from "../utils/richTextHighlight";
 import {
   applyEditingDom,
@@ -301,6 +302,7 @@ function pruneEmptyBlocks(root: HTMLElement) {
 }
 
 function pruneEditorDomForSave(root: HTMLElement) {
+  syncPersistedInlineMediaWidths(root);
   pruneEmptyAuthorSpans(root);
 }
 
@@ -1052,7 +1054,7 @@ export function SimpleRichTextView({
   collapsible?: boolean;
   collapseKey?: string;
 }) {
-  const safe = sanitizeTaskUpdates(html);
+  const safe = repairRichTextBody(html);
   const viewRef = useRef<HTMLDivElement>(null);
   const viewRootRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
@@ -1072,12 +1074,17 @@ export function SimpleRichTextView({
   }, [collapseKey, safe]);
 
   useLayoutEffect(() => {
-    return bindLoadableImages(viewRef.current);
+    const unbind = bindLoadableImages(viewRef.current);
+    scheduleMediaLayoutRefresh(viewRef);
+    return unbind;
   }, [safe, collapseKey]);
 
   useEffect(() => {
     return bindLoadableImages(viewRef.current);
   }, [safe, collapseKey]);
+
+  const viewLayoutClass =
+    !collapsible || viewExpanded ? "is-expanded collapsible-lines-5" : bodyClampClass;
 
   useEffect(() => {
     const el = viewRef.current;
@@ -1102,7 +1109,7 @@ export function SimpleRichTextView({
       <div
         ref={viewRef}
         data-rich-text-editable="false"
-        className={`simple-rich-text cursor-default collapsible-lines-5 break-words px-3 py-2 text-sm leading-relaxed text-slate-800 ${bodyClampClass} ${className}`}
+        className={`simple-rich-text cursor-default break-words px-3 py-2 text-sm leading-relaxed text-slate-800 ${viewLayoutClass} ${className}`}
         dangerouslySetInnerHTML={{ __html: safe }}
       />
       <CollapsibleExpandToggle show={showMore} onExpand={expand} />

@@ -1,7 +1,7 @@
 import type { ImageAttachment } from "../types";
 import type { LightboxImage } from "../components/ImageLightbox";
 import { isOrgStoragePath, mediaFileFingerprint } from "./imageAttachments";
-import { sanitizeTaskUpdates, taskUpdatesToPlainText } from "./sanitizeRichText";
+import { looksLikeHtml, sanitizeTaskUpdates, taskUpdatesToPlainText } from "./sanitizeRichText";
 
 import {
   copyIntrinsicDimensions,
@@ -289,10 +289,7 @@ export function richTextHasContent(html: string): boolean {
 export function isStoredRichTextBody(body: string): boolean {
   const trimmed = body.trim();
   if (!trimmed) return false;
-  return (
-    /task-inline-(image|video|audio|file)|<strong>|<u>|<span\s+style=/i.test(trimmed) ||
-    /<(?:img|video|audio|a)\b/i.test(trimmed)
-  );
+  return looksLikeHtml(trimmed);
 }
 
 /** Fingerprints of inline media already in a live editor (includes in-flight uploads). */

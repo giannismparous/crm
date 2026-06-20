@@ -93,15 +93,22 @@ export function buildGoogleRecurrenceRRule(
 export function googleRecurrenceLines(
   rule: AppointmentRecurrenceRule,
   count: number,
-  untilIso?: string
+  untilIso?: string,
+  exdateDateKeys?: string[]
 ): string[] {
-  return [`RRULE:${buildGoogleRecurrenceRRule(rule, count, untilIso)}`];
+  const lines = [`RRULE:${buildGoogleRecurrenceRRule(rule, count, untilIso)}`];
+  const keys = [...new Set((exdateDateKeys ?? []).map((k) => k.trim().slice(0, 10)).filter(Boolean))];
+  if (keys.length > 0) {
+    lines.push(`EXDATE;VALUE=DATE:${keys.map((k) => k.replace(/-/g, "")).join(",")}`);
+  }
+  return lines;
 }
 
 /** True when appointment is a single-doc recurring series. */
 export function isRecurringCrmAppointment(apt: {
   recurrenceRule?: unknown;
   recurrenceCount?: unknown;
+  recurrenceOngoing?: unknown;
   recurrenceSeriesId?: unknown;
   recurrenceIndex?: unknown;
 }): boolean {
@@ -109,8 +116,10 @@ export function isRecurringCrmAppointment(apt: {
     return false;
   }
   const rule = normalizeRecurrenceRule(apt.recurrenceRule);
+  if (!rule) return false;
+  if (apt.recurrenceOngoing === true) return true;
   const count = normalizeRecurrenceCount(apt.recurrenceCount);
-  return Boolean(rule && count > 1);
+  return count > 1;
 }
 
 const ORG_LOCALE = "en-GB";
@@ -243,44 +252,315 @@ function occurrenceStartsAt(
   });
 }
 
-export function expandCrmAppointmentOccurrences(apt: {
+const RECURRENCE_HORIZON_MONTHS = 3;
+const MAX_GENERATED_OCCURRENCES = 200;
+const orgTaskDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: ORG_TIMEZONE });
+
+export type CrmAppointmentOccurrenceSlice = {
+  startsAt: string;
+  endsAt?: string;
+  index: number;
+};
+
+type CrmAppointmentRecurrenceInput = {
   startsAt: string;
   endsAt?: string;
   recurrenceRule?: unknown;
   recurrenceCount?: unknown;
-}): { startsAt: string; endsAt?: string }[] {
-  const rule = normalizeRecurrenceRule(apt.recurrenceRule);
-  const count = normalizeRecurrenceCount(apt.recurrenceCount);
-  if (!rule || count <= 1) {
-    return [{ startsAt: apt.startsAt, endsAt: apt.endsAt }];
+  recurrenceOngoing?: unknown;
+  recurrenceCanceledFrom?: string;
+  canceledOccurrenceIndices?: number[];
+};
+
+function recurrenceHorizonEndMs(nowMs = Date.now()): number {
+  const d = new Date(nowMs);
+  const w = wallParts(d, ORG_TIMEZONE);
+  if (!w) return nowMs;
+  const next = orgYmdAddMonths(w.year, w.month - 1, w.day, RECURRENCE_HORIZON_MONTHS, ORG_TIMEZONE);
+  return new Date(
+    Date.UTC(next.year, next.monthIndex, next.day, 23, 59, 59, 999)
+  ).getTime();
+}
+
+function computeOngoingRecurrenceCount(
+  firstStartsAtIso: string,
+  rule: AppointmentRecurrenceRule,
+  nowMs = Date.now()
+): number {
+  const horizon = recurrenceHorizonEndMs(nowMs);
+  let count = 0;
+  for (let index = 0; index < MAX_GENERATED_OCCURRENCES; index++) {
+    const startMs = new Date(occurrenceStartsAt(firstStartsAtIso, rule, index)).getTime();
+    if (Number.isNaN(startMs) || startMs > horizon) break;
+    count = index + 1;
   }
-  const firstStartMs = new Date(apt.startsAt).getTime();
+  return Math.max(2, count);
+}
+
+export function effectiveCrmAppointmentRecurrenceCount(
+  apt: CrmAppointmentRecurrenceInput,
+  nowMs = Date.now()
+): number {
+  const rule = normalizeRecurrenceRule(apt.recurrenceRule);
+  if (!rule || !isRecurringCrmAppointment(apt)) return 1;
+  if (apt.recurrenceOngoing === true) {
+    return computeOngoingRecurrenceCount(apt.startsAt, rule, nowMs);
+  }
+  return normalizeRecurrenceCount(apt.recurrenceCount);
+}
+
+export function expandAllCrmAppointmentOccurrences(
+  apt: CrmAppointmentRecurrenceInput,
+  nowMs = Date.now()
+): CrmAppointmentOccurrenceSlice[] {
+  const startsAt = apt.startsAt?.trim();
+  if (!startsAt) return [];
+  const rule = normalizeRecurrenceRule(apt.recurrenceRule);
+  if (!rule || !isRecurringCrmAppointment(apt)) {
+    return [{ startsAt, endsAt: apt.endsAt, index: 0 }];
+  }
+  const count = effectiveCrmAppointmentRecurrenceCount(apt, nowMs);
+  const firstStartMs = new Date(startsAt).getTime();
   const durationMs =
     apt.endsAt && !Number.isNaN(new Date(apt.endsAt).getTime())
       ? new Date(apt.endsAt).getTime() - firstStartMs
       : 0;
-  const out: { startsAt: string; endsAt?: string }[] = [];
+  const out: CrmAppointmentOccurrenceSlice[] = [];
   for (let i = 0; i < count; i++) {
-    const startsAt = occurrenceStartsAt(apt.startsAt, rule, i);
+    const occStartsAt = occurrenceStartsAt(startsAt, rule, i);
     const endsAt =
       durationMs > 0
-        ? new Date(new Date(startsAt).getTime() + durationMs).toISOString()
+        ? new Date(new Date(occStartsAt).getTime() + durationMs).toISOString()
         : undefined;
-    out.push({ startsAt, endsAt });
+    out.push({ startsAt: occStartsAt, endsAt, index: i });
   }
   return out;
 }
 
+function isActiveCrmAppointmentOccurrence(
+  apt: CrmAppointmentRecurrenceInput,
+  occ: CrmAppointmentOccurrenceSlice
+): boolean {
+  const canceled = new Set(
+    (apt.canceledOccurrenceIndices ?? []).filter((n) => Number.isInteger(n) && n >= 0)
+  );
+  if (canceled.has(occ.index)) return false;
+  const cutoff = apt.recurrenceCanceledFrom?.trim();
+  if (!cutoff) return true;
+  const cutoffMs = new Date(cutoff).getTime();
+  if (Number.isNaN(cutoffMs)) return true;
+  return new Date(occ.startsAt).getTime() < cutoffMs;
+}
+
+/** Active occurrences only (respects per-instance cancel and this-and-future cancel). */
+export function expandCrmAppointmentOccurrences(
+  apt: CrmAppointmentRecurrenceInput,
+  nowMs = Date.now()
+): { startsAt: string; endsAt?: string }[] {
+  return expandAllCrmAppointmentOccurrences(apt, nowMs)
+    .filter((o) => isActiveCrmAppointmentOccurrence(apt, o))
+    .map(({ startsAt, endsAt }) => ({ startsAt, endsAt }));
+}
+
 export function lastPastOccurrenceEndBefore(
-  apt: { startsAt: string; endsAt?: string; recurrenceRule?: unknown; recurrenceCount?: unknown },
+  apt: CrmAppointmentRecurrenceInput,
   cancelFromIso: string
 ): string | undefined {
   const cancelMs = new Date(cancelFromIso).getTime();
   if (Number.isNaN(cancelMs)) return undefined;
-  const past = expandCrmAppointmentOccurrences(apt).filter(
+  const past = expandAllCrmAppointmentOccurrences(apt).filter(
     (o) => new Date(o.startsAt).getTime() < cancelMs
   );
   const last = past[past.length - 1];
   if (!last) return undefined;
   return last.endsAt ?? last.startsAt;
+}
+
+/** Datetime EXDATE values for individually canceled meeting occurrences. */
+export function crmAppointmentCanceledExdateStartsAt(
+  apt: CrmAppointmentRecurrenceInput,
+  nowMs = Date.now()
+): string[] {
+  const indices = (apt.canceledOccurrenceIndices ?? []).filter(
+    (n) => Number.isInteger(n) && n >= 0
+  );
+  if (indices.length === 0 || !isRecurringCrmAppointment(apt)) return [];
+  const canceled = new Set(indices);
+  return expandAllCrmAppointmentOccurrences(apt, nowMs)
+    .filter((o) => canceled.has(o.index))
+    .map((o) => o.startsAt);
+}
+
+export function googleRecurrenceLinesForDateTime(
+  rule: AppointmentRecurrenceRule,
+  count: number,
+  untilIso?: string,
+  exdateStartsAtIso?: string[]
+): string[] {
+  const lines = [`RRULE:${buildGoogleRecurrenceRRule(rule, count, untilIso)}`];
+  const parts: string[] = [];
+  for (const iso of exdateStartsAtIso ?? []) {
+    const w = wallParts(new Date(iso), ORG_TIMEZONE);
+    if (!w) continue;
+    parts.push(
+      `${w.year}${pad2(w.month)}${pad2(w.day)}T${pad2(w.hour)}${pad2(w.minute)}00`
+    );
+  }
+  const unique = [...new Set(parts)];
+  if (unique.length > 0) {
+    lines.push(`EXDATE;TZID=${ORG_TIMEZONE}:${unique.join(",")}`);
+  }
+  return lines;
+}
+
+function taskAnchorIso(dueDate: string): string {
+  const key = dueDate.trim().slice(0, 10);
+  return datetimeLocalToIsoInZone(`${key}T12:00`, ORG_TIMEZONE);
+}
+
+export function isRecurringCrmTask(task: {
+  recurrenceRule?: unknown;
+  recurrenceCount?: unknown;
+  recurrenceOngoing?: unknown;
+}): boolean {
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  if (!rule) return false;
+  if (task.recurrenceOngoing === true) return true;
+  const count = normalizeRecurrenceCount(task.recurrenceCount);
+  return count > 1;
+}
+
+export function effectiveCrmTaskRecurrenceCount(
+  task: {
+    dueDate?: string;
+    recurrenceRule?: unknown;
+    recurrenceCount?: unknown;
+    recurrenceOngoing?: unknown;
+  },
+  nowMs = Date.now()
+): number {
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  if (!rule) return 1;
+  const due = task.dueDate?.trim().slice(0, 10);
+  if (!due) return 1;
+  if (task.recurrenceOngoing === true) {
+    return computeOngoingRecurrenceCount(taskAnchorIso(due), rule, nowMs);
+  }
+  return normalizeRecurrenceCount(task.recurrenceCount);
+}
+
+export function expandCrmTaskOccurrences(task: {
+  dueDate?: string;
+  recurrenceRule?: unknown;
+  recurrenceCount?: unknown;
+  recurrenceOngoing?: unknown;
+  recurrenceCanceledFrom?: string;
+  canceledOccurrenceIndices?: number[];
+  completedOccurrenceIndices?: number[];
+}): { dueDate: string; index: number }[] {
+  const due = task.dueDate?.trim().slice(0, 10);
+  if (!due) return [];
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  const recurring = isRecurringCrmTask(task);
+  if (!rule || !recurring) return [{ dueDate: due, index: 0 }];
+
+  const count = effectiveCrmTaskRecurrenceCount(task);
+  const anchor = taskAnchorIso(due);
+  const out: { dueDate: string; index: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const startsAt = occurrenceStartsAt(anchor, rule, i);
+    const dueDate = orgTaskDateFormatter.format(new Date(startsAt));
+    out.push({ dueDate, index: i });
+  }
+
+  const cutoff = task.recurrenceCanceledFrom?.trim();
+  const cutoffKey = cutoff ? orgTaskDateFormatter.format(new Date(cutoff)) : "";
+  const canceled = new Set(
+    (task.canceledOccurrenceIndices ?? []).filter((n) => Number.isInteger(n) && n >= 0)
+  );
+  const completed = new Set(
+    (task.completedOccurrenceIndices ?? []).filter((n) => Number.isInteger(n) && n >= 0)
+  );
+
+  return out.filter((o) => {
+    if (canceled.has(o.index)) return false;
+    if (completed.has(o.index)) return false;
+    if (!cutoffKey) return true;
+    return o.dueDate < cutoffKey;
+  });
+}
+
+export function lastPastTaskOccurrenceDueBefore(
+  task: {
+    dueDate?: string;
+    recurrenceRule?: unknown;
+    recurrenceCount?: unknown;
+    recurrenceOngoing?: unknown;
+  },
+  cancelFromIso: string
+): string | undefined {
+  const cancelKey = orgTaskDateFormatter.format(new Date(cancelFromIso));
+  if (!cancelKey) return undefined;
+  const due = task.dueDate?.trim().slice(0, 10);
+  if (!due) return undefined;
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  if (!rule || !isRecurringCrmTask(task)) return undefined;
+  const count = effectiveCrmTaskRecurrenceCount(task);
+  const anchor = taskAnchorIso(due);
+  const all: { dueDate: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    const startsAt = occurrenceStartsAt(anchor, rule, i);
+    all.push({ dueDate: orgTaskDateFormatter.format(new Date(startsAt)) });
+  }
+  const past = all.filter((o) => o.dueDate < cancelKey);
+  const last = past[past.length - 1];
+  if (!last) return undefined;
+  return taskAnchorIso(last.dueDate);
+}
+
+function crmTaskSkippedOccurrenceIndices(task: {
+  canceledOccurrenceIndices?: number[];
+  completedOccurrenceIndices?: number[];
+}): Set<number> {
+  const skipped = new Set<number>();
+  for (const n of task.canceledOccurrenceIndices ?? []) {
+    if (Number.isInteger(n) && n >= 0) skipped.add(n);
+  }
+  for (const n of task.completedOccurrenceIndices ?? []) {
+    if (Number.isInteger(n) && n >= 0) skipped.add(n);
+  }
+  return skipped;
+}
+
+/** YYYY-MM-DD keys for canceled/completed occurrences (Google Calendar EXDATE). */
+export function crmTaskSkippedExdateKeys(task: {
+  dueDate?: string;
+  recurrenceRule?: unknown;
+  recurrenceCount?: unknown;
+  recurrenceOngoing?: unknown;
+  canceledOccurrenceIndices?: number[];
+  completedOccurrenceIndices?: number[];
+}): string[] {
+  const skipped = crmTaskSkippedOccurrenceIndices(task);
+  if (skipped.size === 0 || !isRecurringCrmTask(task)) return [];
+  const due = task.dueDate?.trim().slice(0, 10);
+  if (!due) return [];
+  const rule = normalizeRecurrenceRule(task.recurrenceRule);
+  if (!rule) return [];
+  const count = effectiveCrmTaskRecurrenceCount(task);
+  const anchor = taskAnchorIso(due);
+  const keys: string[] = [];
+  for (let i = 0; i < count; i++) {
+    if (!skipped.has(i)) continue;
+    const startsAt = occurrenceStartsAt(anchor, rule, i);
+    keys.push(orgTaskDateFormatter.format(new Date(startsAt)));
+  }
+  return keys;
+}
+
+/** @deprecated use crmTaskSkippedExdateKeys */
+export function crmTaskCanceledExdateKeys(
+  task: Parameters<typeof crmTaskSkippedExdateKeys>[0]
+): string[] {
+  return crmTaskSkippedExdateKeys(task);
 }
