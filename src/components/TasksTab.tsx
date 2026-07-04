@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, readFormDraft } from "../utils/formDraftStorage";
 import type { TaskComment } from "../types";
-import { Clock, ClockAlert } from "lucide-react";
+import { Clock, ClockAlert, Pencil, Star } from "lucide-react";
 import type {
   Person,
   Project,
@@ -44,7 +44,6 @@ import {
 } from "./PersonAvatar";
 import { TaskCommentsSection } from "./TaskCommentsSection";
 import { TaskUpdatesSection } from "./TaskUpdatesSection";
-import { BufferedTextInput } from "./BufferedTextInput";
 import { SimpleRichText, SimpleRichTextView } from "./SimpleRichText";
 import { richTextHasContent } from "../utils/richTextImages";
 import { newTaskDocId } from "../firebase/firestoreIds";
@@ -120,6 +119,7 @@ const TASKS_VIEW_DEFAULTS = {
   everyoneFilterExclusive: false,
   priorityFilter: [] as TaskPriority[],
   taskSortMode: "urgency" as TaskListSortMode,
+  starredOnly: false,
 };
 
 type TaskProjectGroup = {
@@ -309,6 +309,37 @@ export function PriorityUrgencyIcon({
       strokeWidth={2}
       aria-hidden
     />
+  );
+}
+
+function TaskStarButton({
+  starred,
+  onToggle,
+}: {
+  starred: boolean;
+  onToggle: () => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void onToggle();
+      }}
+      title={starred ? t("tasks.star.remove") : t("tasks.star.add")}
+      aria-label={starred ? t("tasks.star.remove") : t("tasks.star.add")}
+      aria-pressed={starred}
+      className={`shrink-0 rounded-lg p-1 transition-opacity focus-visible:opacity-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-400/50 ${
+        starred ? "opacity-100" : "opacity-0 group-hover/task:opacity-100"
+      }`}
+    >
+      <Star
+        className={`h-4 w-4 ${starred ? "fill-amber-400 text-amber-400" : "fill-none text-slate-400 hover:text-amber-500"}`}
+        strokeWidth={2}
+        aria-hidden
+      />
+    </button>
   );
 }
 
@@ -806,6 +837,8 @@ export function TasksTab({
   currentUserId,
   currentUserOrgRole,
   onBroadcastTaskEvent,
+  starredTaskIds,
+  onToggleTaskStar,
   focusTaskId,
   onFocusTaskHandled,
 }: {
@@ -847,6 +880,8 @@ export function TasksTab({
     kind: NotificationKind,
     preview: string
   ) => void | Promise<void>;
+  starredTaskIds: ReadonlySet<string>;
+  onToggleTaskStar: (taskId: string) => void | Promise<void>;
   focusTaskId?: string | null;
   onFocusTaskHandled?: () => void;
 }) {
@@ -869,6 +904,7 @@ export function TasksTab({
   );
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(() => saved.priorityFilter);
   const [taskSortMode, setTaskSortMode] = useState<TaskListSortMode>(() => saved.taskSortMode);
+  const [starredOnly, setStarredOnly] = useState(() => saved.starredOnly);
   const taskRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   usePersistedTabState("tasks", {
@@ -880,6 +916,7 @@ export function TasksTab({
     everyoneFilterExclusive,
     priorityFilter,
     taskSortMode,
+    starredOnly,
   });
 
   useEffect(() => {
@@ -918,6 +955,7 @@ export function TasksTab({
         return false;
       }
       if (priorityFilter.length > 0 && !priorityFilter.includes(task.priority)) return false;
+      if (starredOnly && !starredTaskIds.has(task.id)) return false;
       if (!q) return true;
       const projectName = projects.find((p) => p.id === task.projectId)?.name ?? "";
       const blob =
@@ -936,6 +974,8 @@ export function TasksTab({
     everyoneDepartmentFilter,
     everyoneFilterExclusive,
     priorityFilter,
+    starredOnly,
+    starredTaskIds,
     projects,
     locale,
   ]);
@@ -1144,6 +1184,24 @@ export function TasksTab({
                 </select>
               </label>
               <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
+              <button
+                type="button"
+                onClick={() => setStarredOnly((v) => !v)}
+                aria-pressed={starredOnly}
+                title={starredOnly ? t("tasks.star.filterOff") : t("tasks.star.filterOn")}
+                className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition sm:h-8 sm:text-sm ${
+                  starredOnly
+                    ? "border-amber-300 bg-amber-50 text-amber-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50/50"
+                }`}
+              >
+                <Star
+                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${starredOnly ? "fill-amber-400 text-amber-400" : "fill-none"}`}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+                <span>{t("tasks.star.filter")}</span>
+              </button>
             </div>
           </div>
 
@@ -1181,6 +1239,8 @@ export function TasksTab({
                       onTaskActionNotify={onTaskActionNotify}
                       onFeedbackReply={onFeedbackReply}
                       onBroadcastTaskEvent={onBroadcastTaskEvent}
+                      starred={starredTaskIds.has(task.id)}
+                      onToggleStar={() => void onToggleTaskStar(task.id)}
                     />
                   </li>
                 ))
@@ -1226,6 +1286,8 @@ export function TasksTab({
                             onTaskActionNotify={onTaskActionNotify}
                             onFeedbackReply={onFeedbackReply}
                             onBroadcastTaskEvent={onBroadcastTaskEvent}
+                            starred={starredTaskIds.has(task.id)}
+                            onToggleStar={() => void onToggleTaskStar(task.id)}
                           />
                         </li>
                       ))}
@@ -1236,11 +1298,13 @@ export function TasksTab({
 
           {sorted.length === 0 && (
             <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
-              {listTab === "open"
-                ? t("tasks.empty.open")
-                : listTab === "completed"
-                  ? t("tasks.empty.completed")
-                  : t("tasks.empty.canceled")}
+              {starredOnly
+                ? t("tasks.empty.starred")
+                : listTab === "open"
+                  ? t("tasks.empty.open")
+                  : listTab === "completed"
+                    ? t("tasks.empty.completed")
+                    : t("tasks.empty.canceled")}
             </p>
           )}
         </>
@@ -1606,61 +1670,38 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function TaskDescriptionSection({
   task,
   canEdit,
+  editing,
   onChange,
+  flushSaveRef,
 }: {
   task: Task;
   canEdit: boolean;
+  editing: boolean;
   onChange: (patch: Partial<Task>) => void;
+  flushSaveRef: MutableRefObject<(() => void) | null>;
 }) {
   const t = useT();
-  const [editing, setEditing] = useState(false);
   const [stayExpanded, setStayExpanded] = useState(false);
-  const flushSaveRef = useRef<(() => void) | null>(null);
+  const wasEditingRef = useRef(false);
   const descriptionContent = taskDescriptionContent(task);
   const hasDescription = richTextHasContent(descriptionContent);
 
   useEffect(() => {
-    setEditing(false);
     setStayExpanded(false);
   }, [task.id]);
 
-  function handleSave() {
-    flushSaveRef.current?.();
-    setStayExpanded(true);
-    setEditing(false);
-  }
+  useEffect(() => {
+    if (wasEditingRef.current && !editing) {
+      setStayExpanded(true);
+    }
+    wasEditingRef.current = editing;
+  }, [editing]);
 
   if (!hasDescription && !canEdit) return null;
 
   return (
     <div className="mt-3">
-      <p className="mb-1.5 text-xs font-medium text-slate-600">
-        {t("common.description")}
-        {canEdit && !editing && (
-          <>
-            {" "}
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="font-normal text-accent hover:underline"
-            >
-              {t("common.editParen")}
-            </button>
-          </>
-        )}
-        {canEdit && editing && (
-          <>
-            {" "}
-            <button
-              type="button"
-              onClick={handleSave}
-              className="font-normal text-accent hover:underline"
-            >
-              {t("common.saveParen")}
-            </button>
-          </>
-        )}
-      </p>
+      <p className="mb-1.5 text-xs font-medium text-slate-600">{t("common.description")}</p>
       {editing ? (
         <SimpleRichText
           key={`${task.id}-desc-edit`}
@@ -1668,7 +1709,6 @@ function TaskDescriptionSection({
           persistedHtml={task.description ?? ""}
           onChange={(description) => onChange({ description })}
           flushSaveRef={flushSaveRef}
-          autoFocus
           collapseKey={`${task.id}-desc`}
           taskId={task.id}
           inlineImageStorageDir={`tasks/${task.id}/description`}
@@ -1706,6 +1746,8 @@ function TaskCard({
   onTaskActionNotify,
   onFeedbackReply,
   onBroadcastTaskEvent,
+  starred = false,
+  onToggleStar,
 }: {
   task: Task;
   people: Person[];
@@ -1735,6 +1777,8 @@ function TaskCard({
     kind: NotificationKind,
     preview: string
   ) => void | Promise<void>;
+  starred?: boolean;
+  onToggleStar?: () => void | Promise<void>;
 }) {
   const t = useT();
   const { locale } = useI18n();
@@ -1752,10 +1796,14 @@ function TaskCard({
   const [cancelBusy, setCancelBusy] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [workerFlow, setWorkerFlow] = useState<WorkerFlow>(null);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const detailsFlushSaveRef = useRef<(() => void) | null>(null);
   const isWorker = isTaskWorker(task, currentUserId, people);
   const isAssigner = task.assignedById === currentUserId;
   const canCancelTask = isAssigner || isWorker;
   const canReopen = currentUserOrgRole === "founder" || isTaskWorker;
+  const canEditDetails = isAssigner && !completed && !canceled;
   const actorLabel = people.find((p) => p.id === currentUserId)?.name ?? t("common.someone");
   const taskTitle = task.title.trim() || t("common.task");
   const hasOpenFeedback = taskHasOpenFeedback(task);
@@ -1771,21 +1819,73 @@ function TaskCard({
         ? "—"
         : null;
 
+  useEffect(() => {
+    setEditingDetails(false);
+    setTitleDraft(task.title);
+  }, [task.id]);
+
+  function startEditingDetails() {
+    setTitleDraft(task.title);
+    setEditingDetails(true);
+  }
+
+  function saveDetailsEdits() {
+    detailsFlushSaveRef.current?.();
+    const nextTitle = titleDraft.trim();
+    if (nextTitle && nextTitle !== task.title.trim()) {
+      void onChange({ title: nextTitle });
+    }
+    setEditingDetails(false);
+  }
+
   return (
     <article
-      className={`relative overflow-visible rounded-xl border bg-white p-4 shadow-sm sm:p-5 ${
+      className={`group/task relative overflow-visible rounded-xl border bg-white p-4 shadow-sm sm:p-5 ${
         highlighted ? "task-card-highlight" : "border-slate-200"
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 pr-1 sm:pr-2">
           <div className="flex flex-wrap items-start gap-2">
-            <BufferedTextInput
-              entityKey={`${task.id}:title`}
-              value={task.title}
-              onCommit={(title) => onChange({ title })}
-              className="min-w-0 flex-1 bg-transparent text-base font-semibold text-slate-900 outline-none"
-            />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              {editingDetails ? (
+                <>
+                  <input
+                    type="text"
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    autoFocus
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-base font-semibold text-slate-900 outline-none ring-accent/30 focus:border-accent focus:ring-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveDetailsEdits}
+                    disabled={!titleDraft.trim()}
+                    className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t("common.save")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2 className="min-w-0 text-base font-semibold text-slate-900">{taskTitle}</h2>
+                  {canEditDetails && (
+                    <button
+                      type="button"
+                      onClick={startEditingDetails}
+                      className="shrink-0 rounded-lg p-1 text-accent hover:bg-accent/10 hover:text-accent-dim"
+                      title={t("common.edit")}
+                      aria-label={t("common.edit")}
+                    >
+                      <Pencil className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                  )}
+                  {onToggleStar && (
+                    <TaskStarButton starred={starred} onToggle={onToggleStar} />
+                  )}
+                </>
+              )}
+            </div>
             {recurring && (
               <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
                 {t("tasks.recurring")}
@@ -1982,8 +2082,10 @@ function TaskCard({
 
       <TaskDescriptionSection
         task={task}
-        canEdit={isWorker && !completed && !canceled}
+        canEdit={canEditDetails}
+        editing={editingDetails}
         onChange={onChange}
+        flushSaveRef={detailsFlushSaveRef}
       />
 
       {(taskUpdatesHasContent(task, people) || (isWorker && !completed && !canceled)) && (

@@ -122,8 +122,6 @@ import {
   resolvePersonalReminderLinks,
 } from "./utils/personalReminderLinks";
 import { tryFireReminderDueNotifications } from "./utils/reminderDueNotifications";
-import { useOrgChat } from "./hooks/useOrgChat";
-import { useOrgPresence } from "./hooks/usePresence";
 import { ensureFoundersChat } from "./firebase/chat";
 import {
   computePersonStatDeltas,
@@ -522,6 +520,11 @@ export function useOrgFirestore() {
     [people, currentUserPersonId]
   );
 
+  const starredTaskIds = useMemo(
+    () => new Set(currentUserPerson?.starredTaskIds ?? []),
+    [currentUserPerson?.starredTaskIds]
+  );
+
   const profileSetupPerson = useMemo(() => {
     if (!user) return null;
     const fromPeople = people.find((p) => p.id === user.uid || p.authUid === user.uid);
@@ -543,17 +546,6 @@ export function useOrgFirestore() {
   const canSeeContacts = canAccessContacts(currentUserPerson, currentUserOrgRole);
 
   const visiblePeople = people;
-
-  const chatEnabled = Boolean(user && currentUserPersonId && !isRegistrationInProgress());
-  const orgChat = useOrgChat({
-    db,
-    orgId: ORG,
-    currentUserId: currentUserPersonId,
-    currentUserOrgRole,
-    people,
-    enabled: chatEnabled,
-  });
-  const presenceMap = useOrgPresence(db, ORG, currentUserPersonId, chatEnabled);
 
   const visibleProjects = useMemo(() => {
     if (seesAllOrgData) return projects;
@@ -707,22 +699,29 @@ export function useOrgFirestore() {
   }, [user, currentUserPersonId, db]);
 
   const reminderDueProcessingRef = useRef(false);
+  const personalRemindersLiveRef = useRef(personalReminders);
+  personalRemindersLiveRef.current = personalReminders;
+  const peopleLiveRef = useRef(people);
+  peopleLiveRef.current = people;
 
   useEffect(() => {
-    if (!user || !currentUserPersonId || personalReminders.length === 0) return;
+    if (!user || !currentUserPersonId) return;
 
     let cancelled = false;
 
     async function runDueReminderChecks() {
       if (reminderDueProcessingRef.current) return;
+      const personalRemindersNow = personalRemindersLiveRef.current;
+      const peopleNow = peopleLiveRef.current;
+      if (personalRemindersNow.length === 0) return;
       reminderDueProcessingRef.current = true;
       try {
-        const relevant = personalReminders.filter((r) =>
-          isPersonalReminderRelevantToPerson(r, currentUserPersonId, people)
+        const relevant = personalRemindersNow.filter((r) =>
+          isPersonalReminderRelevantToPerson(r, currentUserPersonId, peopleNow)
         );
         for (const reminder of relevant) {
           if (cancelled) break;
-          await tryFireReminderDueNotifications(db, ORG, reminder, people);
+          await tryFireReminderDueNotifications(db, ORG, reminder, peopleNow);
         }
       } catch (e) {
         console.error("reminderDueNotifications", e);
@@ -737,25 +736,30 @@ export function useOrgFirestore() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [user, currentUserPersonId, personalReminders, people, db]);
+  }, [user, currentUserPersonId, db]);
 
   const appointmentRsvpProcessingRef = useRef(false);
+  const appointmentsLiveRef = useRef(appointments);
+  appointmentsLiveRef.current = appointments;
 
   useEffect(() => {
-    if (!user || !currentUserPersonId || appointments.length === 0) return;
+    if (!user || !currentUserPersonId) return;
 
     let cancelled = false;
 
     async function runAppointmentRsvpChecks() {
       if (appointmentRsvpProcessingRef.current) return;
+      const appointmentsNow = appointmentsLiveRef.current;
+      const peopleNow = peopleLiveRef.current;
+      if (appointmentsNow.length === 0) return;
       appointmentRsvpProcessingRef.current = true;
       try {
-        const relevant = appointments.filter((a) =>
-          isAppointmentRelevantToPerson(a, currentUserPersonId, people)
+        const relevant = appointmentsNow.filter((a) =>
+          isAppointmentRelevantToPerson(a, currentUserPersonId, peopleNow)
         );
         for (const apt of relevant) {
           if (cancelled) break;
-          await tryFireAppointmentRsvpNotifications(db, ORG, apt, people);
+          await tryFireAppointmentRsvpNotifications(db, ORG, apt, peopleNow);
         }
       } catch (e) {
         console.error("appointmentRsvpNotifications", e);
@@ -770,7 +774,7 @@ export function useOrgFirestore() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [user, currentUserPersonId, appointments, people, db]);
+  }, [user, currentUserPersonId, db]);
 
   useEffect(() => {
     if (!user || !canAccessSettings) {
@@ -1066,6 +1070,13 @@ export function useOrgFirestore() {
 
     if (before) {
       const after = mergeTaskPatch(before, patch);
+      if (patch.status === "done" && !isTaskCompleted(before)) {
+        after.completedAt = new Date().toISOString();
+      }
+      if (isTaskCompleted(before) && patch.status != null && patch.status !== "done") {
+        delete after.completedAt;
+      }
+      setTasks((prev) => prev.map((t) => (t.id === id ? after : t)));
       try {
         const deltas = computePersonStatDeltas(before, after, people, options);
         await applyPersonStatDeltas(deltas);
@@ -1656,6 +1667,9 @@ export function useOrgFirestore() {
       if ("taskId" in forWrite && !String(forWrite.taskId ?? "").trim()) {
         forWrite.taskId = deleteField();
       }
+      if ("projectId" in forWrite && !String(forWrite.projectId ?? "").trim()) {
+        forWrite.projectId = deleteField();
+      }
       if ("prepNotes" in forWrite && !String(forWrite.prepNotes ?? "").trim()) {
         forWrite.prepNotes = deleteField();
       }
@@ -2052,11 +2066,44 @@ export function useOrgFirestore() {
       }
       if (fields.avatarUrl === "") body.avatarUrl = deleteField();
       if (fields.avatarStoragePath === "") body.avatarStoragePath = deleteField();
+      if (Array.isArray(fields.starredTaskIds)) {
+        body.starredTaskIds =
+          fields.starredTaskIds.length > 0 ? [...new Set(fields.starredTaskIds.filter(Boolean))] : deleteField();
+      }
       if (Object.keys(body).length > 0) {
         await updateDoc(ref, body as DocumentData);
       }
     },
     [db, currentUserPersonId, currentUserOrgRole]
+  );
+
+  const toggleTaskStar = useCallback(
+    async (taskId: string) => {
+      const id = taskId.trim();
+      if (!id || !currentUserPersonId) return;
+      const person = people.find((p) => p.id === currentUserPersonId);
+      if (!person) return;
+
+      const nextSet = new Set(person.starredTaskIds ?? []);
+      if (nextSet.has(id)) nextSet.delete(id);
+      else nextSet.add(id);
+      const next = [...nextSet];
+
+      setPeopleRaw((prev) =>
+        prev.map((p) => (p.id === currentUserPersonId ? { ...p, starredTaskIds: next } : p))
+      );
+      setSelfPersonDoc((prev) =>
+        prev.person?.id === currentUserPersonId
+          ? { ...prev, person: { ...prev.person, starredTaskIds: next } }
+          : prev
+      );
+
+      const ref = doc(db, "organizations", ORG, "people", currentUserPersonId);
+      await updateDoc(ref, {
+        starredTaskIds: next.length > 0 ? next : deleteField(),
+      });
+    },
+    [db, currentUserPersonId, people]
   );
 
   return {
@@ -2120,16 +2167,9 @@ export function useOrgFirestore() {
     removeResearchItem,
     updatePerson,
     updatePersonOrgRole,
+    toggleTaskStar,
+    starredTaskIds,
     issueRegistrationSeed,
     completeProfileSetup,
-    chatConversations: orgChat.conversations,
-    chatMyMemberState: orgChat.myMemberState,
-    sendChatMessage: orgChat.sendMessage,
-    unsendChatMessage: orgChat.unsendMessage,
-    openOrCreateDm: orgChat.openOrCreateDm,
-    createGroupChat: orgChat.createGroupChat,
-    markChatConversationRead: orgChat.markConversationRead,
-    chatUnreadCount: orgChat.totalUnread,
-    presenceMap,
   };
 }

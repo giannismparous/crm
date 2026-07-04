@@ -3,8 +3,11 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import { Plus, Trash2 } from "lucide-react";
-import type { Appointment, AppointmentOccurrenceFields, AppointmentRecurrenceKind, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
+import type { Appointment, AppointmentRecurrenceKind, Person, Project, Task, TaskListScope, TaskPriority } from "../types";
 import { isTaskOpen } from "../utils/personTaskStats";
+import {
+  tasksLinkedToAppointment,
+} from "../utils/appointmentTasks";
 import { reviewItemsForSearch } from "../utils/appointmentReview";
 import { sanitizeTaskUpdates } from "../utils/sanitizeRichText";
 import { newAppointmentDocId } from "../firebase/firestoreIds";
@@ -19,6 +22,7 @@ import {
   isAppointmentScheduled,
 } from "../utils/appointments";
 import { ParticipantMultiSelect } from "./ParticipantMultiSelect";
+import { ProjectSelectField } from "./ProjectSelectField";
 import { AppointmentOccurrencePanel } from "./AppointmentOccurrencePanel";
 import { ReviewItemsEditor } from "./ReviewItemsEditor";
 import {
@@ -45,6 +49,7 @@ import {
   appointmentMatchesListTab,
   appointmentStartsAtMsForList,
   appointmentsForListView,
+  expandAppointmentOccurrences,
   isRecurringAppointment,
   listDisplayOccurrence,
 } from "../utils/appointmentDisplay";
@@ -96,6 +101,7 @@ type AppointmentDraft = {
   participantDepartmentIds: string[];
   linkedTaskIds: string[];
   newTasks: AppointmentTaskDraft[];
+  projectId: string;
   recurring: boolean;
   recurrenceKind: AppointmentRecurrenceKind;
   recurrenceInterval: number;
@@ -162,6 +168,7 @@ function emptyDraft(currentUserId: string): AppointmentDraft {
     participantDepartmentIds: [],
     linkedTaskIds: [],
     newTasks: [],
+    projectId: "",
     recurring: false,
     recurrenceKind: "weekly",
     recurrenceInterval: 1,
@@ -172,7 +179,7 @@ function emptyDraft(currentUserId: string): AppointmentDraft {
 }
 
 function linkedTaskIdsForAppointment(apt: Appointment, allTasks: Task[]): string[] {
-  return tasksForAppointment(apt, allTasks).map((t) => t.id);
+  return tasksLinkedToAppointment(apt, allTasks).map((t) => t.id);
 }
 
 function isTaskLinkableForAppointment(task: Task, today: string, appointmentId?: string): boolean {
@@ -240,21 +247,6 @@ function ExistingTasksLinker({
   );
 }
 
-function tasksForAppointment(apt: Appointment, allTasks: Task[]): Task[] {
-  const explicit = [...new Set((apt.linkedTaskIds ?? []).map((x) => x.trim()).filter(Boolean))];
-  if (explicit.length > 0) {
-    const byId = new Map(allTasks.map((t) => [t.id, t]));
-    return explicit.map((id) => byId.get(id)).filter((t): t is Task => Boolean(t));
-  }
-  const byLink = allTasks.filter((t) => t.appointmentId === apt.id);
-  const seen = new Set(byLink.map((t) => t.id));
-  if (apt.taskId && !seen.has(apt.taskId)) {
-    const legacy = allTasks.find((t) => t.id === apt.taskId);
-    if (legacy) return [legacy, ...byLink];
-  }
-  return byLink;
-}
-
 function defaultStartsAt(): string {
   return defaultOrgDatetimeLocal(1);
 }
@@ -277,6 +269,7 @@ export function AppointmentsTab({
   onOpenTask,
   focusAppointmentId,
   focusAppointmentOccurrenceIndex,
+  focusAppointmentOpenEdit,
   onFocusAppointmentHandled,
 }: {
   appointments: Appointment[];
@@ -316,6 +309,7 @@ export function AppointmentsTab({
   onOpenTask: (taskId: string) => void;
   focusAppointmentId?: string | null;
   focusAppointmentOccurrenceIndex?: number | null;
+  focusAppointmentOpenEdit?: boolean;
   onFocusAppointmentHandled?: () => void;
 }) {
   const t = useT();
@@ -336,8 +330,9 @@ export function AppointmentsTab({
   const [error, setError] = useState<string | null>(null);
   const [descriptionImagesUploading, setDescriptionImagesUploading] = useState(false);
   const [selectedOccurrenceIndex, setSelectedOccurrenceIndex] = useState(0);
+  const [editOccurrenceIndex, setEditOccurrenceIndex] = useState(0);
   const [rsvpBusy, setRsvpBusy] = useState(false);
-  const [contentBusy, setContentBusy] = useState(false);
+  const handledFocusKeyRef = useRef<string | null>(null);
   const [newAppointmentDraftId, setNewAppointmentDraftId] = useState(newAppointmentDocId);
   const descriptionAtEditStartRef = useRef("");
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -357,6 +352,8 @@ export function AppointmentsTab({
 
   const nowMs = Date.now();
 
+  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+
   const listAppointments = useMemo(
     () => appointmentsForListView(appointments),
     [appointments]
@@ -370,11 +367,12 @@ export function AppointmentsTab({
     const q = query.trim().toLowerCase();
     if (!q) return base;
     return base.filter((a) => {
+      const projectName = a.projectId ? (projectById.get(a.projectId)?.name ?? "") : "";
       const blob =
-        `${a.title} ${reviewItemsForSearch(a.reviewItems)} ${taskUpdatesToPlainText(sanitizeTaskUpdates(a.description ?? ""))} ${a.location} ${a.meetingLink}`.toLowerCase();
+        `${a.title} ${projectName} ${reviewItemsForSearch(a.reviewItems)} ${taskUpdatesToPlainText(sanitizeTaskUpdates(a.description ?? ""))} ${a.location} ${a.meetingLink}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [listAppointments, scope, seesAllOrgData, currentUserId, people, query]);
+  }, [listAppointments, scope, seesAllOrgData, currentUserId, people, query, projectById]);
 
   const filtered = useMemo(() => {
     return scoped.filter((a) => appointmentMatchesListTab(a, listTab, nowMs));
@@ -401,24 +399,46 @@ export function AppointmentsTab({
   }, [sorted, selectedId]);
 
   useEffect(() => {
-    if (!focusAppointmentId) return;
+    if (!focusAppointmentId) {
+      handledFocusKeyRef.current = null;
+      return;
+    }
     const apt = appointments.find((a) => a.id === focusAppointmentId);
     if (!apt) return;
-    setShowForm(false);
-    setEditing(false);
+    const focusKey = `${focusAppointmentId}:${focusAppointmentOccurrenceIndex ?? ""}:${focusAppointmentOpenEdit ? "edit" : "view"}`;
+    if (handledFocusKeyRef.current === focusKey) return;
+    handledFocusKeyRef.current = focusKey;
+
+    const occIdx =
+      focusAppointmentOccurrenceIndex != null
+        ? focusAppointmentOccurrenceIndex
+        : firstSelectableOccurrenceIndex(apt, nowMs);
     if (apt.status === "canceled") setListTab("canceled");
     else if (appointmentStartsAtMsForList(apt, nowMs) < nowMs - 60 * 60 * 1000) setListTab("past");
     else setListTab("upcoming");
     setSelectedId(focusAppointmentId);
-    if (focusAppointmentOccurrenceIndex != null) {
-      setSelectedOccurrenceIndex(focusAppointmentOccurrenceIndex);
+    setSelectedOccurrenceIndex(occIdx);
+    if (focusAppointmentOpenEdit) {
+      openEdit(apt, occIdx);
+    } else {
+      setShowForm(false);
+      setEditing(false);
     }
+    onFocusAppointmentHandled?.();
     const t = window.setTimeout(() => {
-      cardRefs.current[focusAppointmentId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      onFocusAppointmentHandled?.();
+      if (!focusAppointmentOpenEdit) {
+        cardRefs.current[focusAppointmentId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
     }, 80);
     return () => window.clearTimeout(t);
-  }, [focusAppointmentId, focusAppointmentOccurrenceIndex, appointments, nowMs, onFocusAppointmentHandled]);
+  }, [
+    focusAppointmentId,
+    focusAppointmentOccurrenceIndex,
+    focusAppointmentOpenEdit,
+    appointments,
+    nowMs,
+    onFocusAppointmentHandled,
+  ]);
 
   async function handleRsvp(answer: "yes" | "no") {
     if (!selected) return;
@@ -461,22 +481,28 @@ export function AppointmentsTab({
     setError(null);
   }
 
-  function openEdit(apt: Appointment) {
+  function openEdit(apt: Appointment, occurrenceIndex = selectedOccurrenceIndex) {
+    const occ =
+      expandAppointmentOccurrences(apt).find((o) => o.index === occurrenceIndex) ??
+      expandAppointmentOccurrences(apt)[0];
+    const occIdx = occ?.index ?? occurrenceIndex;
+    setEditOccurrenceIndex(occIdx);
     setDraft({
       title: apt.title,
-      startsAt: toDatetimeLocalValue(apt.startsAt),
-      endsAt: apt.endsAt ? toDatetimeLocalValue(apt.endsAt) : "",
-      description: getOccurrenceDescription(apt, selectedOccurrenceIndex),
+      startsAt: occ ? toDatetimeLocalValue(occ.startsAt) : toDatetimeLocalValue(apt.startsAt),
+      endsAt: occ?.endsAt ? toDatetimeLocalValue(occ.endsAt) : apt.endsAt ? toDatetimeLocalValue(apt.endsAt) : "",
+      description: getOccurrenceDescription(apt, occIdx),
       reviewItems: (() => {
-        const items = getOccurrenceReviewItems(apt, selectedOccurrenceIndex);
+        const items = getOccurrenceReviewItems(apt, occIdx);
         return items.length ? [...items] : [];
       })(),
-      location: getOccurrenceLocation(apt, selectedOccurrenceIndex),
-      meetingLink: getOccurrenceMeetingLink(apt, selectedOccurrenceIndex),
+      location: getOccurrenceLocation(apt, occIdx),
+      meetingLink: getOccurrenceMeetingLink(apt, occIdx),
       participantIds: [...apt.participantIds.filter(Boolean)],
       participantDepartmentIds: [...(apt.participantDepartmentIds ?? [])],
       linkedTaskIds: linkedTaskIdsForAppointment(apt, allTasks),
       newTasks: [],
+      projectId: apt.projectId ?? "",
       recurring: false,
       recurrenceKind: "weekly",
       recurrenceInterval: 1,
@@ -484,7 +510,7 @@ export function AppointmentsTab({
       recurrenceCount: DEFAULT_RECURRENCE_COUNT,
       recurrenceOngoing: true,
     });
-    descriptionAtEditStartRef.current = getOccurrenceDescription(apt, selectedOccurrenceIndex);
+    descriptionAtEditStartRef.current = getOccurrenceDescription(apt, occIdx);
     setDescriptionImagesUploading(false);
     setEditing(true);
     setShowForm(true);
@@ -572,6 +598,7 @@ export function AppointmentsTab({
         description?: string;
         reviewItems?: string[];
         meetingLink?: string;
+        projectId?: string;
       } = {
         title,
         startsAt,
@@ -586,6 +613,8 @@ export function AppointmentsTab({
       fields.reviewItems = reviewItems;
       const meetingLink = draft.meetingLink.trim();
       if (meetingLink) fields.meetingLink = meetingLink;
+      const projectId = draft.projectId.trim();
+      if (projectId) fields.projectId = projectId;
 
       const taskDrafts = draft.newTasks
         .map((t) => ({ ...t, title: t.title.trim() }))
@@ -603,36 +632,87 @@ export function AppointmentsTab({
 
       let appointmentId: string;
       if (editing && selected) {
-        const patch = {
-          title,
-          startsAt,
-          endsAt,
-          participantIds: participants.participantIds,
-          participantDepartmentIds: participants.participantDepartmentIds,
-          linkedTaskIds: desiredLinked,
-        } as Partial<Appointment>;
-        if (!draft.endsAt) patch.endsAt = "";
-        if (isRecurringAppointment(selected)) {
-          if (richTextHasContent(description)) patch.description = description;
-          else patch.description = "";
+        const occIdx = editOccurrenceIndex;
+        const recurring = isRecurringAppointment(selected);
+
+        // Create any new tasks before linking (same as create flow).
+        for (const taskDraft of taskDrafts) {
+          const assignees = normalizeAppointmentParticipants(
+            people,
+            taskDraft.assigneeIds,
+            taskDraft.assigneeDepartmentIds
+          );
+          const payload: Omit<Task, "id" | "createdAt"> = {
+            title: taskDraft.title,
+            description: "",
+            assigneeIds: assignees.participantIds,
+            assigneeDepartmentIds: assignees.participantDepartmentIds,
+            finishedByIds: [],
+            feedbackByIds: [],
+            feedbackRequests: [],
+            assignedById: currentUserId,
+            status: "todo",
+            priority: taskDraft.priority,
+            dueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
+            originalDueDate: taskDraft.dueDate || dueDateFromStartsLocal(draft.startsAt),
+            postponeCount: 0,
+            needsFeedback: false,
+            updates: "",
+            updatesByUser: {},
+            updateEntries: [],
+            comments: [],
+          };
+          const pid = taskDraft.projectId.trim();
+          if (pid) payload.projectId = pid;
+          const newId = await onCreateTask(payload, syncOpts);
+          createdTaskIds.push(newId);
+          desiredLinked.push(newId);
+        }
+
+        if (recurring) {
+          const patch = {
+            title,
+            participantIds: participants.participantIds,
+            participantDepartmentIds: participants.participantDepartmentIds,
+            linkedTaskIds: desiredLinked,
+            projectId: projectId || "",
+          } as Partial<Appointment>;
           Object.assign(
             patch,
-            buildOccurrenceContentPatch(selected, selectedOccurrenceIndex, {
+            buildOccurrenceContentPatch(selected, occIdx, {
               location: draft.location.trim(),
               meetingLink: draft.meetingLink.trim(),
               description,
               reviewItems,
             })
           );
+          // Only the first occurrence can shift series start/end times.
+          if (occIdx === 0) {
+            const seriesOcc = expandAppointmentOccurrences(selected)[0];
+            if (seriesOcc && startsAt !== seriesOcc.startsAt) patch.startsAt = startsAt;
+            if (!draft.endsAt) patch.endsAt = "";
+            else if (seriesOcc && endsAt && endsAt !== (seriesOcc.endsAt ?? "")) patch.endsAt = endsAt;
+          }
+          await onUpdateAppointment(selected.id, patch, syncOpts);
         } else {
-          patch.location = draft.location.trim();
+          const patch = {
+            title,
+            startsAt,
+            endsAt,
+            participantIds: participants.participantIds,
+            participantDepartmentIds: participants.participantDepartmentIds,
+            linkedTaskIds: desiredLinked,
+            projectId: projectId || "",
+            location: draft.location.trim(),
+            reviewItems,
+          } as Partial<Appointment>;
+          if (!draft.endsAt) patch.endsAt = "";
           if (richTextHasContent(description)) patch.description = description;
           else patch.description = "";
-          patch.reviewItems = reviewItems;
-          const meetingLink = draft.meetingLink.trim();
-          patch.meetingLink = meetingLink || undefined;
+          const meetingLinkVal = draft.meetingLink.trim();
+          patch.meetingLink = meetingLinkVal || undefined;
+          await onUpdateAppointment(selected.id, patch, syncOpts);
         }
-        await onUpdateAppointment(selected.id, patch, syncOpts);
         appointmentId = selected.id;
         descriptionAtEditStartRef.current = description;
         setShowForm(false);
@@ -759,20 +839,6 @@ export function AppointmentsTab({
     }
   }
 
-  async function handleSaveOccurrenceContent(fields: AppointmentOccurrenceFields) {
-    if (!selected) return;
-    setContentBusy(true);
-    try {
-      const patch = buildOccurrenceContentPatch(selected, selectedOccurrenceIndex, fields);
-      await onUpdateAppointment(selected.id, patch);
-      void syncCrmItemToGoogleCalendar("appointment", selected.id);
-    } catch (e) {
-      reportActionError(e instanceof Error ? e.message : t("appointments.error.save"));
-    } finally {
-      setContentBusy(false);
-    }
-  }
-
   async function handleCancelOccurrence(scope: AppointmentCancelScope) {
     if (!selected) return;
     setBusy(true);
@@ -802,6 +868,9 @@ export function AppointmentsTab({
       ? `appointments/${selected.id}/description`
       : `appointments/${newAppointmentDraftId}/description`;
 
+  const editingRecurring = Boolean(editing && selected && isRecurringAppointment(selected));
+  const lockSeriesSchedule = editingRecurring && editOccurrenceIndex > 0;
+
   return (
     <div className="space-y-4">
       {showForm ? (
@@ -822,7 +891,16 @@ export function AppointmentsTab({
           <h2 className="font-display text-base font-semibold text-slate-900">
             {editing ? t("appointments.edit") : t("appointments.new")}
           </h2>
-          <p className="mt-1 text-xs text-slate-500">{t("appointments.subtitle")}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {editingRecurring
+              ? t("appointments.editRecurringHint", { n: String(editOccurrenceIndex + 1) })
+              : t("appointments.subtitle")}
+          </p>
+          {lockSeriesSchedule && (
+            <p className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-[11px] leading-relaxed text-indigo-950">
+              {t("appointments.editOccurrenceScheduleLocked")}
+            </p>
+          )}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
               {t("common.title")}
@@ -840,8 +918,10 @@ export function AppointmentsTab({
                 type="datetime-local"
                 required
                 value={draft.startsAt}
+                readOnly={lockSeriesSchedule}
+                disabled={lockSeriesSchedule}
                 onChange={(e) => setDraft((d) => ({ ...d, startsAt: e.target.value }))}
-                className="input-base mt-1 w-full"
+                className={`input-base mt-1 w-full ${lockSeriesSchedule ? "cursor-not-allowed bg-slate-100 text-slate-600" : ""}`}
               />
             </label>
             <label className="block text-xs font-medium text-slate-600">
@@ -849,8 +929,10 @@ export function AppointmentsTab({
               <input
                 type="datetime-local"
                 value={draft.endsAt}
+                readOnly={lockSeriesSchedule}
+                disabled={lockSeriesSchedule}
                 onChange={(e) => setDraft((d) => ({ ...d, endsAt: e.target.value }))}
-                className="input-base mt-1 w-full"
+                className={`input-base mt-1 w-full ${lockSeriesSchedule ? "cursor-not-allowed bg-slate-100 text-slate-600" : ""}`}
               />
             </label>
 
@@ -1004,6 +1086,17 @@ export function AppointmentsTab({
                 />
               </div>
             </label>
+            <div className="sm:col-span-2">
+              <span className="mb-1 block text-xs font-medium text-slate-600">
+                {t("tasks.form.project")}{" "}
+                <span className="font-normal text-slate-400">{t("common.optional")}</span>
+              </span>
+              <ProjectSelectField
+                projects={projects}
+                value={draft.projectId}
+                onChange={(projectId) => setDraft((d) => ({ ...d, projectId }))}
+              />
+            </div>
             <ReviewItemsEditor
               items={draft.reviewItems}
               onChange={(reviewItems) => setDraft((d) => ({ ...d, reviewItems }))}
@@ -1167,25 +1260,20 @@ export function AppointmentsTab({
                         <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
                           {t("tasks.form.project")}{" "}
                           <span className="font-normal text-slate-400">{t("common.optional")}</span>
-                          <select
-                            value={taskDraft.projectId}
-                            onChange={(e) =>
-                              setDraft((d) => ({
-                                ...d,
-                                newTasks: d.newTasks.map((task) =>
-                                  task.id === taskDraft.id ? { ...task, projectId: e.target.value } : task
-                                ),
-                              }))
-                            }
-                            className="input-base mt-1 w-full py-1.5"
-                          >
-                            <option value="">{t("tasks.form.noProject")}</option>
-                            {projects.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="mt-1">
+                            <ProjectSelectField
+                              projects={projects}
+                              value={taskDraft.projectId}
+                              onChange={(projectId) =>
+                                setDraft((d) => ({
+                                  ...d,
+                                  newTasks: d.newTasks.map((task) =>
+                                    task.id === taskDraft.id ? { ...task, projectId } : task
+                                  ),
+                                }))
+                              }
+                            />
+                          </div>
                         </label>
                         <div className="sm:col-span-2">
                           <span className="mb-1 block text-xs font-medium text-slate-600">{t("appointments.assignTo")}</span>
@@ -1313,6 +1401,7 @@ export function AppointmentsTab({
                 const isSelected = apt.id === selectedId;
                 const scheduled = isAppointmentScheduled(apt) && !apt.recurrenceCanceledFrom;
                 const displayOcc = listDisplayOccurrence(apt, nowMs);
+                const project = apt.projectId ? projectById.get(apt.projectId) : undefined;
                 const start = new Date(displayOcc.startsAt);
                 const dateLabel = Number.isNaN(start.getTime())
                   ? "—"
@@ -1352,6 +1441,14 @@ export function AppointmentsTab({
                             )}
                           </div>
                           <div className="mt-0.5 text-xs text-slate-600">
+                            {project && (
+                              <>
+                                <span className="font-semibold" style={{ color: project.color }}>
+                                  {project.name}
+                                </span>
+                                <span className="text-slate-300"> · </span>
+                              </>
+                            )}
                             {dateLabel}
                             {formatAppointmentTimeRange({
                               ...apt,
@@ -1388,6 +1485,7 @@ export function AppointmentsTab({
             <AppointmentOccurrencePanel
               appointment={selected}
               people={people}
+              projects={projects}
               currentUserId={currentUserId}
               occurrenceIndex={selectedOccurrenceIndex}
               onOccurrenceIndexChange={setSelectedOccurrenceIndex}
@@ -1397,10 +1495,7 @@ export function AppointmentsTab({
               onOpenTask={onOpenTask}
               rsvpBusy={rsvpBusy}
               cancelBusy={busy}
-              contentBusy={contentBusy}
-              showEdit={isAppointmentScheduled(selected)}
-              onEdit={() => openEdit(selected)}
-              onSaveOccurrenceContent={handleSaveOccurrenceContent}
+              onEdit={() => openEdit(selected, selectedOccurrenceIndex)}
             />
         </aside>
         )}

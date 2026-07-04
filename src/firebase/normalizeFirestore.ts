@@ -85,6 +85,8 @@ export function normalizePerson(id: string, data: Record<string, unknown>): Pers
   const avatarStoragePath = String(data.avatarStoragePath ?? "").trim();
   if (avatarStoragePath) p.avatarStoragePath = avatarStoragePath;
   p.taskStats = normalizePersonTaskStats(data.taskStats);
+  const starredTaskIds = normalizeIdList(data.starredTaskIds);
+  if (starredTaskIds.length > 0) p.starredTaskIds = starredTaskIds;
   return p;
 }
 
@@ -289,6 +291,8 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   if (occurrenceRsvp) apt.occurrenceRsvp = occurrenceRsvp;
   const occurrenceFields = normalizeOccurrenceFieldsMap(data.occurrenceFields);
   if (occurrenceFields) apt.occurrenceFields = occurrenceFields;
+  const projectId = String(data.projectId ?? "").trim();
+  if (projectId) apt.projectId = projectId;
   return apt;
 }
 

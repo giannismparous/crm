@@ -39,6 +39,8 @@ export type Person = {
   profileSetupComplete?: boolean;
   /** Partners only — ISO datetime when platform access ends. */
   accountExpiresAt?: string;
+  /** Task ids starred by this user (personal bookmark). */
+  starredTaskIds?: string[];
 };
 
 export type RegistrationSeed = {
@@ -288,6 +290,8 @@ export type Appointment = {
   occurrenceRsvp?: Record<string, Record<string, AppointmentRsvpAnswer>>;
   /** Per-occurrence content overrides (location, link, description, review checklist) */
   occurrenceFields?: Record<string, AppointmentOccurrenceFields>;
+  /** Optional — links this meeting to a project */
+  projectId?: string;
 };
 
 export type AppointmentOccurrenceFields = {

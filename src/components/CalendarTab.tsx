@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import type {
   Appointment,
-  AppointmentOccurrenceFields,
   AppointmentRsvpAnswer,
   PersonalReminder,
   Person,
@@ -14,13 +13,10 @@ import type {
 } from "../types";
 import { AppointmentOccurrencePanel } from "./AppointmentOccurrencePanel";
 import { buildRsvpPatch } from "../utils/appointmentRsvp";
-import { buildOccurrenceContentPatch } from "../utils/appointmentOccurrenceFields";
 import {
   getOccurrenceLocation,
   getOccurrenceReviewItems,
 } from "../utils/appointmentOccurrenceFields";
-import { reportActionError } from "../utils/actionFeedback";
-import { syncCrmItemToGoogleCalendar } from "../firebase/googleCalendar";
 import type { AppointmentCancelScope } from "../utils/appointmentOccurrence";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../firebase/config";
 import { markAppointmentRsvpNotificationRead } from "../firebase/notifications";
@@ -31,6 +27,7 @@ import { isPersonalReminderRelevantToPerson } from "../utils/personalReminderLin
 import {
   formatAppointmentTimeRange,
   isAppointmentRelevantToPerson,
+  isAppointmentScheduled,
 } from "../utils/appointments";
 import { appointmentsForCalendarView } from "../utils/appointmentDisplay";
 import { tasksForCalendarView } from "../utils/taskDisplay";
@@ -120,6 +117,8 @@ type CalendarItem =
       order: number;
       timeLabel: string;
       detailLine?: string;
+      projectName?: string;
+      projectColor?: string;
     }
   | {
       kind: "task";
@@ -189,6 +188,7 @@ function buildItemsByDay(
       const { appointment: a, startsAt, endsAt, occurrenceIndex } = item;
       if (!startsAt) continue;
       const key = isoToLocalDateKey(startsAt);
+      const project = a.projectId ? projectById.get(a.projectId) : undefined;
       push(key, {
         kind: "appointment",
         id: a.id,
@@ -198,6 +198,8 @@ function buildItemsByDay(
         order: new Date(startsAt).getTime(),
         timeLabel: formatAppointmentTimeRange({ ...a, startsAt, endsAt }),
         detailLine: appointmentDetailLine(a, occurrenceIndex),
+        projectName: project?.name,
+        projectColor: project?.color,
       });
     }
   }
@@ -296,6 +298,8 @@ export function CalendarTab({
   people,
   currentUserId,
   seesAllOrgData = true,
+  onOpenAppointment: _onOpenAppointment,
+  onEditAppointment,
   onOpenTask,
   onUpdateAppointment,
   onCancelAppointmentOccurrence,
@@ -310,6 +314,7 @@ export function CalendarTab({
   currentUserId: string;
   seesAllOrgData?: boolean;
   onOpenAppointment: (appointmentId: string, occurrenceIndex?: number) => void;
+  onEditAppointment?: (appointmentId: string, occurrenceIndex?: number) => void;
   onOpenTask: (taskId: string) => void;
   onUpdateAppointment: (id: string, patch: Partial<Appointment>) => Promise<void>;
   onCancelAppointmentOccurrence: (
@@ -355,7 +360,6 @@ export function CalendarTab({
   } | null>(null);
   const [rsvpBusy, setRsvpBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [contentBusy, setContentBusy] = useState(false);
 
   const focusedApt = useMemo(
     () => (focusedAppointment ? appointments.find((a) => a.id === focusedAppointment.id) ?? null : null),
@@ -436,24 +440,6 @@ export function CalendarTab({
       );
     } finally {
       setRsvpBusy(false);
-    }
-  }
-
-  async function handleSaveOccurrenceContent(fields: AppointmentOccurrenceFields) {
-    if (!focusedApt || !focusedAppointment) return;
-    setContentBusy(true);
-    try {
-      const patch = buildOccurrenceContentPatch(
-        focusedApt,
-        focusedAppointment.occurrenceIndex,
-        fields
-      );
-      await onUpdateAppointment(focusedApt.id, patch);
-      void syncCrmItemToGoogleCalendar("appointment", focusedApt.id);
-    } catch (e) {
-      reportActionError(e instanceof Error ? e.message : t("appointments.error.save"));
-    } finally {
-      setContentBusy(false);
     }
   }
 
@@ -644,12 +630,25 @@ export function CalendarTab({
                             openAppointmentDetail(item.id, item.occurrenceIndex);
                           }}
                           className={`w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[10px] font-medium leading-tight sm:text-[11px] ${APPOINTMENT_CHIP.stripe} ${APPOINTMENT_CHIP.bg} ${APPOINTMENT_CHIP.text} ${APPOINTMENT_CHIP.hover}`}
-                          title={`${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}${item.detailLine ? " · " + item.detailLine : ""}`}
+                          title={`${item.projectName ? `${item.projectName} · ` : ""}${item.timeLabel ? item.timeLabel + " · " : ""}${item.title}${item.detailLine ? " · " + item.detailLine : ""}`}
                         >
                           {item.timeLabel ? (
                             <span className={`font-semibold ${APPOINTMENT_CHIP.time}`}>{item.timeLabel} </span>
                           ) : null}
-                          <span className="truncate">{item.title}</span>
+                          <span className="flex min-w-0 items-center gap-0.5">
+                            {item.projectName ? (
+                              <>
+                                <span
+                                  className="shrink-0 font-semibold"
+                                  style={{ color: item.projectColor }}
+                                >
+                                  {item.projectName}
+                                </span>
+                                <span className="shrink-0 text-slate-400">·</span>
+                              </>
+                            ) : null}
+                            <span className="truncate">{item.title}</span>
+                          </span>
                         </button>
                       ) : item.kind === "task" ? (
                         (() => {
@@ -729,6 +728,7 @@ export function CalendarTab({
               <AppointmentOccurrencePanel
                 appointment={focusedApt}
                 people={people}
+                projects={projects}
                 currentUserId={currentUserId}
                 occurrenceIndex={focusedAppointment.occurrenceIndex}
                 onOccurrenceIndexChange={(index) =>
@@ -740,8 +740,12 @@ export function CalendarTab({
                 onOpenTask={onOpenTask}
                 rsvpBusy={rsvpBusy}
                 cancelBusy={cancelBusy}
-                contentBusy={contentBusy}
-                onSaveOccurrenceContent={handleSaveOccurrenceContent}
+                onEdit={
+                  isAppointmentScheduled(focusedApt)
+                    ? () =>
+                        onEditAppointment?.(focusedApt.id, focusedAppointment.occurrenceIndex)
+                    : undefined
+                }
               />
             </div>
           ) : (

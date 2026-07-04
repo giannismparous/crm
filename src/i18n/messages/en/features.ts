@@ -50,6 +50,10 @@ export const featuresEn = {
   "projects.error.deletePermission": "You do not have permission to delete projects.",
   "appointments.new": "New appointment",
   "appointments.edit": "Edit appointment",
+  "appointments.editRecurringHint":
+    "Editing meeting {{n}} in the series — details below apply to this meeting only. Title, participants, project, and tasks apply to the whole series.",
+  "appointments.editOccurrenceScheduleLocked":
+    "Start and end times are fixed for this meeting in the series. To move the whole series, edit the first meeting.",
   "appointments.subtitle":
     "Schedule for yourself, with teammates, or on behalf of others — pick participants below.",
   "appointments.starts": "Starts",
@@ -94,6 +98,7 @@ export const featuresEn = {
   "appointments.tasksSectionHint": "Link existing open tasks and/or create new ones for this meeting.",
   "appointments.linkExisting": "Link existing tasks",
   "appointments.noTasksToLink": "No open tasks available to link.",
+  "appointments.noLinkedTasks": "No linked tasks — edit to link or create tasks.",
   "appointments.createNewTasks": "Create new tasks",
   "appointments.noNewTasks": "No new tasks — add one if you need fresh prep work tracked.",
   "appointments.taskN": "Task {{n}}",

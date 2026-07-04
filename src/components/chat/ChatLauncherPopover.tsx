@@ -20,6 +20,7 @@ export function ChatLauncherPopover({
   currentUserOrgRole,
   myMemberState,
   presenceMap,
+  presenceTickEnabled = true,
   onOpenChat,
   onOpenOrCreateDm,
   onCreateGroup,
@@ -32,6 +33,7 @@ export function ChatLauncherPopover({
   currentUserOrgRole: OrgRole;
   myMemberState: ChatMemberState | null;
   presenceMap: Map<string, PersonPresence>;
+  presenceTickEnabled?: boolean;
   onOpenChat: (conversationId: string) => void;
   onOpenOrCreateDm: (personId: string) => Promise<string>;
   onCreateGroup: (participantIds: string[], departmentIds: string[], title: string) => Promise<string>;
@@ -44,7 +46,7 @@ export function ChatLauncherPopover({
   const [pickedDepartments, setPickedDepartments] = useState<string[]>([]);
   const [groupTitle, setGroupTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const nowMs = usePresenceTick();
+  const nowMs = usePresenceTick(presenceTickEnabled);
   const onlineIds = useOnlinePersonIds(presenceMap, nowMs);
   const readMap = myMemberState?.readByConversation ?? {};
 

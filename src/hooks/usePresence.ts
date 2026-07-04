@@ -12,8 +12,9 @@ import { toIso } from "../firebase/normalizeFirestore";
 import { getActiveTimezone } from "../utils/orgTimezone";
 import { isValidTimezone } from "../utils/userTimezone";
 
-export const HEARTBEAT_MS = 20_000;
+export const HEARTBEAT_MS = 30_000;
 export const ONLINE_STALE_MS = 45_000;
+const PRESENCE_SNAPSHOT_DEBOUNCE_MS = 250;
 
 function normalizePresence(userId: string, data: Record<string, unknown>): PersonPresence {
   const lastSeenAt = toIso(data.lastSeenAt);
@@ -25,6 +26,22 @@ function normalizePresence(userId: string, data: Record<string, unknown>): Perso
     lastSeenAt,
     ...(timezone ? { timezone } : {}),
   };
+}
+
+function presenceMapsEqual(a: Map<string, PersonPresence>, b: Map<string, PersonPresence>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, left] of a) {
+    const right = b.get(id);
+    if (!right) return false;
+    if (
+      left.online !== right.online ||
+      left.lastSeenAt !== right.lastSeenAt ||
+      left.timezone !== right.timezone
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function isPresenceOnline(presence: PersonPresence | undefined, nowMs = Date.now()): boolean {
@@ -82,6 +99,17 @@ export function useOrgPresence(
     window.addEventListener("beforeunload", goOffline);
 
     const col = collection(db, "organizations", orgId, "presence");
+    let debounceTimer: number | null = null;
+    let pendingMap: Map<string, PersonPresence> | null = null;
+
+    const flushPresence = () => {
+      debounceTimer = null;
+      if (!pendingMap) return;
+      const next = pendingMap;
+      pendingMap = null;
+      setPresenceMap((prev) => (presenceMapsEqual(prev, next) ? prev : next));
+    };
+
     const unsub = onSnapshot(
       col,
       (snap) => {
@@ -89,13 +117,16 @@ export function useOrgPresence(
         for (const d of snap.docs) {
           next.set(d.id, normalizePresence(d.id, d.data() as Record<string, unknown>));
         }
-        setPresenceMap(next);
+        pendingMap = next;
+        if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+        debounceTimer = window.setTimeout(flushPresence, PRESENCE_SNAPSHOT_DEBOUNCE_MS);
       },
-      () => setPresenceMap(new Map())
+      () => setPresenceMap((prev) => (prev.size === 0 ? prev : new Map()))
     );
 
     return () => {
       disposed = true;
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
       window.clearInterval(heartbeat);
       window.removeEventListener("pagehide", goOffline);
       window.removeEventListener("beforeunload", goOffline);
@@ -107,12 +138,13 @@ export function useOrgPresence(
   return presenceMap;
 }
 
-export function usePresenceTick(intervalMs = 15_000): number {
+export function usePresenceTick(enabled = true, intervalMs = 15_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!enabled) return;
     const id = window.setInterval(() => setNow(Date.now()), intervalMs);
     return () => window.clearInterval(id);
-  }, [intervalMs]);
+  }, [enabled, intervalMs]);
   return now;
 }
 

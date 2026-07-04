@@ -228,6 +228,7 @@ export function buildAppointmentEvent(
   const participants = personNames(apt.participantIds, ctx);
   const inviteDepts = departmentLabel(apt.participantDepartmentIds);
   const creator = apt.createdById ? ctx.people.get(apt.createdById)?.name : undefined;
+  const project = apt.projectId ? ctx.projects.get(apt.projectId) : undefined;
   const review = [...new Set(seriesFields.reviewItems.map((x) => x.trim()).filter(Boolean))];
   const occurrences = expandAllCrmAppointmentOccurrences(apt);
 
@@ -236,6 +237,7 @@ export function buildAppointmentEvent(
     creator ? section("Created by", creator) : "",
     participants ? section("Participants", participants) : "",
     inviteDepts ? section("Invited departments", inviteDepts) : "",
+    project ? section("Project", project.name) : "",
     seriesFields.location.trim() ? section("Location", seriesFields.location.trim()) : "",
     seriesFields.meetingLink.trim() ? section("Meeting link", seriesFields.meetingLink.trim()) : "",
   ];
@@ -267,7 +269,10 @@ export function buildAppointmentEvent(
 
   if (details) sections.push(section("Description", details));
 
-  const links = uniqueLinkEntries(sections, [{ label: "This appointment", url: link }]);
+  const links = uniqueLinkEntries(sections, [
+    { label: "This appointment", url: link },
+    ...(project ? [{ label: "Projects tab", url: deepLink(`/?tab=projects`) }] : []),
+  ]);
 
   const rule = normalizeRecurrenceRule(apt.recurrenceRule);
   const recurring = isRecurringCrmAppointment(apt);

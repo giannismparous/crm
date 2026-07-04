@@ -3,7 +3,7 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import type { Person, PersonTaskStats } from "../types";
 import { PersonPresenceAvatar } from "./PersonPresenceAvatar";
 import { useOnlinePersonIds, usePresenceTick } from "../hooks/usePresence";
-import type { PersonPresence } from "../types";
+import { usePresenceMap } from "../contexts/PresenceContext";
 import { ProfilePhotoAvatar } from "./ProfilePhotoEditor";
 import { BufferedTextInput } from "./BufferedTextInput";
 import { EMPTY_PERSON_TASK_STATS } from "../utils/personTaskStats";
@@ -59,7 +59,6 @@ export function TeamTab({
   onUpdatePerson,
   focusPersonId,
   onFocusPersonHandled,
-  presenceMap,
 }: {
   people: Person[];
   currentUserId: string;
@@ -67,12 +66,12 @@ export function TeamTab({
   onUpdatePerson: (id: string, patch: Partial<Person>) => Promise<void>;
   focusPersonId?: string | null;
   onFocusPersonHandled?: () => void;
-  presenceMap?: Map<string, PersonPresence>;
 }) {
   const t = useT();
   const { locale } = useI18n();
-  const nowMs = usePresenceTick();
-  const onlineIds = useOnlinePersonIds(presenceMap ?? new Map(), nowMs);
+  const presenceMap = usePresenceMap();
+  const nowMs = usePresenceTick(true);
+  const onlineIds = useOnlinePersonIds(presenceMap, nowMs);
   const saved = useMemo(() => readPersistedTabState("team", TEAM_VIEW_DEFAULTS), []);
   const [selectedId, setSelectedId] = useState(() => saved.selectedId);
   const [query, setQuery] = useState(() => saved.query);

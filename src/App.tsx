@@ -28,9 +28,11 @@ import { useScrollRestoration } from "./hooks/useScrollRestoration";
 import { hasCrmDeepLink, parseCrmDeepLink } from "./utils/crmDeepLink";
 import { readTabFromLocation, stripCrmItemParams, writeTabToLocation } from "./utils/crmUrlState";
 import { PersonNavProvider } from "./contexts/PersonNavContext";
+import { PresenceProvider } from "./contexts/PresenceContext";
 import { useT } from "./contexts/I18nContext";
 import { useSyncUserLocale } from "./hooks/useSyncUserLocale";
 import { buildRsvpPatch } from "./utils/appointmentRsvp";
+import { isRegistrationInProgress } from "./firebase/registerWithSeed";
 
 function App() {
   const {
@@ -94,15 +96,8 @@ function App() {
     profileGateLoading,
     requiresProfileSetup,
     profileSetupPerson,
-    chatConversations,
-    markChatConversationRead,
-    chatMyMemberState,
-    sendChatMessage,
-    unsendChatMessage,
-    openOrCreateDm,
-    createGroupChat,
-    chatUnreadCount,
-    presenceMap,
+    starredTaskIds,
+    toggleTaskStar,
   } = useOrgFirestore();
   const t = useT();
   useSyncUserLocale(user?.uid);
@@ -122,6 +117,7 @@ function App() {
   const [focusAppointmentOccurrenceIndex, setFocusAppointmentOccurrenceIndex] = useState<number | null>(
     null
   );
+  const [focusAppointmentOpenEdit, setFocusAppointmentOpenEdit] = useState(false);
   const [focusReminderId, setFocusReminderId] = useState<string | null>(null);
   const [focusPersonId, setFocusPersonId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -204,7 +200,6 @@ function App() {
   function openNotification(n: AppNotification) {
     if (n.kind === "chat_message" && n.conversationId) {
       setChatOpenRequest(n.conversationId);
-      void markChatConversationRead(n.conversationId);
       return;
     }
     if (n.kind === "reminder_shared" || n.kind === "reminder_due") {
@@ -240,7 +235,21 @@ function App() {
     setTab("appointments");
     setFocusAppointmentId(appointmentId);
     setFocusAppointmentOccurrenceIndex(occurrenceIndex ?? null);
+    setFocusAppointmentOpenEdit(false);
   }
+
+  function openAppointmentEditFromCalendar(appointmentId: string, occurrenceIndex?: number) {
+    setTab("appointments");
+    setFocusAppointmentId(appointmentId);
+    setFocusAppointmentOccurrenceIndex(occurrenceIndex ?? null);
+    setFocusAppointmentOpenEdit(true);
+  }
+
+  const handleFocusAppointmentHandled = useCallback(() => {
+    setFocusAppointmentId(null);
+    setFocusAppointmentOccurrenceIndex(null);
+    setFocusAppointmentOpenEdit(false);
+  }, []);
 
   const openTeamMember = useCallback(
     (personId: string) => {
@@ -253,6 +262,7 @@ function App() {
   );
 
   const currentUserId = currentUserPersonId || people[0]?.id || "";
+  const chatEnabled = Boolean(user && currentUserId && !isRegistrationInProgress());
 
   useUserAppearance(currentUserPersonId);
   const timezone = useTimezone(currentUserPersonId || "guest");
@@ -352,6 +362,7 @@ function App() {
 
   return (
     <PersonNavProvider onOpenTeamMember={openTeamMember}>
+    <PresenceProvider userId={currentUserId} enabled={chatEnabled}>
     <div className="min-h-screen pb-12">
       <SyncingProgressBar active={syncing} />
       <header className="app-header">
@@ -394,6 +405,8 @@ function App() {
             currentUserId={currentUserId}
             currentUserOrgRole={currentUserOrgRole}
             onBroadcastTaskEvent={notifyEveryoneAboutTask}
+            starredTaskIds={starredTaskIds}
+            onToggleTaskStar={toggleTaskStar}
             focusTaskId={focusTaskId}
             onFocusTaskHandled={() => setFocusTaskId(null)}
           />
@@ -429,10 +442,8 @@ function App() {
             onOpenTask={openTaskFromCalendar}
             focusAppointmentId={focusAppointmentId}
             focusAppointmentOccurrenceIndex={focusAppointmentOccurrenceIndex}
-            onFocusAppointmentHandled={() => {
-              setFocusAppointmentId(null);
-              setFocusAppointmentOccurrenceIndex(null);
-            }}
+            focusAppointmentOpenEdit={focusAppointmentOpenEdit}
+            onFocusAppointmentHandled={handleFocusAppointmentHandled}
           />
         ) : tab === "team" ? (
           <TeamTab
@@ -442,7 +453,6 @@ function App() {
             onUpdatePerson={updatePerson}
             focusPersonId={focusPersonId}
             onFocusPersonHandled={() => setFocusPersonId(null)}
-            presenceMap={presenceMap}
           />
         ) : tab === "contacts" ? (
           <ContactsTab
@@ -492,6 +502,7 @@ function App() {
             currentUserId={currentUserId}
             seesAllOrgData={seesAllOrgData}
             onOpenAppointment={openAppointmentFromCalendar}
+            onEditAppointment={openAppointmentEditFromCalendar}
             onOpenTask={openTaskFromCalendar}
             onUpdateAppointment={updateAppointment}
             onCancelAppointmentOccurrence={cancelAppointmentOccurrence}
@@ -503,18 +514,10 @@ function App() {
       </main>
 
       <MessagesChatStack
-        unreadCount={chatUnreadCount}
         people={people}
         currentUserId={currentUserId}
         currentUserOrgRole={currentUserOrgRole}
-        conversations={chatConversations}
-        myMemberState={chatMyMemberState}
-        presenceMap={presenceMap}
-        onSendMessage={sendChatMessage}
-        onUnsendMessage={unsendChatMessage}
-        onOpenOrCreateDm={openOrCreateDm}
-        onCreateGroup={createGroupChat}
-        onMarkRead={markChatConversationRead}
+        chatEnabled={chatEnabled}
         onMarkChatNotificationsRead={markChatNotificationsRead}
         openConversationRequest={chatOpenRequest}
         onOpenConversationRequestHandled={() => setChatOpenRequest(null)}
@@ -537,6 +540,7 @@ function App() {
         timezone={timezone}
       />
     </div>
+    </PresenceProvider>
     </PersonNavProvider>
   );
 }

@@ -97,6 +97,7 @@ export function ChatBubbleWindow({
   people,
   currentUserId,
   presenceMap,
+  presenceTickEnabled = true,
   panelMotion,
   panelRight,
   onMinimize,
@@ -108,6 +109,7 @@ export function ChatBubbleWindow({
   people: Person[];
   currentUserId: string;
   presenceMap: Map<string, PersonPresence>;
+  presenceTickEnabled?: boolean;
   panelMotion: "hidden" | "open" | "exit";
   panelRight: number;
   onMinimize: () => void;
@@ -142,7 +144,8 @@ export function ChatBubbleWindow({
   const [enteringMessageIds, setEnteringMessageIds] = useState<string[]>([]);
   const prevMessageCountRef = useRef(0);
   const wasLoadingRef = useRef(true);
-  const nowMs = usePresenceTick();
+  const panelOpen = panelMotion === "open";
+  const nowMs = usePresenceTick(presenceTickEnabled && panelOpen);
 
   const title = conversationDisplayTitle(conversation, people, currentUserId);
   const me = people.find((p) => p.id === currentUserId);
@@ -164,7 +167,6 @@ export function ChatBubbleWindow({
         })
       : null;
   const showLoading = loading && messages.length === 0;
-  const panelOpen = panelMotion === "open";
 
   useEffect(() => {
     knownMessageIdsRef.current = new Set();

@@ -4,15 +4,10 @@ import type { OrgRole } from "../../auth/roles";
 import { isConversationUnread } from "../../firebase/chat";
 import { useChatDockUnreadCounts } from "../../hooks/useChatDockUnreadCounts";
 import { useOpenChatWindows } from "../../hooks/useOpenChatWindows";
+import { useOrgChat } from "../../hooks/useOrgChat";
+import { usePresenceMap } from "../../contexts/PresenceContext";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../../firebase/config";
-import type {
-  ChatConversation,
-  ChatMemberState,
-  ChatMessage,
-  ImageAttachment,
-  Person,
-  PersonPresence,
-} from "../../types";
+import type { ChatConversation, Person } from "../../types";
 import { ChatBubbleWindow } from "./ChatBubbleWindow";
 import { ChatConversationBubble } from "./ChatConversationBubble";
 import { ChatLauncherPopover } from "./ChatLauncherPopover";
@@ -27,44 +22,45 @@ const EMPTY_READ_MAP: Record<string, string> = {};
 type PanelMotion = "hidden" | "open" | "exit";
 
 export function MessagesChatStack({
-  unreadCount,
   people,
   currentUserId,
   currentUserOrgRole,
-  conversations,
-  myMemberState,
-  presenceMap,
-  onSendMessage,
-  onUnsendMessage,
-  onOpenOrCreateDm,
-  onCreateGroup,
-  onMarkRead,
+  chatEnabled,
   onMarkChatNotificationsRead,
   openConversationRequest,
   onOpenConversationRequestHandled,
   onActivityChange,
 }: {
-  unreadCount: number;
   people: Person[];
   currentUserId: string;
   currentUserOrgRole: OrgRole;
-  conversations: ChatConversation[];
-  myMemberState: ChatMemberState | null;
-  presenceMap: Map<string, PersonPresence>;
-  onSendMessage: (
-    conversationId: string,
-    payload: { body: string; attachments?: ImageAttachment[] }
-  ) => Promise<void>;
-  onUnsendMessage: (conversationId: string, message: ChatMessage) => Promise<void>;
-  onOpenOrCreateDm: (personId: string) => Promise<string>;
-  onCreateGroup: (participantIds: string[], departmentIds: string[], title: string) => Promise<string>;
-  onMarkRead: (conversationId: string, at?: string) => void | Promise<void>;
+  chatEnabled: boolean;
   onMarkChatNotificationsRead?: (conversationId: string) => void | Promise<void>;
   openConversationRequest?: string | null;
   onOpenConversationRequestHandled?: () => void;
   onActivityChange?: (active: boolean) => void;
 }) {
   const t = useT();
+  const db = getFirestoreDb();
+  const orgChat = useOrgChat({
+    db,
+    orgId: ORG,
+    currentUserId,
+    currentUserOrgRole,
+    people,
+    enabled: chatEnabled,
+  });
+  const presenceMap = usePresenceMap();
+  const {
+    conversations,
+    myMemberState,
+    sendMessage,
+    unsendMessage,
+    openOrCreateDm,
+    createGroupChat,
+    markConversationRead,
+    totalUnread: unreadCount,
+  } = orgChat;
   const {
     openIds,
     expandedId,
@@ -76,6 +72,7 @@ export function MessagesChatStack({
   const [launcherOpen, setLauncherOpen] = useState(
     () => new URLSearchParams(window.location.search).get("tab") === "messages"
   );
+  const presenceTickEnabled = launcherOpen || openIds.length > 0;
   const [activePanelId, setActivePanelId] = useState<string | null>(null);
   const [panelMotion, setPanelMotion] = useState<PanelMotion>("hidden");
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
@@ -88,7 +85,6 @@ export function MessagesChatStack({
 
   activePanelIdRef.current = activePanelId;
   const readMap = myMemberState?.readByConversation ?? EMPTY_READ_MAP;
-  const db = getFirestoreDb();
   const dockUnreadCounts = useChatDockUnreadCounts(
     db,
     ORG,
@@ -99,12 +95,12 @@ export function MessagesChatStack({
 
   const handleMarkRead = useCallback(
     (conversationId: string, at?: string) => {
-      void onMarkRead(conversationId, at);
+      void markConversationRead(conversationId, at);
       if (document.visibilityState === "visible") {
         void onMarkChatNotificationsRead?.(conversationId);
       }
     },
-    [onMarkRead, onMarkChatNotificationsRead]
+    [markConversationRead, onMarkChatNotificationsRead]
   );
 
   const handleOpenChat = useCallback(
@@ -134,8 +130,14 @@ export function MessagesChatStack({
   useEffect(() => {
     if (!openConversationRequest) return;
     handleOpenChat(openConversationRequest);
+    void markConversationRead(openConversationRequest);
     onOpenConversationRequestHandled?.();
-  }, [openConversationRequest, handleOpenChat, onOpenConversationRequestHandled]);
+  }, [
+    openConversationRequest,
+    handleOpenChat,
+    markConversationRead,
+    onOpenConversationRequestHandled,
+  ]);
 
   useEffect(() => {
     if (launcherOpen && expandedId) minimizeAll();
@@ -264,6 +266,7 @@ export function MessagesChatStack({
           people={people}
           currentUserId={currentUserId}
           presenceMap={presenceMap}
+          presenceTickEnabled={activePanelId === conv.id && panelMotion === "open"}
           panelMotion={activePanelId === conv.id ? panelMotion : "hidden"}
           panelRight={
             activePanelId === conv.id
@@ -271,8 +274,8 @@ export function MessagesChatStack({
               : chatPanelRightForBubble(openConversations.length, index)
           }
           onMinimize={minimizeAll}
-          onSendMessage={onSendMessage}
-          onUnsendMessage={onUnsendMessage}
+          onSendMessage={sendMessage}
+          onUnsendMessage={unsendMessage}
           onMarkRead={handleMarkRead}
         />
       ))}
@@ -290,9 +293,10 @@ export function MessagesChatStack({
             currentUserOrgRole={currentUserOrgRole}
             myMemberState={myMemberState}
             presenceMap={presenceMap}
+            presenceTickEnabled={presenceTickEnabled}
             onOpenChat={handleOpenChat}
-            onOpenOrCreateDm={onOpenOrCreateDm}
-            onCreateGroup={onCreateGroup}
+            onOpenOrCreateDm={openOrCreateDm}
+            onCreateGroup={createGroupChat}
             onClose={() => setLauncherOpen(false)}
           />
         )}
@@ -329,6 +333,7 @@ export function MessagesChatStack({
               people={people}
               currentUserId={currentUserId}
               presenceMap={presenceMap}
+              presenceTickEnabled={openIds.includes(conv.id) && !exitingIds.has(conv.id)}
               active={activePanelId === conv.id && panelMotion !== "hidden"}
               dimmed={hasActivePanel}
               unreadCount={unreadCount}

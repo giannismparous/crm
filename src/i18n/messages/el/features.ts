@@ -50,6 +50,10 @@ export const featuresEl = {
   "projects.error.deletePermission": "Δεν έχετε δικαίωμα διαγραφής έργων.",
   "appointments.new": "Νέο ραντεβού",
   "appointments.edit": "Επεξεργασία ραντεβού",
+  "appointments.editRecurringHint":
+    "Επεξεργασία συνάντησης {{n}} στη σειρά — τα παρακάτω αφορούν μόνο αυτή τη συνάντηση. Τίτλος, συμμετέχοντες, έργο και εργασίες ισχύουν για όλη τη σειρά.",
+  "appointments.editOccurrenceScheduleLocked":
+    "Η ώρα έναρξης/λήξης είναι σταθερή για αυτή τη συνάντηση στη σειρά. Για μετακίνηση όλης της σειράς, επεξεργαστείτε την πρώτη συνάντηση.",
   "appointments.subtitle":
     "Προγραμματίστε για τον εαυτό σας, με συναδέλφους ή εκ μέρους άλλων — επιλέξτε συμμετέχοντες παρακάτω.",
   "appointments.starts": "Έναρξη",
@@ -94,6 +98,7 @@ export const featuresEl = {
   "appointments.tasksSectionHint": "Συνδέστε υπάρχουσες ανοιχτές εργασίες ή/και δημιουργήστε νέες.",
   "appointments.linkExisting": "Σύνδεση υπαρχουσών εργασιών",
   "appointments.noTasksToLink": "Δεν υπάρχουν ανοιχτές εργασίες για σύνδεση.",
+  "appointments.noLinkedTasks": "Χωρίς συνδεδεμένες εργασίες — επεξεργαστείτε για σύνδεση ή δημιουργία.",
   "appointments.createNewTasks": "Δημιουργία νέων εργασιών",
   "appointments.noNewTasks": "Χωρίς νέες εργασίες — προσθέστε μία αν χρειάζεται νέα προετοιμασία.",
   "appointments.taskN": "Εργασία {{n}}",

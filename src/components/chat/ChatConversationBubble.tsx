@@ -10,6 +10,7 @@ export function ChatConversationBubble({
   people,
   currentUserId,
   presenceMap,
+  presenceTickEnabled = true,
   active,
   dimmed,
   unreadCount,
@@ -22,6 +23,7 @@ export function ChatConversationBubble({
   people: Person[];
   currentUserId: string;
   presenceMap: Map<string, PersonPresence>;
+  presenceTickEnabled?: boolean;
   active: boolean;
   dimmed?: boolean;
   unreadCount: number;
@@ -31,7 +33,7 @@ export function ChatConversationBubble({
   onClose: () => void;
 }) {
   const t = useT();
-  const nowMs = usePresenceTick();
+  const nowMs = usePresenceTick(presenceTickEnabled);
   const title = conversationDisplayTitle(conversation, people, currentUserId);
   const peerId =
     conversation.kind === "dm" ? conversation.memberIds.find((id) => id !== currentUserId) : undefined;

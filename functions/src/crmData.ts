@@ -58,6 +58,7 @@ export interface CrmAppointment {
     description?: string;
     reviewItems?: string[];
   }>;
+  projectId?: string;
 }
 
 export interface CrmPersonalReminder {

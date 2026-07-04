@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Appointment, AppointmentRsvpAnswer, Person, Task } from "../types";
+import type { Appointment, AppointmentRsvpAnswer, Person, Project, Task } from "../types";
 import { ConfirmPanel } from "./TaskWorkerActions";
 import { AppointmentRsvpPanel } from "./AppointmentRsvpPanel";
 import { AppointmentOccurrenceContent } from "./AppointmentOccurrenceContent";
@@ -10,7 +10,6 @@ import {
   formatAppointmentParticipants,
   isAppointmentScheduled,
 } from "../utils/appointments";
-import { appointmentAttendeeIds } from "../utils/appointmentParticipants";
 import { formatRecurrenceSummary } from "../utils/appointmentRecurrence";
 import { isRecurringAppointment } from "../utils/appointmentDisplay";
 import {
@@ -23,7 +22,7 @@ import {
   isOccurrencePast,
   type AppointmentCancelScope,
 } from "../utils/appointmentOccurrence";
-import type { AppointmentOccurrenceFields } from "../types";
+import { openTasksForAppointment } from "../utils/appointmentTasks";
 
 type CancelStep = "idle" | "choose" | "confirm_instance" | "confirm_future" | "confirm_series";
 
@@ -36,13 +35,11 @@ export function AppointmentOccurrencePanel({
   onRsvp,
   onCancel,
   allTasks = [],
+  projects = [],
   onOpenTask,
   rsvpBusy = false,
   cancelBusy = false,
-  contentBusy = false,
-  showEdit,
   onEdit,
-  onSaveOccurrenceContent,
 }: {
   appointment: Appointment;
   people: Person[];
@@ -52,15 +49,11 @@ export function AppointmentOccurrencePanel({
   onRsvp: (answer: AppointmentRsvpAnswer) => void | Promise<void>;
   onCancel?: (scope: AppointmentCancelScope) => void | Promise<void>;
   allTasks?: Task[];
+  projects?: Project[];
   onOpenTask?: (taskId: string) => void;
   rsvpBusy?: boolean;
   cancelBusy?: boolean;
-  contentBusy?: boolean;
-  showEdit?: boolean;
   onEdit?: () => void;
-  onSaveOccurrenceContent?: (
-    fields: AppointmentOccurrenceFields
-  ) => void | Promise<void>;
 }) {
   const t = useT();
   const [cancelStep, setCancelStep] = useState<CancelStep>("idle");
@@ -87,14 +80,14 @@ export function AppointmentOccurrencePanel({
     isCreator &&
     Boolean(occurrence);
   const recurring = isRecurringAppointment(appointment);
-  const canEditOccurrenceContent =
-    Boolean(onSaveOccurrenceContent) &&
-    !locked &&
-    isAppointmentScheduled(appointment) &&
-    appointmentAttendeeIds(appointment, people).includes(currentUserId);
-  const linkedTasks = (appointment.linkedTaskIds ?? [])
-    .map((id) => allTasks.find((task) => task.id === id))
-    .filter((task): task is Task => Boolean(task));
+  const canEditDetails = Boolean(onEdit) && !locked && isAppointmentScheduled(appointment);
+  const linkedTasks = useMemo(
+    () => openTasksForAppointment(appointment, allTasks),
+    [appointment, allTasks]
+  );
+  const project = appointment.projectId
+    ? projects.find((p) => p.id === appointment.projectId)
+    : undefined;
 
   const recurrenceLabel =
     appointment.recurrenceRule &&
@@ -148,6 +141,16 @@ export function AppointmentOccurrencePanel({
       )}
 
       <dl className="space-y-2 text-sm">
+        {project && (
+          <div>
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {t("tasks.form.project")}
+            </dt>
+            <dd className="mt-0.5 font-medium" style={{ color: project.color }}>
+              {project.name}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
             {t("appointments.participants")}
@@ -173,14 +176,15 @@ export function AppointmentOccurrencePanel({
         <AppointmentOccurrenceContent
           appointment={appointment}
           occurrenceIndex={occurrenceIndex}
-          canEdit={canEditOccurrenceContent}
-          busy={contentBusy}
-          onSave={onSaveOccurrenceContent ?? (async () => {})}
+          canEdit={canEditDetails}
+          onEdit={onEdit}
         />
 
-        {linkedTasks.length > 0 && onOpenTask && (
-          <div>
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t("common.task")}</dt>
+        <div>
+          <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+            {t("appointments.tasksSection")}
+          </dt>
+          {linkedTasks.length > 0 && onOpenTask ? (
             <dd className="mt-1 space-y-1">
               {linkedTasks.map((task) => (
                 <button
@@ -193,8 +197,10 @@ export function AppointmentOccurrencePanel({
                 </button>
               ))}
             </dd>
-          </div>
-        )}
+          ) : (
+            <dd className="mt-0.5 text-sm italic text-slate-400">{t("appointments.noLinkedTasks")}</dd>
+          )}
+        </div>
 
         {(appointment.attachments?.length ?? 0) > 0 && (
           <div>
@@ -211,18 +217,8 @@ export function AppointmentOccurrencePanel({
         )}
       </dl>
 
-      {(canCancel || showEdit) && (
+      {canCancel && (
         <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-          {showEdit && onEdit && !locked && (
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              {t("common.edit")}
-            </button>
-          )}
-
           {canCancel && cancelStep === "idle" && (
             <button
               type="button"
