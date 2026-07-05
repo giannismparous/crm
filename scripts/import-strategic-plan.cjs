@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Regenerate src/content/strategicPlanHtml.ts from the founder Word document.
+ * Regenerate src/content/strategicPlanHtml.el.ts from the founder Word document.
  *
  * Usage:
  *   node scripts/import-strategic-plan.cjs "/path/to/plan.docx"
@@ -21,7 +21,7 @@ if (!fs.existsSync(resolved)) {
   process.exit(1);
 }
 
-const outPath = path.join(__dirname, "..", "src", "content", "strategicPlanHtml.ts");
+const outPath = path.join(__dirname, "..", "src", "content", "strategicPlanHtml.el.ts");
 const py = `
 import zipfile, xml.etree.ElementTree as ET, html as H, pathlib, sys
 path = sys.argv[1]
@@ -96,7 +96,7 @@ html = '\\n'.join(html_doc)
 out_path.parent.mkdir(parents=True, exist_ok=True)
 out_path.write_text(
     '/** Founder-only strategic plan — generated from the approved Word document. */\\n'
-    'export const STRATEGIC_PLAN_HTML = `\\n' + html + '\\n`;\\n',
+    'export const STRATEGIC_PLAN_HTML_EL = `\\n' + html + '\\n`;\\n',
     encoding='utf-8'
 )
 print('wrote', out_path, 'chars', len(html))

@@ -336,4 +336,12 @@ export const featuresEn = {
   "operations.strategicPlanBadge": "Founders only",
   "operations.strategicPlanTitle": "Business strategic plan & org structure",
   "operations.strategicPlanSubtitle": "Implementation period 22 Jun 2026 – 01 Aug 2026 — approved internal document.",
+  "operations.orgChart.role.ceo": "CEO",
+  "operations.orgChart.role.headOps": "Operations Team",
+  "operations.orgChart.dept.product": "Product Department",
+  "operations.orgChart.dept.sales": "Sales Department",
+  "operations.orgChart.dept.marketing": "Marketing Department",
+  "operations.orgChart.dept.pr": "Communications & Outreach (PR)",
+  "operations.orgChart.dept.customer": "Customer Communications",
+  "operations.orgChart.dept.consulting": "AI Consulting Services (Ad-hoc)",
 } as const;

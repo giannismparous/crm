@@ -29,7 +29,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "founders",
-      title: "Founders",
+      titleKey: "operations.foundersBadge",
       accent: "indigo",
       preferFounder: true,
       members: [
@@ -47,7 +47,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "leader",
-      title: "CEO",
+      titleKey: "operations.orgChart.role.ceo",
       name: "Στέργιος",
       accent: "indigo",
       preferFounder: true,
@@ -59,7 +59,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "leader",
-      title: "Operations Team",
+      titleKey: "operations.orgChart.role.headOps",
       accent: "teal",
       preferFounder: true,
       members: [{ name: "Δημήτρης" }, { name: "Γιάννης" }],
@@ -71,7 +71,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Product",
+      titleKey: "operations.orgChart.dept.product",
       accent: "violet",
       members: [{ name: "Γιάννης" }, { name: "Στέργιος" }],
     },
@@ -82,7 +82,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Sales",
+      titleKey: "operations.orgChart.dept.sales",
       accent: "amber",
       members: [{ name: "Δημήτρης" }, { name: "Στέφανος" }],
     },
@@ -93,7 +93,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Marketing",
+      titleKey: "operations.orgChart.dept.marketing",
       accent: "fuchsia",
       members: [{ name: "Έλενα" }, { name: "Χαρά" }, { name: "Pantelis" }],
     },
@@ -104,7 +104,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Επικοινωνίας & Εξωστρέφειας (PR)",
+      titleKey: "operations.orgChart.dept.pr",
       accent: "rose",
       members: [{ name: "Αναστασία" }, { name: "Χαρά" }],
     },
@@ -115,7 +115,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Επικοινωνίας με Πελάτες",
+      titleKey: "operations.orgChart.dept.customer",
       accent: "sky",
       members: [{ name: "Δημήτρης" }, { name: "Αναστασία" }],
     },
@@ -126,7 +126,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "department",
-      title: "Τμήμα Συμβουλευτικών Υπηρεσιών AI (Ad-hoc)",
+      titleKey: "operations.orgChart.dept.consulting",
       accent: "slate",
       members: [
         { name: "Στέργιος" },

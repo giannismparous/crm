@@ -336,4 +336,12 @@ export const featuresEl = {
   "operations.strategicPlanBadge": "Μόνο founders",
   "operations.strategicPlanTitle": "Επιχειρησιακό στρατηγικό πλάνο & οργανόγραμμα",
   "operations.strategicPlanSubtitle": "Περίοδος υλοποίησης 22 Ιουνίου 2026 – 01 Αυγούστου 2026 — εγκεκριμένο εσωτερικό έγγραφο.",
+  "operations.orgChart.role.ceo": "CEO",
+  "operations.orgChart.role.headOps": "Ομάδα Λειτουργιών",
+  "operations.orgChart.dept.product": "Τμήμα Product",
+  "operations.orgChart.dept.sales": "Τμήμα Sales",
+  "operations.orgChart.dept.marketing": "Τμήμα Marketing",
+  "operations.orgChart.dept.pr": "Τμήμα Επικοινωνίας & Εξωστρέφειας (PR)",
+  "operations.orgChart.dept.customer": "Τμήμα Επικοινωνίας με Πελάτες",
+  "operations.orgChart.dept.consulting": "Τμήμα Συμβουλευτικών Υπηρεσιών AI (Ad-hoc)",
 } as const;

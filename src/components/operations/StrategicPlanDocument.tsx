@@ -1,8 +1,10 @@
-import { useT } from "../../contexts/I18nContext";
-import { STRATEGIC_PLAN_HTML } from "../../content/strategicPlanHtml";
+import { useI18n, useT } from "../../contexts/I18nContext";
+import { getStrategicPlanHtml } from "../../content/strategicPlanHtml";
 
 export function StrategicPlanDocument({ isFounder }: { isFounder: boolean }) {
   const t = useT();
+  const { locale } = useI18n();
+  const planHtml = getStrategicPlanHtml(locale);
 
   if (!isFounder) return null;
 
@@ -19,7 +21,7 @@ export function StrategicPlanDocument({ isFounder }: { isFounder: boolean }) {
       </header>
       <div
         className="strategic-plan-body rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-sm sm:px-8 sm:py-8"
-        dangerouslySetInnerHTML={{ __html: STRATEGIC_PLAN_HTML }}
+        dangerouslySetInnerHTML={{ __html: planHtml }}
       />
     </article>
   );

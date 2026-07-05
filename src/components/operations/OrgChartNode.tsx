@@ -10,6 +10,7 @@ import { OrgChartMemberRow } from "./OrgChartMemberRow";
 import { OrgChartFoundersBadge } from "./OrgChartFoundersBadge";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
 import { useOrgChartPeople } from "./OrgChartPeopleContext";
+import { useT } from "../../contexts/I18nContext";
 import { ORG_CHART_DEPT_WIDTH, ORG_CHART_FOUNDERS_WIDTH, ORG_CHART_LEADER_WIDTH } from "./orgChartLayout";
 
 export type OrgChartAccent =
@@ -28,7 +29,7 @@ export type OrgChartMember = {
 
 export type OrgChartNodeData = {
   variant: "founders" | "leader" | "department";
-  title: string;
+  titleKey: string;
   subtitle?: string;
   name?: string;
   accent?: OrgChartAccent;
@@ -85,7 +86,9 @@ const ACCENT: Record<
 };
 
 function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
+  const t = useT();
   const { people, currentUserId } = useOrgChartPeople();
+  const title = t(data.titleKey);
   const accent = ACCENT[data.accent ?? "slate"];
   const matchContext = {
     departmentHint: ORG_NODE_DEPARTMENT_HINT[id],
@@ -118,7 +121,7 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
       >
         <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
         <div className={`px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-wider ${accent.header}`}>
-          {data.title}
+          {title}
         </div>
         <div className="space-y-1 px-4 py-3 text-center">
           {memberRows.length > 0 ? (
@@ -178,7 +181,7 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
       style={{ width: ORG_CHART_DEPT_WIDTH }}
     >
       <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
-      <div className={`px-3 py-2 text-center text-[10px] font-bold leading-snug ${accent.header}`}>{data.title}</div>
+      <div className={`px-3 py-2 text-center text-[10px] font-bold leading-snug ${accent.header}`}>{title}</div>
       <ul className="space-y-2 px-3 py-3">
         {(data.members ?? []).map((member) => {
           const memberPerson = resolveOrgChartPerson(member.name, people, matchContext);
