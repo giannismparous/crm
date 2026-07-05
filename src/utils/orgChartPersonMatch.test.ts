@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Person } from "../types";
-import { orgChartDisplayLabel, personNameKey, resolveOrgChartPerson, splitOrgChartNameList } from "./orgChartPersonMatch";
+import { orgChartDisplayLabel, orgChartPersonDescription, personNameKey, resolveOrgChartPerson, splitOrgChartNameList } from "./orgChartPersonMatch";
 
 function person(partial: Partial<Person> & Pick<Person, "id" | "name">): Person {
   return {
@@ -82,5 +82,10 @@ describe("orgChartPersonMatch", () => {
   it("uses live directory first name for linked members", () => {
     expect(orgChartDisplayLabel("Pantelis", TEAM[7])).toBe("Pantelis");
     expect(orgChartDisplayLabel("Pantelis", { ...TEAM[7]!, name: "Pantelis Nikolaidis" })).toBe("Pantelis");
+  });
+
+  it("uses live directory title for descriptions", () => {
+    expect(orgChartPersonDescription({ ...TEAM[7]!, title: "Content Creator" })).toBe("Content Creator");
+    expect(orgChartPersonDescription({ ...TEAM[7]!, title: "  " })).toBeUndefined();
   });
 });

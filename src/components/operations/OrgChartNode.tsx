@@ -2,11 +2,12 @@ import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   ORG_NODE_DEPARTMENT_HINT,
+  orgChartPersonDescription,
   resolveOrgChartPerson,
 } from "../../utils/orgChartPersonMatch";
 import { OrgChartPersonLink, OrgChartPersonList } from "./OrgChartPersonLink";
+import { OrgChartMemberRow } from "./OrgChartMemberRow";
 import { useOrgChartPeople } from "./OrgChartPeopleContext";
-import { PersonAvatar } from "../PersonAvatar";
 
 export type OrgChartAccent =
   | "indigo"
@@ -20,7 +21,6 @@ export type OrgChartAccent =
 
 export type OrgChartMember = {
   name: string;
-  role?: string;
 };
 
 export type OrgChartNodeData = {
@@ -113,7 +113,9 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
 
   if (data.variant === "leader") {
     const person = data.name ? resolveOrgChartPerson(data.name, people, matchContext) : undefined;
+    const ceoDescription = orgChartPersonDescription(person);
     const memberRows = data.members ?? [];
+
     return (
       <div
         className={`${NODE_SHELL} w-[min(280px,80vw)] overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
@@ -131,39 +133,27 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
                   preferFounder: matchContext.preferFounder ?? true,
                 });
                 return (
-                  <li
-                    key={`${member.name}-${member.role ?? ""}`}
-                    className="border-t border-slate-100 pt-2 first:border-0 first:pt-0"
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center">
-                        {memberPerson ? (
-                          <PersonAvatar person={memberPerson} size="xs" />
-                        ) : (
-                          <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} aria-hidden />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1 pt-0.5">
-                        <OrgChartPersonLink label={member.name} person={memberPerson} className="text-sm" />
-                        {member.role ? (
-                          <p className="mt-0.5 text-[11px] leading-snug text-slate-600">{member.role}</p>
-                        ) : null}
-                      </div>
-                    </div>
+                  <li key={member.name} className="border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+                    <OrgChartMemberRow
+                      label={member.name}
+                      person={memberPerson}
+                      dotClass={accent.dot}
+                      nameClass="text-sm"
+                    />
                   </li>
                 );
               })}
             </ul>
           ) : data.name ? (
-            <OrgChartPersonLink
-              label={data.name}
-              person={person}
-              showAvatar={Boolean(person)}
-              className="mx-auto text-sm"
-            />
-          ) : null}
-          {data.subtitle && memberRows.length === 0 ? (
-            <p className="text-xs text-slate-600">{data.subtitle}</p>
+            <>
+              <OrgChartPersonLink
+                label={data.name}
+                person={person}
+                showAvatar={Boolean(person)}
+                className="mx-auto text-sm"
+              />
+              {ceoDescription ? <p className="mt-1 text-xs text-slate-600">{ceoDescription}</p> : null}
+            </>
           ) : null}
         </div>
         <Handle type="source" position={Position.Bottom} className="!border-0 !bg-transparent !opacity-0" />
@@ -182,22 +172,8 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
           const memberPerson = resolveOrgChartPerson(member.name, people, matchContext);
 
           return (
-            <li key={`${member.name}-${member.role ?? ""}`} className="border-t border-slate-100 pt-2 first:border-0 first:pt-0">
-              <div className="flex items-start gap-2.5">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center">
-                  {memberPerson ? (
-                    <PersonAvatar person={memberPerson} size="xs" />
-                  ) : (
-                    <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} aria-hidden />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 pt-0.5">
-                  <OrgChartPersonLink label={member.name} person={memberPerson} className="text-xs" />
-                  {member.role ? (
-                    <p className="mt-0.5 text-[11px] leading-snug text-slate-600">{member.role}</p>
-                  ) : null}
-                </div>
-              </div>
+            <li key={member.name} className="border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+              <OrgChartMemberRow label={member.name} person={memberPerson} dotClass={accent.dot} />
             </li>
           );
         })}

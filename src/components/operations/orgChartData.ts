@@ -44,7 +44,6 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "leader",
       title: "CEO",
       name: "Στέργιος",
-      subtitle: "Επιστημονικό όραμα & AI strategy",
       accent: "indigo",
       preferFounder: true,
     },
@@ -69,10 +68,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "department",
       title: "Τμήμα Product",
       accent: "violet",
-      members: [
-        { name: "Γιάννης", role: "CTO & Co-Founder" },
-        { name: "Στέργιος", role: "Advisor" },
-      ],
+      members: [{ name: "Γιάννης" }, { name: "Στέργιος" }],
     },
   },
   {
@@ -83,10 +79,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "department",
       title: "Τμήμα Sales",
       accent: "amber",
-      members: [
-        { name: "Δημήτρης", role: "Head & Co-Founder" },
-        { name: "Στέφανος", role: "Manager" },
-      ],
+      members: [{ name: "Δημήτρης" }, { name: "Στέφανος" }],
     },
   },
   {
@@ -97,11 +90,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "department",
       title: "Τμήμα Marketing",
       accent: "fuchsia",
-      members: [
-        { name: "Έλενα", role: "Strategist" },
-        { name: "Χαρά", role: "Visual ID & Co-Founder" },
-        { name: "Pantelis", role: "Content Creator" },
-      ],
+      members: [{ name: "Έλενα" }, { name: "Χαρά" }, { name: "Pantelis" }],
     },
   },
   {
@@ -112,10 +101,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "department",
       title: "Τμήμα Επικοινωνίας & Εξωστρέφειας (PR)",
       accent: "rose",
-      members: [
-        { name: "Αναστασία", role: "CCO & Co-Founder" },
-        { name: "Χαρά", role: "Support & Co-Founder" },
-      ],
+      members: [{ name: "Αναστασία" }, { name: "Χαρά" }],
     },
   },
   {
@@ -126,10 +112,7 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
       variant: "department",
       title: "Τμήμα Επικοινωνίας με Πελάτες",
       accent: "sky",
-      members: [
-        { name: "Δημήτρης", role: "Sync" },
-        { name: "Αναστασία", role: "Sync" },
-      ],
+      members: [{ name: "Δημήτρης" }, { name: "Αναστασία" }],
     },
   },
   {

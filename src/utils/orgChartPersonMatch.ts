@@ -65,6 +65,12 @@ export function orgChartDisplayLabel(label: string, person?: Person): string {
   return person ? personFirstName(person) : label;
 }
 
+/** Live job title from the team directory, when set. */
+export function orgChartPersonDescription(person?: Person): string | undefined {
+  const title = person?.title?.trim();
+  return title || undefined;
+}
+
 export function stripTitles(value: string): string {
   return value.replace(TITLE_PREFIX, "").trim();
 }
