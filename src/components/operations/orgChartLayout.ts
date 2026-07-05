@@ -19,7 +19,7 @@ function withChartHandles(node: Node<OrgChartNodeData>, patch: Partial<LayoutNod
 
 export function getOrgChartNodeSize(node: Node<OrgChartNodeData>): { width: number; height: number } {
   const data = node.data;
-  if (data.variant === "board") return { width: 340, height: 96 };
+  if (data.variant === "founders") return { width: 200, height: 76 };
   if (data.variant === "leader") {
     const memberCount = data.members?.length ?? 0;
     if (memberCount > 0) return { width: 280, height: 80 + memberCount * 52 };

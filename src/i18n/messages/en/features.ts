@@ -327,6 +327,8 @@ export const featuresEn = {
   "operations.placeholderHint": "Tell us what workflows, lists, or tools you want here.",
   "operations.orgChartTitle": "Organizational structure",
   "operations.orgChartSubtitle": "SimasiaAI hierarchy — pan and zoom to explore.",
+  "operations.foundersBadge": "Founders",
+  "operations.foundersBadgeTitle": "Co-founders board — click an avatar to open profile",
   "operations.viewAria": "Operations views",
   "operations.viewOrgChart": "Org chart",
   "operations.viewStrategicPlan": "Strategic plan",

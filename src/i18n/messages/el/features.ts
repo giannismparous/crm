@@ -327,6 +327,8 @@ export const featuresEl = {
   "operations.placeholderHint": "Πείτε μας τι workflows, λίστες ή εργαλεία θέλετε εδώ.",
   "operations.orgChartTitle": "Οργανόγραμμα",
   "operations.orgChartSubtitle": "Ιεραρχική δομή SimasiaAI — κάντε pan/zoom για εξερεύνηση.",
+  "operations.foundersBadge": "Ιδρυτές",
+  "operations.foundersBadgeTitle": "Συμβούλιο co-founders — κλικ σε avatar για προφίλ",
   "operations.viewAria": "Προβολές λειτουργιών",
   "operations.viewOrgChart": "Οργανόγραμμα",
   "operations.viewStrategicPlan": "Στρατηγικό πλάνο",

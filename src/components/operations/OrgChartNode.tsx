@@ -5,8 +5,9 @@ import {
   orgChartPersonDescription,
   resolveOrgChartPerson,
 } from "../../utils/orgChartPersonMatch";
-import { OrgChartPersonLink, OrgChartPersonList } from "./OrgChartPersonLink";
+import { OrgChartPersonLink } from "./OrgChartPersonLink";
 import { OrgChartMemberRow } from "./OrgChartMemberRow";
+import { OrgChartFoundersBadge } from "./OrgChartFoundersBadge";
 import { useOrgChartPeople } from "./OrgChartPeopleContext";
 
 export type OrgChartAccent =
@@ -24,13 +25,12 @@ export type OrgChartMember = {
 };
 
 export type OrgChartNodeData = {
-  variant: "board" | "leader" | "department";
+  variant: "founders" | "leader" | "department";
   title: string;
   subtitle?: string;
   name?: string;
   accent?: OrgChartAccent;
   members?: OrgChartMember[];
-  boardNames?: boolean;
   preferFounder?: boolean;
 };
 
@@ -90,22 +90,13 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
     preferFounder: data.preferFounder ?? (id === "ceo" || id === "founders"),
   };
 
-  if (data.variant === "board") {
+  if (data.variant === "founders") {
     return (
       <div
-        className={`${NODE_SHELL} w-[min(340px,85vw)] overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+        className={`${NODE_SHELL} w-[min(200px,70vw)] overflow-hidden rounded-2xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
       >
         <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
-        <div className={`px-4 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide ${accent.header}`}>
-          {data.title}
-        </div>
-        <p className="px-4 py-3 text-center text-xs font-medium leading-relaxed text-slate-700">
-          {data.boardNames && data.subtitle ? (
-            <OrgChartPersonList text={data.subtitle} matchContext={matchContext} className="text-xs" />
-          ) : (
-            data.subtitle
-          )}
-        </p>
+        <OrgChartFoundersBadge members={data.members ?? []} matchContext={matchContext} />
         <Handle type="source" position={Position.Bottom} className="!border-0 !bg-transparent !opacity-0" />
       </div>
     );

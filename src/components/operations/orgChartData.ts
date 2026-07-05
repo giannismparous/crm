@@ -28,12 +28,17 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     type: "orgChart",
     position: { x: 0, y: 0 },
     data: {
-      variant: "board",
-      title: "Συμβούλιο Founders / Co-Founders Board",
-      subtitle: "Στέργιος · Δημήτρης · Γιάννης · Χαρά · Αναστασία",
+      variant: "founders",
+      title: "Founders",
       accent: "indigo",
-      boardNames: true,
       preferFounder: true,
+      members: [
+        { name: "Στέργιος" },
+        { name: "Δημήτρης" },
+        { name: "Γιάννης" },
+        { name: "Χαρά" },
+        { name: "Αναστασία" },
+      ],
     },
   },
   {
