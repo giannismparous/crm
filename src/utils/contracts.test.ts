@@ -27,8 +27,8 @@ describe("system contracts", () => {
     expect(CHAT_UNSEND_WINDOW_MS).toBe(5 * 60 * 1000);
   });
 
-  it("presence heartbeat is 20 seconds", () => {
-    expect(HEARTBEAT_MS).toBe(20_000);
+  it("presence heartbeat is 30 seconds", () => {
+    expect(HEARTBEAT_MS).toBe(30_000);
   });
 
   it("presence stale threshold is 45 seconds", () => {

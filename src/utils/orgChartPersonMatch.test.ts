@@ -40,7 +40,8 @@ const TEAM: Person[] = [
   }),
   person({
     id: "p5",
-    name: "Αναστασία Κωνσταντίνου",
+    name: "anastasia.natsina",
+    email: "anastasia.natsina@example.com",
     orgRole: "founder",
     departments: ["Marketing"],
   }),
@@ -64,6 +65,7 @@ describe("orgChartPersonMatch", () => {
     expect(resolveOrgChartPerson("Γιάννης", TEAM)?.id).toBe("p3");
     expect(resolveOrgChartPerson("Στέργιος", TEAM, { preferFounder: true })?.id).toBe("p1");
     expect(resolveOrgChartPerson("Δημήτρης", TEAM, { departmentHint: "Sales" })?.id).toBe("p2");
+    expect(resolveOrgChartPerson("Αναστασία", TEAM, { preferFounder: true })?.id).toBe("p5");
   });
 
   it("splits multi-name strings", () => {

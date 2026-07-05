@@ -22,11 +22,11 @@ export function getOrgChartNodeSize(node: Node<OrgChartNodeData>): { width: numb
   if (data.variant === "founders") return { width: 208, height: 84 };
   if (data.variant === "leader") {
     const memberCount = data.members?.length ?? 0;
-    if (memberCount > 0) return { width: 280, height: 80 + memberCount * 52 };
-    return { width: 280, height: 108 };
+    if (memberCount > 0) return { width: 280, height: 88 + memberCount * 58 };
+    return { width: 280, height: 124 };
   }
   const memberCount = data.members?.length ?? 0;
-  return { width: 220, height: 56 + Math.max(1, memberCount) * 44 };
+  return { width: 220, height: 60 + Math.max(1, memberCount) * 58 };
 }
 
 function placeConsultingBelowDepartments(nodes: LayoutNode[]): LayoutNode[] {

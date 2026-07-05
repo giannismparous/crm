@@ -657,7 +657,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
   const canManageProjects = hasPrivilege(currentUserOrgRole, "manageProjects");
   const canAccessResearch = hasPrivilege(currentUserOrgRole, "accessResearch");
-  const canAccessStrategicPlan = currentUserOrgRole === "founder";
+  const canAccessStrategicPlan = hasPrivilege(currentUserOrgRole, "accessStrategicPlan");
   const canSeeContacts = canAccessContacts(currentUserPerson, currentUserOrgRole);
 
   const visiblePeople = people;
@@ -2132,12 +2132,52 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const removeAppointment = useCallback(
     async (id: string) => {
       const before = appointmentsRef.current.find((a) => a.id === id);
-      const storagePaths = before ? storagePathsFromAppointment(before) : [];
-      await deleteDoc(doc(db, "organizations", ORG, "appointments", id));
+      const idsToDelete = new Set<string>([id]);
+
+      if (before?.recurrenceSeriesId && (before.recurrenceIndex ?? 0) === 0) {
+        for (const sibling of appointmentsRef.current) {
+          if (sibling.recurrenceSeriesId === before.recurrenceSeriesId) {
+            idsToDelete.add(sibling.id);
+          }
+        }
+      }
+
+      const linkedTaskIds = new Set<string>();
+      for (const taskId of before?.linkedTaskIds ?? []) {
+        if (taskId) linkedTaskIds.add(taskId);
+      }
+      for (const t of tasksRef.current) {
+        if (t.appointmentId === id) linkedTaskIds.add(t.id);
+      }
+
+      const linkedReminderIds = personalRemindersRef.current
+        .filter((r) => r.appointmentId === id)
+        .map((r) => r.id);
+
+      const storagePaths = [
+        ...new Set(
+          [...idsToDelete].flatMap((aptId) => {
+            const apt = appointmentsRef.current.find((a) => a.id === aptId);
+            return apt ? storagePathsFromAppointment(apt) : [];
+          })
+        ),
+      ];
+
+      for (const aptId of idsToDelete) {
+        await deleteDoc(doc(db, "organizations", ORG, "appointments", aptId));
+      }
       if (storagePaths.length > 0) {
         void deleteImagesFromStorage(storagePaths);
       }
-      void syncCrmItemToGoogleCalendar("appointment", id, "delete");
+      for (const aptId of idsToDelete) {
+        void syncCrmItemToGoogleCalendar("appointment", aptId, "delete");
+      }
+      for (const taskId of linkedTaskIds) {
+        void syncCrmItemToGoogleCalendar("task", taskId);
+      }
+      for (const reminderId of linkedReminderIds) {
+        void syncCrmItemToGoogleCalendar("personalReminder", reminderId);
+      }
     },
     [db]
   );
@@ -2173,7 +2213,10 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
       if (fields.departments !== undefined && !isFounder) {
         delete fields.departments;
       }
-      if (typeof fields.name === "string") fields.name = fields.name.trim();
+      if (typeof fields.name === "string") {
+        fields.name = fields.name.trim();
+        if (!fields.name) delete fields.name;
+      }
       if (typeof fields.title === "string") fields.title = fields.title.trim();
       const ref = doc(db, "organizations", ORG, "people", id);
       const body = scrub({ ...fields, id } as unknown as Record<string, unknown>);

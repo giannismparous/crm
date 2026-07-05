@@ -11,6 +11,27 @@ function stopFlow(e: MouseEvent) {
   e.stopPropagation();
 }
 
+function founderInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+}
+
+function FoundersAvatarPlaceholder({ memberName, index }: { memberName: string; index: number }) {
+  return (
+    <span
+      className={`relative flex shrink-0 items-center justify-center rounded-full bg-indigo-50 text-[10px] font-bold text-indigo-700 ring-2 ring-white ${ORG_CHART_ICON_BOX.sm} ${
+        index > 0 ? "-ml-2" : ""
+      }`}
+      title={memberName}
+      aria-hidden
+    >
+      {founderInitials(memberName)}
+    </span>
+  );
+}
+
 function FoundersAvatarButton({
   person,
   memberName,
@@ -69,12 +90,10 @@ export function OrgChartFoundersBadge({
   const { people, onOpenPerson } = useOrgChartPeople();
   const founderContext = { ...matchContext, preferFounder: true };
 
-  const rows = members
-    .map((member) => ({
-      member,
-      person: resolveOrgChartPerson(member.name, people, founderContext),
-    }))
-    .filter((row) => row.person?.id);
+  const rows = members.map((member) => ({
+    member,
+    person: resolveOrgChartPerson(member.name, people, founderContext),
+  }));
 
   return (
     <div className="flex flex-col items-center gap-2.5 px-3 py-3">
@@ -90,16 +109,20 @@ export function OrgChartFoundersBadge({
         </span>
       </div>
       <div className="flex items-center justify-center">
-        {rows.map(({ member, person }, index) => (
-          <FoundersAvatarButton
-            key={person!.id}
-            person={person!}
-            memberName={member.name}
-            index={index}
-            zIndex={rows.length - index}
-            onOpen={onOpenPerson}
-          />
-        ))}
+        {rows.map(({ member, person }, index) =>
+          person?.id ? (
+            <FoundersAvatarButton
+              key={person.id}
+              person={person}
+              memberName={member.name}
+              index={index}
+              zIndex={rows.length - index}
+              onOpen={onOpenPerson}
+            />
+          ) : (
+            <FoundersAvatarPlaceholder key={member.name} memberName={member.name} index={index} />
+          )
+        )}
       </div>
     </div>
   );

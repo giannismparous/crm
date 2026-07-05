@@ -100,6 +100,7 @@ function App() {
     canManageProjects,
     canAccessContacts,
     canAccessResearch,
+    canAccessStrategicPlan,
     seesAllOrgData,
     issueRegistrationSeed,
     completeProfileSetup,
@@ -463,7 +464,7 @@ function App() {
           <OperationsTab
             people={people}
             currentUserId={currentUserId}
-            currentUserOrgRole={currentUserOrgRole}
+            canAccessStrategicPlan={canAccessStrategicPlan}
           />
         ) : tab === "contacts" ? (
           <ContactsTab

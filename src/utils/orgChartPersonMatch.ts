@@ -108,7 +108,10 @@ const NON_PERSON_KEYS = new Set(
 );
 
 /** Display labels that do not match directory names (e.g. company / username). */
-const ORG_CHART_LABEL_KEYS: Record<string, string[]> = {};
+const ORG_CHART_LABEL_KEYS: Record<string, string[]> = {
+  αναστασία: ["anastasia"],
+  anastasia: ["anastasia"],
+};
 
 function labelLookupKeys(label: string): string[] {
   const keys = new Set<string>();

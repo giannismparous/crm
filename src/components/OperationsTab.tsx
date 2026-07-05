@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import type { OrgRole } from "../auth/roles";
 import type { Person } from "../types";
 import { useOpenTeamMember } from "../contexts/PersonNavContext";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
@@ -17,15 +16,15 @@ const OPERATIONS_VIEW_DEFAULTS = { view: "orgChart" as OperationsView };
 export function OperationsTab({
   people,
   currentUserId,
-  currentUserOrgRole,
+  canAccessStrategicPlan,
 }: {
   people: Person[];
   currentUserId: string;
-  currentUserOrgRole: OrgRole;
+  canAccessStrategicPlan: boolean;
 }) {
   const t = useT();
   const openTeamMember = useOpenTeamMember();
-  const isFounder = currentUserOrgRole === "founder";
+  const isFounder = canAccessStrategicPlan;
   const saved = useMemo(() => readPersistedTabState("operations", OPERATIONS_VIEW_DEFAULTS), []);
   const [view, setView] = useState<OperationsView>(() =>
     isFounder && saved.view === "strategicPlan" ? "strategicPlan" : "orgChart"
