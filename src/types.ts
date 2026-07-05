@@ -166,6 +166,7 @@ export type TabId =
   | "projects"
   | "appointments"
   | "team"
+  | "operations"
   | "contacts"
   | "reminders"
   | "research"

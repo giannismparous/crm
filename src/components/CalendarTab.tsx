@@ -20,7 +20,7 @@ import {
 import type { AppointmentCancelScope } from "../utils/appointmentOccurrence";
 import { getFirestoreDb, SIMASIA_AI_ORG_ID } from "../firebase/config";
 import { markAppointmentRsvpNotificationRead } from "../firebase/notifications";
-import { PriorityFilter, PriorityUrgencyIcon, TASK_PRIORITY_CALENDAR_CHIP } from "./TasksTab";
+import { PriorityFilter, PriorityUrgencyIcon, TASK_PRIORITY_CALENDAR_CHIP } from "./taskPriorityUi";
 import { useI18n, useT } from "../contexts/I18nContext";
 import { translatePriority, translateTaskStatus } from "../i18n/helpers";
 import { isPersonalReminderRelevantToPerson } from "../utils/personalReminderLinks";

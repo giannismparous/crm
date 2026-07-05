@@ -11,6 +11,8 @@ export const appEn = {
   "nav.appointmentsTitle": "Appointments — schedule meetings for yourself or others",
   "nav.team": "Team",
   "nav.teamTitle": "Team directory — departments and members",
+  "nav.operations": "Operations",
+  "nav.operationsTitle": "Operations — coordination and day-to-day running",
   "nav.contacts": "Contacts",
   "nav.contactsTitle": "Sales contacts — notes and reminders",
   "nav.reminders": "Reminders",

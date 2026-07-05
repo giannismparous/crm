@@ -11,7 +11,8 @@ import {
   PROJECT_COLOR_OPTIONS,
   type ProjectColor,
 } from "../utils/projectColors";
-import { NewTaskForm, PriorityUrgencyIcon } from "./TasksTab";
+import { NewTaskForm } from "./TasksTab";
+import { PriorityUrgencyIcon } from "./taskPriorityUi";
 import { ConfirmPanel } from "./TaskWorkerActions";
 import { MobileDetailBack } from "./MobileDetailBack";
 import { useI18n, useT } from "../contexts/I18nContext";

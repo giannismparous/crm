@@ -321,4 +321,10 @@ export const featuresEn = {
   "research.emptyContent": "No content yet. Click Edit to add.",
   "research.deleteConfirmTitle": "Delete this research?",
   "research.deleteConfirmMessage": "This removes the research and its uploaded files permanently.",
+  "operations.title": "Operations",
+  "operations.subtitle": "Coordination, processes, and day-to-day running of SimasiaAI.",
+  "operations.placeholder": "This section is ready to be configured.",
+  "operations.placeholderHint": "Tell us what workflows, lists, or tools you want here.",
+  "operations.orgChartTitle": "Organizational structure",
+  "operations.orgChartSubtitle": "SimasiaAI hierarchy — pan and zoom to explore.",
 } as const;

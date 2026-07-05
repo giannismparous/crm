@@ -6,6 +6,7 @@ const TAB_IDS: TabId[] = [
   "projects",
   "appointments",
   "team",
+  "operations",
   "contacts",
   "reminders",
   "research",

@@ -11,6 +11,8 @@ export const appEl = {
   "nav.appointmentsTitle": "Ραντεβού — προγραμματισμός συναντήσεων",
   "nav.team": "Ομάδα",
   "nav.teamTitle": "Κατάλογος ομάδας — τμήματα και μέλη",
+  "nav.operations": "Λειτουργίες",
+  "nav.operationsTitle": "Λειτουργίες — συντονισμός και καθημερινή λειτουργία",
   "nav.contacts": "Επαφές",
   "nav.contactsTitle": "Επαφές πωλήσεων — σημειώσεις και υπενθυμίσεις",
   "nav.reminders": "Υπενθυμίσεις",

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { SIMASIA_AI_ORG_ID } from "../firebase/config";
 import {
   looksLikeHtml,
+  repairDuplicatedLinksInHtml,
+  repairRichTextBody,
   richTextToPlainText,
   sanitizeTaskUpdates,
   taskUpdatesToPlainText,
@@ -80,5 +82,29 @@ describe("sanitizeRichText", () => {
     expect(out).toContain('class="rich-text-link"');
     expect(out).toContain('href="https://example.com/path"');
     expect(out).toContain("https://example.com/path</a>");
+  });
+
+  it("does not duplicate links when saving existing rich-text anchors", () => {
+    const once = sanitizeTaskUpdates("See https://example.com/path for details");
+    const twice = sanitizeTaskUpdates(once);
+    expect(twice).toBe(once);
+    const thrice = sanitizeTaskUpdates(twice);
+    expect(thrice).toBe(once);
+  });
+
+  it("repairs concatenated duplicate urls in plain text", () => {
+    const url = "https://example.com/path?utm_source=chatgpt.com";
+    const corrupt = url.repeat(5);
+    const repaired = repairDuplicatedLinksInHtml(corrupt);
+    expect(repaired).toBe(url);
+  });
+
+  it("repairs duplicated url labels inside anchor tags", () => {
+    const url = "https://example.com/competitor";
+    const corrupt = `<a href="${url}" class="rich-text-link">${url.repeat(4)}</a>`;
+    const repaired = sanitizeTaskUpdates(repairRichTextBody(corrupt));
+    expect(repaired).toBe(
+      `<a href="${url}" class="rich-text-link" target="_blank" rel="noopener noreferrer">${url}</a>`
+    );
   });
 });

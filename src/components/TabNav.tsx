@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useT } from "../contexts/I18nContext";
 import type { TabId } from "../types";
 
-const TAB_IDS: TabId[] = ["tasks", "projects", "appointments", "team", "contacts", "reminders", "research", "calendar"];
+const TAB_IDS: TabId[] = ["tasks", "projects", "appointments", "team", "operations", "contacts", "reminders", "research", "calendar"];
 
 function useVisibleTabs(showContactsTab: boolean, showResearchTab: boolean) {
   const t = useT();

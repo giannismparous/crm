@@ -116,6 +116,11 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orgRole', 'updatedAt']);
     }
 
+    function founderManagingUserDisplayName() {
+      return isFounder(userOrgId())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+    }
+
     function userSelfUpdateOk() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['orgRole']);
     }
@@ -292,6 +297,7 @@ service cloud.firestore {
         && (
           (userId == request.auth.uid && (isFounder(userOrgId()) || userSelfUpdateOk()))
           || founderManagingUserRole()
+          || founderManagingUserDisplayName()
         );
       allow delete: if isFounder(userOrgId());
 

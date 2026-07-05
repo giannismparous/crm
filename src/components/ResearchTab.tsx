@@ -9,6 +9,11 @@ import { ConfirmPanel } from "./TaskWorkerActions";
 import { MobileDetailBack } from "./MobileDetailBack";
 import { useT } from "../contexts/I18nContext";
 import { formatInOrgTime } from "../utils/orgTimezone";
+import {
+  repairRichTextBody,
+  richTextEditorValue,
+  sanitizeTaskUpdates,
+} from "../utils/sanitizeRichText";
 import { isStoredRichTextBody, richTextHasContent } from "../utils/richTextImages";
 
 type Draft = {
@@ -60,6 +65,10 @@ export function ResearchTab({
   const [savedNotesSnapshot, setSavedNotesSnapshot] = useState<string | null>(null);
   const flushNotesSaveRef = useRef<(() => void) | null>(null);
   const latestNotesRef = useRef("");
+
+  function cleanNotesBody(raw: string): string {
+    return sanitizeTaskUpdates(repairRichTextBody(raw));
+  }
 
   usePersistedTabState("research", { selectedId });
 
@@ -124,7 +133,8 @@ export function ResearchTab({
     setSaving(true);
     try {
       flushNotesSaveRef.current?.();
-      const notes = latestNotesRef.current;
+      const notes = cleanNotesBody(latestNotesRef.current);
+      latestNotesRef.current = notes;
       if (creatingNew) {
         const id = await onCreateItem(
           {
@@ -268,7 +278,8 @@ export function ResearchTab({
 
               <div>
                 <SimpleRichText
-                  value={draft.notes}
+                  value={richTextEditorValue(draft.notes)}
+                  persistedHtml={draft.notes}
                   onChange={(html) => {
                     latestNotesRef.current = html;
                     setDraft((d) => ({ ...d, notes: html }));

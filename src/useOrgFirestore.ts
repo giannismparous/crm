@@ -129,6 +129,11 @@ import {
   statDeltaForNewTask,
   type TaskUpdateIntent,
 } from "./utils/personTaskStats";
+import {
+  applyFirestoreListIfChanged,
+  commitFirestoreDocList,
+  personFirestoreListVersion,
+} from "./utils/firestoreListSync";
 
 const PERSON_TASK_STAT_KEYS: (keyof PersonTaskStats)[] = [
   "tasksCompleted",
@@ -140,6 +145,15 @@ const PERSON_TASK_STAT_KEYS: (keyof PersonTaskStats)[] = [
 ];
 
 const ORG = SIMASIA_AI_ORG_ID;
+/** Defer background notification scans so initial Firestore listeners get bandwidth first. */
+const BACKGROUND_SYNC_DEFER_MS = 15_000;
+
+export type UseOrgFirestoreOptions = {
+  /** When true, subscribe to contacts (+ per-contact reminder fetches). Default: defer until Contacts tab. */
+  loadContacts?: boolean;
+  /** When true, subscribe to research items. Default: defer until Research tab. */
+  loadResearch?: boolean;
+};
 
 function scrub<T extends Record<string, unknown>>(o: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -147,6 +161,30 @@ function scrub<T extends Record<string, unknown>>(o: T): Record<string, unknown>
     if (v !== undefined) out[k] = v;
   }
   return out;
+}
+
+function taskListVersion(t: Task): string {
+  return [
+    t.status,
+    t.dueDate,
+    t.completedAt ?? "",
+    t.comments.length,
+    t.updateEntries.length,
+    t.finishedByIds.join(","),
+    t.title,
+  ].join("|");
+}
+
+function projectListVersion(p: Project): string {
+  return [p.name, p.completed, p.color, (p.departmentIds ?? []).join(",")].join("|");
+}
+
+function appointmentListVersion(a: Appointment): string {
+  return [a.status, a.startsAt, a.title, a.projectId ?? ""].join("|");
+}
+
+function personalReminderListVersion(r: PersonalReminder): string {
+  return [r.done, r.dueAt, r.title, (r.dueNotifyFired ?? []).join(",")].join("|");
 }
 
 /** Firestore rejects `undefined` at any depth in update payloads. */
@@ -165,7 +203,9 @@ function stripUndefinedDeep(value: unknown): unknown {
   return value;
 }
 
-export function useOrgFirestore() {
+export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
+  const loadContacts = options.loadContacts ?? false;
+  const loadResearch = options.loadResearch ?? false;
   const db = getFirestoreDb();
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -194,6 +234,17 @@ export function useOrgFirestore() {
   const profileSync = useRef<string | null>(null);
   /** Avoid restarting the sync bar when listeners re-subscribe for the same user (e.g. StrictMode). */
   const dataReadyForUser = useRef<string | null>(null);
+  const accessProfileRef = useRef<{
+    orgRole: OrgRole;
+    departments: string[];
+    ready: boolean;
+  } | null>(null);
+  const peopleListFp = useRef("");
+  const tasksListFp = useRef("");
+  const projectsListFp = useRef("");
+  const appointmentsListFp = useRef("");
+  const personalRemindersListFp = useRef("");
+  const initialCollectionsRef = useRef({ people: false, tasks: false });
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
   const appointmentsRef = useRef<Appointment[]>([]);
@@ -230,7 +281,12 @@ export function useOrgFirestore() {
 
     const maybeSetProfile = () => {
       if (!roleReady || !deptsReady) return;
-      setAccessProfile({ orgRole, departments, ready: true });
+      const deptsKey = departments.join("\0");
+      const prev = accessProfileRef.current;
+      if (prev?.ready && prev.orgRole === orgRole && prev.departments.join("\0") === deptsKey) return;
+      const next = { orgRole, departments: [...departments], ready: true as const };
+      accessProfileRef.current = next;
+      setAccessProfile(next);
     };
 
     const unUser = onSnapshot(
@@ -273,10 +329,14 @@ export function useOrgFirestore() {
     return () => {
       unUser();
       unPerson();
+      accessProfileRef.current = null;
       setAccessProfile(null);
       setSelfPersonDoc({ loaded: false, person: null });
     };
   }, [user, db]);
+
+  const accessOrgRole = accessProfile?.ready ? accessProfile.orgRole : null;
+  const accessDepartmentsKey = accessProfile?.ready ? accessProfile.departments.join("\0") : "";
 
   useEffect(() => {
     if (!user) {
@@ -289,6 +349,13 @@ export function useOrgFirestore() {
       setNotifications([]);
       setRegistrationSeeds([]);
       dataReadyForUser.current = null;
+      peopleListFp.current = "";
+      tasksListFp.current = "";
+      projectsListFp.current = "";
+      appointmentsListFp.current = "";
+      personalRemindersListFp.current = "";
+      initialCollectionsRef.current = { people: false, tasks: false };
+      accessProfileRef.current = null;
       // Keep dataLoading true while auth is still resolving so the sync bar doesn't restart.
       if (!authLoading) setDataLoading(false);
       setError(null);
@@ -296,10 +363,16 @@ export function useOrgFirestore() {
       return;
     }
 
-    if (!accessProfile?.ready) return;
+    if (!accessOrgRole) return;
+
+    const accessSnapshot = accessProfileRef.current;
+    if (!accessSnapshot?.ready) return;
 
     const needsInitialLoad = dataReadyForUser.current !== user.uid;
-    if (needsInitialLoad) setDataLoading(true);
+    if (needsInitialLoad) {
+      setDataLoading(true);
+      initialCollectionsRef.current = { people: false, tasks: false };
+    }
     setError(null);
 
     const fail = (msg: string) => {
@@ -317,6 +390,20 @@ export function useOrgFirestore() {
     const markDataReady = () => {
       dataReadyForUser.current = user.uid;
       setDataLoading(false);
+    };
+
+    const notePeopleLoaded = () => {
+      initialCollectionsRef.current.people = true;
+      if (initialCollectionsRef.current.people && initialCollectionsRef.current.tasks) {
+        markDataReady();
+      }
+    };
+
+    const noteTasksLoaded = () => {
+      initialCollectionsRef.current.tasks = true;
+      if (initialCollectionsRef.current.people && initialCollectionsRef.current.tasks) {
+        markDataReady();
+      }
     };
 
     if (profileSync.current !== user.uid) {
@@ -342,9 +429,9 @@ export function useOrgFirestore() {
       }
     }
 
-    const seesAll = canSeeAllOrgData(accessProfile.orgRole);
+    const seesAll = canSeeAllOrgData(accessSnapshot.orgRole);
     const uid = user.uid;
-    const departments = accessProfile.departments;
+    const departments = accessSnapshot.departments;
 
     const peopleCol = collection(db, "organizations", ORG, "people");
     const tasksCol = collection(db, "organizations", ORG, "tasks");
@@ -358,9 +445,17 @@ export function useOrgFirestore() {
       onSnapshot(
         peopleCol,
         (snap) => {
-          const list = snap.docs.map((d) => normalizePerson(d.id, d.data() as Record<string, unknown>));
-          list.sort((a, b) => a.name.localeCompare(b.name));
-          setPeopleRaw(list);
+          commitFirestoreDocList(
+            peopleListFp,
+            snap.docs,
+            (id, data) => normalizePerson(id, data),
+            setPeopleRaw,
+            {
+              sort: (a, b) => a.name.localeCompare(b.name),
+              docVersion: personFirestoreListVersion,
+            }
+          );
+          notePeopleLoaded();
         },
         (e) => fail(e.message)
       )
@@ -376,8 +471,10 @@ export function useOrgFirestore() {
         {
           normalize: (id, data) => normalizeTask(id, data),
           onData: (list) => {
-            setTasks(list);
-            markDataReady();
+            applyFirestoreListIfChanged(tasksListFp, list, taskListVersion, (next) => {
+              setTasks(next);
+              noteTasksLoaded();
+            });
           },
           onError: fail,
         }
@@ -389,9 +486,13 @@ export function useOrgFirestore() {
         onSnapshot(
           tasksCol,
           (snap) => {
-            const list = snap.docs.map((d) => normalizeTask(d.id, d.data() as Record<string, unknown>));
-            setTasks(list);
-            markDataReady();
+            commitFirestoreDocList(
+              tasksListFp,
+              snap.docs,
+              (id, data) => normalizeTask(id, data),
+              setTasks
+            );
+            noteTasksLoaded();
           },
           (e) => fail(e.message)
         )
@@ -405,9 +506,13 @@ export function useOrgFirestore() {
         onSnapshot(
           projectsCol,
           (snap) => {
-            const list = snap.docs.map((d) => normalizeProject(d.id, d.data() as Record<string, unknown>));
-            list.sort((a, b) => a.name.localeCompare(b.name));
-            setProjects(list);
+            commitFirestoreDocList(
+              projectsListFp,
+              snap.docs,
+              (id, data) => normalizeProject(id, data),
+              setProjects,
+              { sort: (a, b) => a.name.localeCompare(b.name) }
+            );
           },
           (e) => fail(e.message)
         )
@@ -428,7 +533,7 @@ export function useOrgFirestore() {
                 partnerProjectIdsKey = idsKey;
                 attachPartnerTasks(list.map((p) => p.id));
               }
-              setProjects(list);
+              applyFirestoreListIfChanged(projectsListFp, list, projectListVersion, setProjects);
             },
             onError: fail,
           }
@@ -441,11 +546,13 @@ export function useOrgFirestore() {
         onSnapshot(
           appointmentsCol,
           (snap) => {
-            const list = snap.docs.map((d) =>
-              normalizeAppointment(d.id, d.data() as Record<string, unknown>)
+            commitFirestoreDocList(
+              appointmentsListFp,
+              snap.docs,
+              (id, data) => normalizeAppointment(id, data),
+              setAppointments,
+              { sort: (a, b) => a.startsAt.localeCompare(b.startsAt) }
             );
-            list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-            setAppointments(list);
           },
           (e) => fail(e.message)
         )
@@ -458,7 +565,7 @@ export function useOrgFirestore() {
             normalize: (id, data) => normalizeAppointment(id, data),
             onData: (list) => {
               list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-              setAppointments(list);
+              applyFirestoreListIfChanged(appointmentsListFp, list, appointmentListVersion, setAppointments);
             },
             onError: fail,
           }
@@ -471,11 +578,13 @@ export function useOrgFirestore() {
         onSnapshot(
           personalRemindersCol,
           (snap) => {
-            const list = snap.docs.map((d) =>
-              normalizePersonalReminder(d.id, d.data() as Record<string, unknown>)
+            commitFirestoreDocList(
+              personalRemindersListFp,
+              snap.docs,
+              (id, data) => normalizePersonalReminder(id, data),
+              setPersonalReminders,
+              { sort: (a, b) => a.dueAt.localeCompare(b.dueAt) }
             );
-            list.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-            setPersonalReminders(list);
           },
           (e) => fail(e.message)
         )
@@ -488,7 +597,12 @@ export function useOrgFirestore() {
             normalize: (id, data) => normalizePersonalReminder(id, data),
             onData: (list) => {
               list.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-              setPersonalReminders(list);
+              applyFirestoreListIfChanged(
+                personalRemindersListFp,
+                list,
+                personalReminderListVersion,
+                setPersonalReminders
+              );
             },
             onError: fail,
           }
@@ -500,7 +614,7 @@ export function useOrgFirestore() {
       unPartnerTasks?.();
       for (const unsub of unsubs) unsub();
     };
-  }, [user, authLoading, db, accessProfile]);
+  }, [user, authLoading, db, accessOrgRole, accessDepartmentsKey]);
 
   const currentUserPersonId = useMemo(() => {
     if (!user) return "";
@@ -577,7 +691,7 @@ export function useOrgFirestore() {
   const visibleResearchItems = canAccessResearch ? researchItems : [];
 
   useEffect(() => {
-    if (!user || !canSeeContacts) {
+    if (!user || !canSeeContacts || !loadContacts) {
       setContacts([]);
       return;
     }
@@ -635,10 +749,10 @@ export function useOrgFirestore() {
     );
 
     return () => unContacts();
-  }, [user, canSeeContacts, db]);
+  }, [user, canSeeContacts, loadContacts, db]);
 
   useEffect(() => {
-    if (!user || !canAccessResearch) {
+    if (!user || !canAccessResearch || !loadResearch) {
       setResearchItems([]);
       return;
     }
@@ -657,7 +771,7 @@ export function useOrgFirestore() {
     );
 
     return () => unResearch();
-  }, [user, canAccessResearch, db]);
+  }, [user, canAccessResearch, loadResearch, db]);
 
   useEffect(() => {
     if (!user || !currentUserPersonId) {
@@ -730,10 +844,11 @@ export function useOrgFirestore() {
       }
     }
 
-    void runDueReminderChecks();
+    const deferId = window.setTimeout(() => void runDueReminderChecks(), BACKGROUND_SYNC_DEFER_MS);
     const intervalId = window.setInterval(() => void runDueReminderChecks(), 60_000);
     return () => {
       cancelled = true;
+      window.clearTimeout(deferId);
       window.clearInterval(intervalId);
     };
   }, [user, currentUserPersonId, db]);
@@ -768,10 +883,11 @@ export function useOrgFirestore() {
       }
     }
 
-    void runAppointmentRsvpChecks();
+    const deferId = window.setTimeout(() => void runAppointmentRsvpChecks(), BACKGROUND_SYNC_DEFER_MS);
     const intervalId = window.setInterval(() => void runAppointmentRsvpChecks(), 60_000);
     return () => {
       cancelled = true;
+      window.clearTimeout(deferId);
       window.clearInterval(intervalId);
     };
   }, [user, currentUserPersonId, db]);
@@ -2071,7 +2187,15 @@ export function useOrgFirestore() {
           fields.starredTaskIds.length > 0 ? [...new Set(fields.starredTaskIds.filter(Boolean))] : deleteField();
       }
       if (Object.keys(body).length > 0) {
+        const updatedAt = new Date().toISOString();
+        body.updatedAt = updatedAt;
         await updateDoc(ref, body as DocumentData);
+        if (typeof fields.name === "string" && fields.name && (id === currentUserPersonId || isFounder)) {
+          await updateDoc(doc(db, "users", id), {
+            displayName: fields.name,
+            updatedAt,
+          });
+        }
       }
     },
     [db, currentUserPersonId, currentUserOrgRole]

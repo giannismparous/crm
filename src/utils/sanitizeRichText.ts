@@ -1,5 +1,6 @@
 import { isOrgStoragePath } from "./imageAttachments";
 import { linkifySegments } from "./chatLinks";
+import { normalizeHtmlEntities, repairCorruptedUrlRunsInText } from "./repairCorruptedUrls";
 import { readWidthRaw } from "./mediaPlaceholder";
 import { RICH_TEXT_HIGHLIGHT_COLOR } from "./richTextHighlight";
 
@@ -125,9 +126,86 @@ function sanitizeMediaIntrinsic(el: HTMLImageElement | HTMLVideoElement): string
   return ` data-intrinsic-w="${w}" data-intrinsic-h="${h}"`;
 }
 
-function walkInline(node: Node): string {
+function collapseRepeatedSubstring(text: string, piece: string): string {
+  if (!piece || piece.length < 8) return text;
+  let out = text;
+  const doubled = piece + piece;
+  while (out.includes(doubled)) {
+    out = out.split(doubled).join(piece);
+  }
+  return out;
+}
+
+function plainTextForLinkLabel(href: string, labelPlain: string): string {
+  const stripped = stripInvisibleChars(labelPlain.replace(/<[^>]+>/g, ""));
+  const collapsed = repairCorruptedUrlRunsInText(stripped);
+  if (collapsed.trim() === href || collapsed.includes(href)) {
+    return collapseRepeatedSubstring(collapsed, href).trim() || href;
+  }
+  return collapsed.trim() || href;
+}
+
+/** Fix corrupt research/task notes where link labels grew from repeated re-linkify on save. */
+export function repairDuplicatedLinksInHtml(html: string): string {
+  const raw = stripInvisibleChars(String(html ?? "").trim());
+  if (!raw || typeof DOMParser === "undefined") return repairCorruptedUrlRunsInText(raw);
+
+  if (!looksLikeHtml(raw)) {
+    return repairCorruptedUrlRunsInText(raw);
+  }
+
+  const doc = new DOMParser().parseFromString(raw, "text/html");
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  let textNode: Node | null;
+  while ((textNode = walker.nextNode())) {
+    const before = textNode.textContent ?? "";
+    const after = repairCorruptedUrlRunsInText(normalizeHtmlEntities(before));
+    if (after !== before) textNode.textContent = after;
+  }
+
+  doc.querySelectorAll("a").forEach((node) => {
+    const el = node as HTMLAnchorElement;
+    if (el.classList.contains("task-inline-file")) return;
+    const hrefRaw = el.getAttribute("href")?.trim() ?? "";
+    const href = normalizeHtmlEntities(hrefRaw);
+    if (href !== hrefRaw) el.setAttribute("href", href);
+    if (!isSafeHttpUrl(href)) return;
+    el.querySelectorAll("a").forEach((nested) => {
+      nested.replaceWith(document.createTextNode(nested.textContent ?? ""));
+    });
+    el.textContent = plainTextForLinkLabel(href, el.textContent ?? "");
+  });
+
+  for (let pass = 0; pass < 32; pass++) {
+    let removed = false;
+    doc.querySelectorAll("a[href]").forEach((node) => {
+      const el = node as HTMLAnchorElement;
+      if (el.classList.contains("task-inline-file")) return;
+      const href = normalizeHtmlEntities(el.getAttribute("href")?.trim() ?? "");
+      if (!isSafeHttpUrl(href)) return;
+      let sib = el.nextSibling;
+      while (sib) {
+        if (sib.nodeType !== Node.ELEMENT_NODE) break;
+        const next = sib as HTMLAnchorElement;
+        if (next.tagName !== "A" || next.classList.contains("task-inline-file")) break;
+        if (normalizeHtmlEntities(next.getAttribute("href")?.trim() ?? "") !== href) break;
+        const toRemove = sib;
+        sib = sib.nextSibling;
+        toRemove.remove();
+        removed = true;
+      }
+    });
+    if (!removed) break;
+  }
+
+  return doc.body.innerHTML;
+}
+
+function walkInline(node: Node, insideAnchor = false): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return linkifyTextToHtml(node.textContent ?? "");
+    const text = node.textContent ?? "";
+    if (insideAnchor) return escapeHtmlText(stripInvisibleChars(text));
+    return linkifyTextToHtml(text);
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
@@ -142,7 +220,26 @@ function walkInline(node: Node): string {
     return walkBlockContent(el);
   }
 
-  const inner = [...el.childNodes].map(walkInline).join("");
+  if (tag === "a") {
+    if (insideAnchor) {
+      return escapeHtmlText(stripInvisibleChars(el.textContent ?? ""));
+    }
+    const href = normalizeHtmlEntities(el.getAttribute("href")?.trim() ?? "");
+    const innerPlain = [...el.childNodes].map((child) => walkInline(child, true)).join("");
+    if (!isSafeHttpUrl(href)) return innerPlain;
+    if (el.classList.contains("task-inline-file")) {
+      const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
+      const pathAttr = safeStoragePathAttr(storagePath);
+      const name = (el.getAttribute("data-name") ?? el.textContent ?? "File").replace(/"/g, "&quot;");
+      const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
+      const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
+      const label = plainTextForLinkLabel(href, innerPlain).replace(/</g, "").replace(/>/g, "");
+      return `<a href="${escapeAttr(href)}" class="task-inline-file"${pathAttr} data-name="${name}"${fpAttr} target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
+    return serializeExternalLink(href, innerPlain);
+  }
+
+  const inner = [...el.childNodes].map((child) => walkInline(child, insideAnchor)).join("");
 
   if (tag === "button") return "";
   if (tag === "b" || tag === "strong") return `<strong>${inner}</strong>`;
@@ -221,20 +318,6 @@ function walkInline(node: Node): string {
     const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
     const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
     return `<audio src="${src.replace(/"/g, "&quot;")}" class="task-inline-audio"${pathAttr} data-name="${name}"${fpAttr} preload="metadata"></audio>`;
-  }
-  if (tag === "a") {
-    const href = el.getAttribute("href")?.trim() ?? "";
-    if (!isSafeHttpUrl(href)) return inner;
-    if (el.classList.contains("task-inline-file")) {
-      const storagePath = el.getAttribute("data-storage-path")?.trim() ?? "";
-      const pathAttr = safeStoragePathAttr(storagePath);
-      const name = (el.getAttribute("data-name") ?? el.textContent ?? "File").replace(/"/g, "&quot;");
-      const fp = el.getAttribute("data-file-fp")?.trim() ?? "";
-      const fpAttr = fp ? ` data-file-fp="${fp.replace(/"/g, "&quot;")}"` : "";
-      const label = (el.textContent ?? name).replace(/</g, "").replace(/>/g, "");
-      return `<a href="${escapeAttr(href)}" class="task-inline-file"${pathAttr} data-name="${name}"${fpAttr} target="_blank" rel="noopener noreferrer">${label}</a>`;
-    }
-    return serializeExternalLink(el, inner);
   }
   return inner;
 }
@@ -330,14 +413,16 @@ export function taskUpdatesToPlainText(html: string): string {
 }
 
 function escapeHtmlText(text: string): string {
-  return text
+  const plain = normalizeHtmlEntities(text);
+  return plain
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
 
 function escapeAttr(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const plain = normalizeHtmlEntities(text);
+  return plain.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
 function isSafeHttpUrl(href: string): boolean {
@@ -346,7 +431,7 @@ function isSafeHttpUrl(href: string): boolean {
 
 /** Turn plain-text URLs into safe external links. */
 export function linkifyTextToHtml(raw: string): string {
-  const text = stripInvisibleChars(raw);
+  const text = normalizeHtmlEntities(stripInvisibleChars(raw));
   if (!text) return "";
   const segments = linkifySegments(text);
   return segments
@@ -361,11 +446,10 @@ export function linkifyTextToHtml(raw: string): string {
     .join("");
 }
 
-function serializeExternalLink(el: HTMLElement, inner: string): string {
-  const href = el.getAttribute("href")?.trim() ?? "";
-  if (!isSafeHttpUrl(href)) return inner;
-  const label = inner.trim() || escapeHtmlText(href);
-  return `<a href="${escapeAttr(href)}" class="rich-text-link" target="_blank" rel="noopener noreferrer">${label}</a>`;
+function serializeExternalLink(href: string, labelPlain: string): string {
+  if (!isSafeHttpUrl(href)) return escapeHtmlText(labelPlain);
+  const label = plainTextForLinkLabel(href, labelPlain);
+  return `<a href="${escapeAttr(href)}" class="rich-text-link" target="_blank" rel="noopener noreferrer">${escapeHtmlText(label)}</a>`;
 }
 
 export function looksLikeHtml(body: string): boolean {
@@ -376,6 +460,8 @@ export function looksLikeHtml(body: string): boolean {
 export function repairRichTextBody(body: string): string {
   let raw = stripInvisibleChars(String(body ?? "").trim());
   if (!raw) return "";
+
+  raw = repairDuplicatedLinksInHtml(raw);
 
   // Literal escaped breaks saved as text — turn back into real markup.
   if (/&lt;br\s*\/?&gt;/i.test(raw)) {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyFirestoreListIfChanged, firestoreListFingerprint } from "./firestoreListSync";
+import {
+  applyFirestoreListIfChanged,
+  firestoreDocListVersion,
+  firestoreListFingerprint,
+  personFirestoreListVersion,
+} from "./firestoreListSync";
 
 describe("firestoreListSync", () => {
   it("skips apply when fingerprint is unchanged", () => {
@@ -16,6 +21,10 @@ describe("firestoreListSync", () => {
     expect(calls).toBe(1);
   });
 
+  it("uses fallback fields when updatedAt is missing", () => {
+    expect(firestoreDocListVersion({ status: "done", dueDate: "2026-01-01" })).toBe("done|2026-01-01|||||");
+  });
+
   it("orders fingerprint by id", () => {
     const fp = firestoreListFingerprint(
       [
@@ -25,5 +34,11 @@ describe("firestoreListSync", () => {
       (i) => i.updatedAt
     );
     expect(fp).toBe("a:1|b:2");
+  });
+
+  it("detects team directory name changes without updatedAt", () => {
+    const before = personFirestoreListVersion({ name: "pantelosni", title: "", departments: ["Marketing"] });
+    const after = personFirestoreListVersion({ name: "Παντελής", title: "", departments: ["Marketing"] });
+    expect(before).not.toBe(after);
   });
 });

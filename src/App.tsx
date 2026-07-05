@@ -10,6 +10,7 @@ import { ProfileSetupScreen } from "./components/ProfileSetupScreen";
 import { CalendarTab } from "./components/CalendarTab";
 import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
 import { ResearchTab } from "./components/ResearchTab";
+import { OperationsTab } from "./components/OperationsTab";
 import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
@@ -35,6 +36,15 @@ import { buildRsvpPatch } from "./utils/appointmentRsvp";
 import { isRegistrationInProgress } from "./firebase/registerWithSeed";
 
 function App() {
+  const [tab, setTabState] = useState<TabId>(() => {
+    const fromUrl = readTabFromLocation();
+    return fromUrl === "messages" ? "tasks" : fromUrl;
+  });
+  const setTab = useCallback((next: TabId) => {
+    setTabState(next);
+    writeTabToLocation(next, { clearFocus: true });
+  }, []);
+
   const {
     user,
     authLoading,
@@ -98,19 +108,14 @@ function App() {
     profileSetupPerson,
     starredTaskIds,
     toggleTaskStar,
-  } = useOrgFirestore();
+  } = useOrgFirestore({
+    loadContacts: tab === "contacts",
+    loadResearch: tab === "research",
+  });
   const t = useT();
   useSyncUserLocale(user?.uid);
 
-  const [tab, setTabState] = useState<TabId>(() => {
-    const fromUrl = readTabFromLocation();
-    return fromUrl === "messages" ? "tasks" : fromUrl;
-  });
   const [chatOpenRequest, setChatOpenRequest] = useState<string | null>(null);
-  const setTab = useCallback((next: TabId) => {
-    setTabState(next);
-    writeTabToLocation(next, { clearFocus: true });
-  }, []);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusContactId, setFocusContactId] = useState<string | null>(null);
   const [focusAppointmentId, setFocusAppointmentId] = useState<string | null>(null);
@@ -362,7 +367,7 @@ function App() {
 
   return (
     <PersonNavProvider onOpenTeamMember={openTeamMember}>
-    <PresenceProvider userId={currentUserId} enabled={chatEnabled}>
+    <PresenceProvider userId={currentUserId} enabled={chatEnabled && appContentReady}>
     <div className="min-h-screen pb-12">
       <SyncingProgressBar active={syncing} />
       <header className="app-header">
@@ -454,6 +459,8 @@ function App() {
             focusPersonId={focusPersonId}
             onFocusPersonHandled={() => setFocusPersonId(null)}
           />
+        ) : tab === "operations" ? (
+          <OperationsTab people={people} />
         ) : tab === "contacts" ? (
           <ContactsTab
             contacts={contacts}
@@ -517,7 +524,7 @@ function App() {
         people={people}
         currentUserId={currentUserId}
         currentUserOrgRole={currentUserOrgRole}
-        chatEnabled={chatEnabled}
+        chatEnabled={chatEnabled && appContentReady}
         onMarkChatNotificationsRead={markChatNotificationsRead}
         openConversationRequest={chatOpenRequest}
         onOpenConversationRequestHandled={() => setChatOpenRequest(null)}

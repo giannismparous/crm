@@ -321,4 +321,10 @@ export const featuresEl = {
   "research.emptyContent": "Δεν υπάρχει περιεχόμενο. Πατήστε Επεξεργασία για προσθήκη.",
   "research.deleteConfirmTitle": "Διαγραφή έρευνας;",
   "research.deleteConfirmMessage": "Αυτό διαγράφει οριστικά την έρευνα και τα ανεβασμένα αρχεία.",
+  "operations.title": "Λειτουργίες",
+  "operations.subtitle": "Συντονισμός, διαδικασίες και καθημερινή λειτουργία της SimasiaAI.",
+  "operations.placeholder": "Αυτό το τμήμα είναι έτοιμο για ρύθμιση.",
+  "operations.placeholderHint": "Πείτε μας τι workflows, λίστες ή εργαλεία θέλετε εδώ.",
+  "operations.orgChartTitle": "Οργανόγραμμα",
+  "operations.orgChartSubtitle": "Ιεραρχική δομή SimasiaAI — κάντε pan/zoom για εξερεύνηση.",
 } as const;
