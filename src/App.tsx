@@ -307,13 +307,12 @@ function App() {
     return t("app.signedIn");
   }, [currentUserPerson, user, t]);
 
+  const dataSyncing = Boolean(user && dataLoading && !requiresProfileSetup);
   const syncing = authLoading || profileGateLoading || dataSyncing;
 
   const appContentReady = Boolean(
     user && !authLoading && !profileGateLoading && !requiresProfileSetup
   );
-
-  const dataSyncing = Boolean(user && dataLoading && !requiresProfileSetup);
 
   useScrollRestoration(
     tab,
