@@ -5,10 +5,57 @@ import { isKeyboardComposing } from "../../utils/keyboardComposition";
 import { resolveOrgChartPerson, type OrgChartMatchContext } from "../../utils/orgChartPersonMatch";
 import type { OrgChartMember } from "./OrgChartNode";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
-import { useOrgChartPeople } from "./OrgChartPeopleContext";
+import { useOrgChartPeople, useOrgChartIsYou } from "./OrgChartPeopleContext";
 
 function stopFlow(e: MouseEvent) {
   e.stopPropagation();
+}
+
+function FoundersAvatarButton({
+  person,
+  memberName,
+  index,
+  zIndex,
+  onOpen,
+}: {
+  person: NonNullable<ReturnType<typeof resolveOrgChartPerson>>;
+  memberName: string;
+  index: number;
+  zIndex: number;
+  onOpen: (personId: string) => void;
+}) {
+  const t = useT();
+  const isYou = useOrgChartIsYou(person);
+
+  const open = (e: MouseEvent | KeyboardEvent) => {
+    stopFlow(e as MouseEvent);
+    onOpen(person.id);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (isKeyboardComposing(e)) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open(e);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      title={t("team.viewMember", { name: person.name })}
+      onPointerDown={stopFlow}
+      onClick={open}
+      onKeyDown={onKeyDown}
+      className={`nodrag nopan nowheel relative flex shrink-0 items-center justify-center rounded-full bg-white transition hover:z-20 hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 ${ORG_CHART_ICON_BOX.sm} ${
+        isYou ? "ring-2 ring-accent ring-offset-1" : "ring-2 ring-white"
+      } ${index > 0 ? "-ml-2" : ""}`}
+      style={{ zIndex }}
+    >
+      <OrgChartAvatar person={person} size="sm" highlight={isYou} />
+      <span className="sr-only">{memberName}</span>
+    </button>
+  );
 }
 
 export function OrgChartFoundersBadge({
@@ -43,37 +90,16 @@ export function OrgChartFoundersBadge({
         </span>
       </div>
       <div className="flex items-center justify-center">
-        {rows.map(({ member, person }, index) => {
-          const open = (e: MouseEvent | KeyboardEvent) => {
-            stopFlow(e as MouseEvent);
-            if (person?.id) onOpenPerson(person.id);
-          };
-          const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-            if (isKeyboardComposing(e)) return;
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              open(e);
-            }
-          };
-
-          return (
-            <button
-              key={person!.id}
-              type="button"
-              title={t("team.viewMember", { name: person!.name })}
-              onPointerDown={stopFlow}
-              onClick={open}
-              onKeyDown={onKeyDown}
-              className={`nodrag nopan nowheel relative flex shrink-0 items-center justify-center rounded-full bg-white ring-2 ring-white transition hover:z-20 hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 ${ORG_CHART_ICON_BOX.sm} ${
-                index > 0 ? "-ml-2" : ""
-              }`}
-              style={{ zIndex: rows.length - index }}
-            >
-              <OrgChartAvatar person={person} size="sm" />
-              <span className="sr-only">{member.name}</span>
-            </button>
-          );
-        })}
+        {rows.map(({ member, person }, index) => (
+          <FoundersAvatarButton
+            key={person!.id}
+            person={person!}
+            memberName={member.name}
+            index={index}
+            zIndex={rows.length - index}
+            onOpen={onOpenPerson}
+          />
+        ))}
       </div>
     </div>
   );

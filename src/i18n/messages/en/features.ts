@@ -332,6 +332,7 @@ export const featuresEn = {
   "operations.viewAria": "Operations views",
   "operations.viewOrgChart": "Org chart",
   "operations.viewStrategicPlan": "Strategic plan",
+  "operations.orgChartYou": "You",
   "operations.strategicPlanBadge": "Founders only",
   "operations.strategicPlanTitle": "Business strategic plan & org structure",
   "operations.strategicPlanSubtitle": "Implementation period 22 Jun 2026 – 01 Aug 2026 — approved internal document.",

@@ -100,7 +100,6 @@ function App() {
     canManageProjects,
     canAccessContacts,
     canAccessResearch,
-    canAccessStrategicPlan,
     seesAllOrgData,
     issueRegistrationSeed,
     completeProfileSetup,
@@ -461,7 +460,11 @@ function App() {
             onFocusPersonHandled={() => setFocusPersonId(null)}
           />
         ) : tab === "operations" ? (
-          <OperationsTab people={people} canAccessStrategicPlan={canAccessStrategicPlan} />
+          <OperationsTab
+            people={people}
+            currentUserId={currentUserId}
+            currentUserOrgRole={currentUserOrgRole}
+          />
         ) : tab === "contacts" ? (
           <ContactsTab
             contacts={contacts}

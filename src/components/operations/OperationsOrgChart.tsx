@@ -68,9 +68,11 @@ function OperationsOrgChartCanvas() {
 
 export function OperationsOrgChart({
   people,
+  currentUserId,
   onOpenPerson,
 }: {
   people: Person[];
+  currentUserId: string;
   onOpenPerson: (personId: string) => void;
 }) {
   const t = useT();
@@ -82,7 +84,7 @@ export function OperationsOrgChart({
         <p className="mt-1 text-sm text-slate-600">{t("operations.orgChartSubtitle")}</p>
       </div>
       <div className="relative h-[min(72vh,42rem)] min-h-[20rem] overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 shadow-sm">
-        <OrgChartPeopleProvider people={people} onOpenPerson={onOpenPerson}>
+        <OrgChartPeopleProvider people={people} currentUserId={currentUserId} onOpenPerson={onOpenPerson}>
           <ReactFlowProvider>
             <OperationsOrgChartCanvas />
           </ReactFlowProvider>

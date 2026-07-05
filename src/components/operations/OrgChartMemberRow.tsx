@@ -1,7 +1,9 @@
-import type { Person } from "../../types";
+import { useT } from "../../contexts/I18nContext";
 import { orgChartPersonDescription } from "../../utils/orgChartPersonMatch";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
 import { OrgChartPersonLink } from "./OrgChartPersonLink";
+import { useOrgChartIsYou } from "./OrgChartPeopleContext";
+import type { Person } from "../../types";
 
 export function OrgChartMemberRow({
   label,
@@ -14,26 +16,46 @@ export function OrgChartMemberRow({
   dotClass: string;
   nameClass?: string;
 }) {
+  const t = useT();
   const description = orgChartPersonDescription(person);
   const alignStart = Boolean(description);
+  const isYou = useOrgChartIsYou(person);
 
   return (
-    <div className={`flex gap-2.5 ${alignStart ? "items-start" : "items-center"}`}>
+    <div
+      className={`flex gap-2.5 rounded-lg ${isYou ? "bg-accent/10 px-2 py-1.5 ring-1 ring-accent/30" : ""} ${
+        alignStart ? "items-start" : "items-center"
+      }`}
+    >
       <div
         className={`flex shrink-0 items-center justify-center ${ORG_CHART_ICON_BOX.xs} ${
           alignStart ? "pt-0.5" : ""
         }`}
       >
         {person ? (
-          <OrgChartAvatar person={person} size="xs" />
+          <OrgChartAvatar person={person} size="xs" highlight={isYou} />
         ) : (
           <span className={`block h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden />
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <OrgChartPersonLink label={label} person={person} className={nameClass} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <OrgChartPersonLink
+            label={label}
+            person={person}
+            className={`${nameClass} ${isYou ? "!text-slate-900" : ""}`}
+            emphasize={isYou}
+          />
+          {isYou ? (
+            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+              {t("operations.orgChartYou")}
+            </span>
+          ) : null}
+        </div>
         {description ? (
-          <p className="mt-0.5 text-[11px] leading-snug text-slate-600">{description}</p>
+          <p className={`mt-0.5 text-[11px] leading-snug ${isYou ? "text-slate-700" : "text-slate-600"}`}>
+            {description}
+          </p>
         ) : null}
       </div>
     </div>

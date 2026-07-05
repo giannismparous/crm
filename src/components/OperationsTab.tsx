@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import type { OrgRole } from "../auth/roles";
 import type { Person } from "../types";
 import { useOpenTeamMember } from "../contexts/PersonNavContext";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import { useT } from "../contexts/I18nContext";
 import { OperationsOrgChart } from "./operations/OperationsOrgChart";
-import { StrategicPlanDocument } from "./operations/StrategicPlanDocument";
+
+const StrategicPlanDocument = lazy(() =>
+  import("./operations/StrategicPlanDocument").then((m) => ({ default: m.StrategicPlanDocument }))
+);
 
 export type OperationsView = "orgChart" | "strategicPlan";
 
@@ -12,25 +16,32 @@ const OPERATIONS_VIEW_DEFAULTS = { view: "orgChart" as OperationsView };
 
 export function OperationsTab({
   people,
-  canAccessStrategicPlan,
+  currentUserId,
+  currentUserOrgRole,
 }: {
   people: Person[];
-  canAccessStrategicPlan: boolean;
+  currentUserId: string;
+  currentUserOrgRole: OrgRole;
 }) {
   const t = useT();
   const openTeamMember = useOpenTeamMember();
+  const isFounder = currentUserOrgRole === "founder";
   const saved = useMemo(() => readPersistedTabState("operations", OPERATIONS_VIEW_DEFAULTS), []);
   const [view, setView] = useState<OperationsView>(() =>
-    canAccessStrategicPlan && saved.view === "strategicPlan" ? "strategicPlan" : "orgChart"
+    isFounder && saved.view === "strategicPlan" ? "strategicPlan" : "orgChart"
   );
 
-  usePersistedTabState("operations", { view: canAccessStrategicPlan ? view : "orgChart" });
+  useEffect(() => {
+    if (!isFounder && view === "strategicPlan") setView("orgChart");
+  }, [isFounder, view]);
 
-  const activeView = canAccessStrategicPlan ? view : "orgChart";
+  usePersistedTabState("operations", { view: isFounder ? view : "orgChart" });
+
+  const activeView = isFounder && view === "strategicPlan" ? "strategicPlan" : "orgChart";
 
   return (
     <div className="mx-auto w-full max-w-[96rem] space-y-4">
-      {canAccessStrategicPlan ? (
+      {isFounder ? (
         <nav className="segment-track w-max max-w-full" aria-label={t("operations.viewAria")}>
           <button
             type="button"
@@ -58,11 +69,20 @@ export function OperationsTab({
       {activeView === "orgChart" ? (
         <OperationsOrgChart
           people={people}
+          currentUserId={currentUserId}
           onOpenPerson={(personId) => openTeamMember?.(personId)}
         />
-      ) : (
-        <StrategicPlanDocument />
-      )}
+      ) : isFounder ? (
+        <Suspense
+          fallback={
+            <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+              {t("common.loading")}
+            </p>
+          }
+        >
+          <StrategicPlanDocument isFounder={isFounder} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

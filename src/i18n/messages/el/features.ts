@@ -332,6 +332,7 @@ export const featuresEl = {
   "operations.viewAria": "Προβολές λειτουργιών",
   "operations.viewOrgChart": "Οργανόγραμμα",
   "operations.viewStrategicPlan": "Στρατηγικό πλάνο",
+  "operations.orgChartYou": "Εσύ",
   "operations.strategicPlanBadge": "Μόνο founders",
   "operations.strategicPlanTitle": "Επιχειρησιακό στρατηγικό πλάνο & οργανόγραμμα",
   "operations.strategicPlanSubtitle": "Περίοδος υλοποίησης 22 Ιουνίου 2026 – 01 Αυγούστου 2026 — εγκεκριμένο εσωτερικό έγγραφο.",

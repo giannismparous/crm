@@ -1,8 +1,10 @@
 import { useT } from "../../contexts/I18nContext";
 import { STRATEGIC_PLAN_HTML } from "../../content/strategicPlanHtml";
 
-export function StrategicPlanDocument() {
+export function StrategicPlanDocument({ isFounder }: { isFounder: boolean }) {
   const t = useT();
+
+  if (!isFounder) return null;
 
   return (
     <article className="strategic-plan-doc mx-auto max-w-4xl">

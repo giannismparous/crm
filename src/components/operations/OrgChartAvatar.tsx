@@ -6,16 +6,20 @@ export function OrgChartAvatar({
   person,
   size = "xs",
   className = "",
+  highlight = false,
 }: {
   person?: Pick<Person, "name" | "avatarUrl">;
   size?: "xs" | "sm";
   className?: string;
+  highlight?: boolean;
 }) {
   return (
     <PersonAvatar
       person={person}
       size={size}
-      className={`!m-0 block shrink-0 !shadow-none !ring-0 ${className}`.trim()}
+      className={`!m-0 block shrink-0 !shadow-none ${
+        highlight ? "!ring-2 !ring-accent ring-offset-1 ring-offset-white" : "!ring-0"
+      } ${className}`.trim()}
     />
   );
 }

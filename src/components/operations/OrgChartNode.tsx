@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { useT } from "../../contexts/I18nContext";
 import {
   ORG_NODE_DEPARTMENT_HINT,
   orgChartPersonDescription,
@@ -84,7 +85,8 @@ const ACCENT: Record<
 };
 
 function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
-  const { people } = useOrgChartPeople();
+  const t = useT();
+  const { people, currentUserId } = useOrgChartPeople();
   const accent = ACCENT[data.accent ?? "slate"];
   const matchContext = {
     departmentHint: ORG_NODE_DEPARTMENT_HINT[id],
@@ -107,6 +109,7 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
     const person = data.name ? resolveOrgChartPerson(data.name, people, matchContext) : undefined;
     const ceoDescription = orgChartPersonDescription(person);
     const memberRows = data.members ?? [];
+    const isYou = Boolean(person?.id && person.id === currentUserId);
 
     return (
       <div
@@ -137,14 +140,34 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
               })}
             </ul>
           ) : data.name ? (
-            <div className="flex flex-col items-center gap-1.5 text-center">
+            <div
+              className={`flex flex-col items-center gap-1.5 text-center ${
+                isYou ? "rounded-lg bg-accent/10 px-3 py-2 ring-1 ring-accent/30" : ""
+              }`}
+            >
               {person ? (
                 <div className={`flex items-center justify-center ${ORG_CHART_ICON_BOX.sm}`}>
-                  <OrgChartAvatar person={person} size="sm" />
+                  <OrgChartAvatar person={person} size="sm" highlight={isYou} />
                 </div>
               ) : null}
-              <OrgChartPersonLink label={data.name} person={person} className="text-sm" />
-              {ceoDescription ? <p className="text-xs leading-snug text-slate-600">{ceoDescription}</p> : null}
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
+                <OrgChartPersonLink
+                  label={data.name}
+                  person={person}
+                  className={isYou ? "text-base" : "text-sm"}
+                  emphasize={isYou}
+                />
+                {isYou ? (
+                  <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                    {t("operations.orgChartYou")}
+                  </span>
+                ) : null}
+              </div>
+              {ceoDescription ? (
+                <p className={`text-xs leading-snug ${isYou ? "text-slate-700" : "text-slate-600"}`}>
+                  {ceoDescription}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
