@@ -28,6 +28,8 @@ export type RolePrivileges = {
   manageProjects: boolean;
   /** Founder-only research section. */
   accessResearch: boolean;
+  /** Founder-only strategic business plan document. */
+  accessStrategicPlan: boolean;
 };
 
 export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
@@ -39,6 +41,7 @@ export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
     manageOrgRoles: true,
     manageProjects: true,
     accessResearch: true,
+    accessStrategicPlan: true,
   },
   partner: {
     fullAccess: true,
@@ -48,6 +51,7 @@ export const ROLE_PRIVILEGES: Record<OrgRole, RolePrivileges> = {
     manageOrgRoles: false,
     manageProjects: false,
     accessResearch: false,
+    accessStrategicPlan: false,
   },
 };
 

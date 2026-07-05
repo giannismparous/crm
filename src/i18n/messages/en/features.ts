@@ -327,4 +327,10 @@ export const featuresEn = {
   "operations.placeholderHint": "Tell us what workflows, lists, or tools you want here.",
   "operations.orgChartTitle": "Organizational structure",
   "operations.orgChartSubtitle": "SimasiaAI hierarchy — pan and zoom to explore.",
+  "operations.viewAria": "Operations views",
+  "operations.viewOrgChart": "Org chart",
+  "operations.viewStrategicPlan": "Strategic plan",
+  "operations.strategicPlanBadge": "Founders only",
+  "operations.strategicPlanTitle": "Business strategic plan & org structure",
+  "operations.strategicPlanSubtitle": "Implementation period 22 Jun 2026 – 01 Aug 2026 — approved internal document.",
 } as const;

@@ -657,6 +657,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const canAccessSettings = hasPrivilege(currentUserOrgRole, "accessSettings");
   const canManageProjects = hasPrivilege(currentUserOrgRole, "manageProjects");
   const canAccessResearch = hasPrivilege(currentUserOrgRole, "accessResearch");
+  const canAccessStrategicPlan = hasPrivilege(currentUserOrgRole, "accessStrategicPlan");
   const canSeeContacts = canAccessContacts(currentUserPerson, currentUserOrgRole);
 
   const visiblePeople = people;
@@ -2254,6 +2255,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
     canManageProjects,
     canAccessContacts: canSeeContacts,
     canAccessResearch,
+    canAccessStrategicPlan,
     seesAllOrgData,
     markNotificationRead,
     markChatNotificationsRead,

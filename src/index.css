@@ -1220,3 +1220,91 @@ html[data-theme="dark"] .bg-shimmer {
     rgb(var(--dm-raised)) 90%
   );
 }
+
+/* Founder strategic plan document (from Word export) */
+.strategic-plan-body {
+  color: rgb(30 41 59);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+.strategic-plan-body h1 {
+  font-family: var(--font-display, inherit);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: rgb(15 23 42);
+  margin: 0 0 1rem;
+}
+.strategic-plan-body h2 {
+  font-family: var(--font-display, inherit);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: rgb(15 23 42);
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgb(226 232 240);
+}
+.strategic-plan-body h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgb(30 41 59);
+  margin: 1.5rem 0 0.5rem;
+}
+.strategic-plan-body p {
+  margin: 0 0 0.85rem;
+}
+.strategic-plan-body ul {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.strategic-plan-body li {
+  margin-bottom: 0.45rem;
+}
+.strategic-plan-body li::marker {
+  color: rgb(99 102 241);
+}
+.strategic-plan-body table {
+  width: 100%;
+  margin: 1rem 0 1.25rem;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.strategic-plan-body td {
+  vertical-align: top;
+  border: 1px solid rgb(226 232 240);
+  padding: 0.5rem 0.65rem;
+}
+.strategic-plan-body tr:first-child td {
+  background: rgb(248 250 252);
+  font-weight: 600;
+  color: rgb(51 65 85);
+}
+.strategic-plan-body strong {
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
+.strategic-plan-body em {
+  font-style: italic;
+  color: rgb(100 116 139);
+}
+html[data-theme="dark"] .strategic-plan-body {
+  color: rgb(var(--dm-text-primary));
+}
+html[data-theme="dark"] .strategic-plan-body h1,
+html[data-theme="dark"] .strategic-plan-body h2,
+html[data-theme="dark"] .strategic-plan-body h3,
+html[data-theme="dark"] .strategic-plan-body strong {
+  color: rgb(var(--dm-text-primary));
+}
+html[data-theme="dark"] .strategic-plan-body h2 {
+  border-bottom-color: rgb(var(--dm-border-subtle));
+}
+html[data-theme="dark"] .strategic-plan-body td {
+  border-color: rgb(var(--dm-border-subtle));
+}
+html[data-theme="dark"] .strategic-plan-body tr:first-child td {
+  background: rgb(var(--dm-raised));
+  color: rgb(var(--dm-text-secondary));
+}

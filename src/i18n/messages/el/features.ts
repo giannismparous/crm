@@ -327,4 +327,10 @@ export const featuresEl = {
   "operations.placeholderHint": "Πείτε μας τι workflows, λίστες ή εργαλεία θέλετε εδώ.",
   "operations.orgChartTitle": "Οργανόγραμμα",
   "operations.orgChartSubtitle": "Ιεραρχική δομή SimasiaAI — κάντε pan/zoom για εξερεύνηση.",
+  "operations.viewAria": "Προβολές λειτουργιών",
+  "operations.viewOrgChart": "Οργανόγραμμα",
+  "operations.viewStrategicPlan": "Στρατηγικό πλάνο",
+  "operations.strategicPlanBadge": "Μόνο founders",
+  "operations.strategicPlanTitle": "Επιχειρησιακό στρατηγικό πλάνο & οργανόγραμμα",
+  "operations.strategicPlanSubtitle": "Περίοδος υλοποίησης 22 Ιουνίου 2026 – 01 Αυγούστου 2026 — εγκεκριμένο εσωτερικό έγγραφο.",
 } as const;

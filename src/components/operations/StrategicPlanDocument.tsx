@@ -1,0 +1,24 @@
+import { useT } from "../../contexts/I18nContext";
+import { STRATEGIC_PLAN_HTML } from "../../content/strategicPlanHtml";
+
+export function StrategicPlanDocument() {
+  const t = useT();
+
+  return (
+    <article className="strategic-plan-doc mx-auto max-w-4xl">
+      <header className="mb-6 border-b border-slate-200 pb-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+          {t("operations.strategicPlanBadge")}
+        </p>
+        <h2 className="font-display mt-1 text-xl font-semibold text-slate-900 sm:text-2xl">
+          {t("operations.strategicPlanTitle")}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">{t("operations.strategicPlanSubtitle")}</p>
+      </header>
+      <div
+        className="strategic-plan-body rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-sm sm:px-8 sm:py-8"
+        dangerouslySetInnerHTML={{ __html: STRATEGIC_PLAN_HTML }}
+      />
+    </article>
+  );
+}
