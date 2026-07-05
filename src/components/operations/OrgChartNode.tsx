@@ -10,6 +10,7 @@ import { OrgChartMemberRow } from "./OrgChartMemberRow";
 import { OrgChartFoundersBadge } from "./OrgChartFoundersBadge";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
 import { useOrgChartPeople } from "./OrgChartPeopleContext";
+import { ORG_CHART_DEPT_WIDTH, ORG_CHART_FOUNDERS_WIDTH, ORG_CHART_LEADER_WIDTH } from "./orgChartLayout";
 
 export type OrgChartAccent =
   | "indigo"
@@ -94,7 +95,8 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
   if (data.variant === "founders") {
     return (
       <div
-        className={`${NODE_SHELL} w-[min(200px,70vw)] overflow-hidden rounded-2xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+        className={`${NODE_SHELL} overflow-hidden rounded-2xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+        style={{ width: ORG_CHART_FOUNDERS_WIDTH }}
       >
         <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
         <OrgChartFoundersBadge members={data.members ?? []} matchContext={matchContext} />
@@ -111,7 +113,8 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
 
     return (
       <div
-        className={`${NODE_SHELL} w-[min(280px,80vw)] overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+        className={`${NODE_SHELL} overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+        style={{ width: ORG_CHART_LEADER_WIDTH }}
       >
         <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
         <div className={`px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-wider ${accent.header}`}>
@@ -171,7 +174,8 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
 
   return (
     <div
-      className={`${NODE_SHELL} w-[min(220px,78vw)] overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+      className={`${NODE_SHELL} overflow-hidden rounded-xl bg-white shadow-md ring-1 ${accent.ring} transition-shadow hover:shadow-lg`}
+      style={{ width: ORG_CHART_DEPT_WIDTH }}
     >
       <Handle type="target" position={Position.Top} className="!border-0 !bg-transparent !opacity-0" />
       <div className={`px-3 py-2 text-center text-[10px] font-bold leading-snug ${accent.header}`}>{data.title}</div>

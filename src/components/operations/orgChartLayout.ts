@@ -3,6 +3,12 @@ import { Position, type Edge, type Node } from "@xyflow/react";
 import { DEPARTMENT_NODE_IDS } from "./orgChartData";
 import type { OrgChartNodeData } from "./OrgChartNode";
 
+/** Keep layout dimensions in sync with OrgChartNode CSS widths. */
+export const ORG_CHART_FOUNDERS_WIDTH = 280;
+export const ORG_CHART_FOUNDERS_HEIGHT = 96;
+export const ORG_CHART_LEADER_WIDTH = 280;
+export const ORG_CHART_DEPT_WIDTH = 220;
+
 type LayoutNode = Node<OrgChartNodeData> & {
   targetPosition: Position;
   sourcePosition: Position;
@@ -19,14 +25,16 @@ function withChartHandles(node: Node<OrgChartNodeData>, patch: Partial<LayoutNod
 
 export function getOrgChartNodeSize(node: Node<OrgChartNodeData>): { width: number; height: number } {
   const data = node.data;
-  if (data.variant === "founders") return { width: 208, height: 84 };
+  if (data.variant === "founders") {
+    return { width: ORG_CHART_FOUNDERS_WIDTH, height: ORG_CHART_FOUNDERS_HEIGHT };
+  }
   if (data.variant === "leader") {
     const memberCount = data.members?.length ?? 0;
-    if (memberCount > 0) return { width: 280, height: 88 + memberCount * 58 };
-    return { width: 280, height: 124 };
+    if (memberCount > 0) return { width: ORG_CHART_LEADER_WIDTH, height: 88 + memberCount * 58 };
+    return { width: ORG_CHART_LEADER_WIDTH, height: 124 };
   }
   const memberCount = data.members?.length ?? 0;
-  return { width: 220, height: 60 + Math.max(1, memberCount) * 58 };
+  return { width: ORG_CHART_DEPT_WIDTH, height: 60 + Math.max(1, memberCount) * 58 };
 }
 
 function placeConsultingBelowDepartments(nodes: LayoutNode[]): LayoutNode[] {
@@ -97,6 +105,8 @@ export function layoutOrgChart(
         x: pos.x - width / 2,
         y: pos.y - height / 2,
       },
+      width,
+      height,
     });
   });
 
