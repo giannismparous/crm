@@ -8,6 +8,7 @@ import {
 import { OrgChartPersonLink } from "./OrgChartPersonLink";
 import { OrgChartMemberRow } from "./OrgChartMemberRow";
 import { OrgChartFoundersBadge } from "./OrgChartFoundersBadge";
+import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
 import { useOrgChartPeople } from "./OrgChartPeopleContext";
 
 export type OrgChartAccent =
@@ -136,15 +137,15 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
               })}
             </ul>
           ) : data.name ? (
-            <>
-              <OrgChartPersonLink
-                label={data.name}
-                person={person}
-                showAvatar={Boolean(person)}
-                className="mx-auto text-sm"
-              />
-              {ceoDescription ? <p className="mt-1 text-xs text-slate-600">{ceoDescription}</p> : null}
-            </>
+            <div className="flex flex-col items-center gap-1.5 text-center">
+              {person ? (
+                <div className={`flex items-center justify-center ${ORG_CHART_ICON_BOX.sm}`}>
+                  <OrgChartAvatar person={person} size="sm" />
+                </div>
+              ) : null}
+              <OrgChartPersonLink label={data.name} person={person} className="text-sm" />
+              {ceoDescription ? <p className="text-xs leading-snug text-slate-600">{ceoDescription}</p> : null}
+            </div>
           ) : null}
         </div>
         <Handle type="source" position={Position.Bottom} className="!border-0 !bg-transparent !opacity-0" />
