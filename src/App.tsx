@@ -53,6 +53,7 @@ function App() {
     user,
     authLoading,
     dataLoading,
+    tasksLoading,
     error,
     people,
     tasks,
@@ -308,7 +309,7 @@ function App() {
     return t("app.signedIn");
   }, [currentUserPerson, user, t]);
 
-  const dataSyncing = Boolean(user && dataLoading && !requiresProfileSetup);
+  const dataSyncing = Boolean(user && (dataLoading || tasksLoading) && !requiresProfileSetup);
   const syncing = authLoading || profileGateLoading || dataSyncing;
 
   const appContentReady = Boolean(
@@ -406,6 +407,7 @@ function App() {
             people={people}
             projects={projects}
             tasks={tasks}
+            tasksLoading={tasksLoading}
             onAddTask={createTask}
             onUpdateTask={updateTask}
             onCancelTask={(id) => cancelTask(id, currentUserPersonId)}

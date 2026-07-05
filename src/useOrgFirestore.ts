@@ -210,6 +210,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [peopleRaw, setPeopleRaw] = useState<Person[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -245,6 +246,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const appointmentsListFp = useRef("");
   const personalRemindersListFp = useRef("");
   const initialPeopleSnapshotRef = useRef(false);
+  const initialTasksSnapshotRef = useRef(false);
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
   const appointmentsRef = useRef<Appointment[]>([]);
@@ -355,9 +357,12 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
       appointmentsListFp.current = "";
       personalRemindersListFp.current = "";
       initialPeopleSnapshotRef.current = false;
+      initialTasksSnapshotRef.current = false;
       accessProfileRef.current = null;
-      // Keep dataLoading true while auth is still resolving so the sync bar doesn't restart.
-      if (!authLoading) setDataLoading(false);
+      if (!authLoading) {
+        setDataLoading(false);
+        setTasksLoading(false);
+      }
       setError(null);
       profileSync.current = null;
       return;
@@ -365,6 +370,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
 
     if (!accessOrgRole) {
       setDataLoading(false);
+      setTasksLoading(false);
       return;
     }
 
@@ -374,7 +380,9 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
     const needsInitialLoad = dataReadyForUser.current !== user.uid;
     if (needsInitialLoad) {
       setDataLoading(true);
+      setTasksLoading(true);
       initialPeopleSnapshotRef.current = false;
+      initialTasksSnapshotRef.current = false;
     }
     setError(null);
 
@@ -383,16 +391,24 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
         console.error("org data sync (permission)", msg);
         setError(translate(loadLocale(), "sync.permissionError"));
         markDataReady();
+        markTasksReady();
         return;
       }
       setError(msg);
       dataReadyForUser.current = user.uid;
       setDataLoading(false);
+      setTasksLoading(false);
     };
 
     const markDataReady = () => {
       dataReadyForUser.current = user.uid;
       setDataLoading(false);
+    };
+
+    const markTasksReady = () => {
+      if (initialTasksSnapshotRef.current) return;
+      initialTasksSnapshotRef.current = true;
+      setTasksLoading(false);
     };
 
     const notePeopleLoaded = () => {
@@ -467,6 +483,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
           normalize: (id, data) => normalizeTask(id, data),
           onData: (list) => {
             applyFirestoreListIfChanged(tasksListFp, list, taskListVersion, setTasks);
+            markTasksReady();
           },
           onError: fail,
         }
@@ -484,6 +501,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
               (id, data) => normalizeTask(id, data),
               setTasks
             );
+            markTasksReady();
           },
           (e) => fail(e.message)
         )
@@ -2281,6 +2299,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
     user,
     authLoading,
     dataLoading,
+    tasksLoading,
     error,
     people: visiblePeople,
     tasks: visibleTasks,

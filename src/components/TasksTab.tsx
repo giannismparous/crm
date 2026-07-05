@@ -75,6 +75,7 @@ import {
   UNASSIGNED_PROJECT_ID,
 } from "../utils/projectColors";
 import { useI18n, useT } from "../contexts/I18nContext";
+import { ContentLoadingPanel } from "./ContentLoadingPanel";
 import { translatePriority, translateDepartment, departmentMatchesSearch } from "../i18n/helpers";
 import {
   PRIORITY_BADGE,
@@ -666,6 +667,7 @@ export function TasksTab({
   people,
   projects,
   tasks,
+  tasksLoading = false,
   onAddTask,
   onUpdateTask,
   onCancelTask,
@@ -685,6 +687,7 @@ export function TasksTab({
   people: Person[];
   projects: Project[];
   tasks: Task[];
+  tasksLoading?: boolean;
   onAddTask: (
     t: Omit<Task, "id" | "createdAt">,
     options?: { taskId?: string }
@@ -1045,7 +1048,7 @@ export function TasksTab({
             </div>
           </div>
 
-          <ul className="space-y-3 overflow-visible">
+          <ul className={`space-y-3 overflow-visible ${tasksLoading ? "" : "content-fade-in"}`}>
             {taskSortMode === "urgency"
               ? sorted.map((task) => (
                   <li
@@ -1136,17 +1139,20 @@ export function TasksTab({
                 ))}
           </ul>
 
-          {sorted.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
-              {starredOnly
-                ? t("tasks.empty.starred")
-                : listTab === "open"
-                  ? t("tasks.empty.open")
-                  : listTab === "completed"
-                    ? t("tasks.empty.completed")
-                    : t("tasks.empty.canceled")}
-            </p>
-          )}
+          {sorted.length === 0 &&
+            (tasksLoading ? (
+              <ContentLoadingPanel variant="cards" />
+            ) : (
+              <p className="content-fade-in rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
+                {starredOnly
+                  ? t("tasks.empty.starred")
+                  : listTab === "open"
+                    ? t("tasks.empty.open")
+                    : listTab === "completed"
+                      ? t("tasks.empty.completed")
+                      : t("tasks.empty.canceled")}
+              </p>
+            ))}
         </>
       )}
     </div>
