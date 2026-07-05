@@ -209,7 +209,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const db = getFirestoreDb();
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [peopleRaw, setPeopleRaw] = useState<Person[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -363,7 +363,10 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
       return;
     }
 
-    if (!accessOrgRole) return;
+    if (!accessOrgRole) {
+      setDataLoading(false);
+      return;
+    }
 
     const accessSnapshot = accessProfileRef.current;
     if (!accessSnapshot?.ready) return;
@@ -603,6 +606,18 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
       for (const unsub of unsubs) unsub();
     };
   }, [user, authLoading, db, accessOrgRole, accessDepartmentsKey]);
+
+  useEffect(() => {
+    if (!user || !accessOrgRole || !dataLoading) return;
+    const timer = window.setTimeout(() => {
+      if (dataReadyForUser.current === user.uid) return;
+      console.warn("[crm] initial org data load timed out — continuing with partial data");
+      dataReadyForUser.current = user.uid;
+      initialPeopleSnapshotRef.current = true;
+      setDataLoading(false);
+    }, 12_000);
+    return () => window.clearTimeout(timer);
+  }, [user, accessOrgRole, dataLoading]);
 
   const currentUserPersonId = useMemo(() => {
     if (!user) return "";

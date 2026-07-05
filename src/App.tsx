@@ -307,15 +307,17 @@ function App() {
     return t("app.signedIn");
   }, [currentUserPerson, user, t]);
 
-  const syncing = authLoading || profileGateLoading || Boolean(user && dataLoading && !requiresProfileSetup);
+  const syncing = authLoading || profileGateLoading || dataSyncing;
 
   const appContentReady = Boolean(
-    user && !authLoading && !profileGateLoading && !requiresProfileSetup && !dataLoading
+    user && !authLoading && !profileGateLoading && !requiresProfileSetup
   );
+
+  const dataSyncing = Boolean(user && dataLoading && !requiresProfileSetup);
 
   useScrollRestoration(
     tab,
-    Boolean(user && !authLoading && !dataLoading && !profileGateLoading && !requiresProfileSetup)
+    Boolean(user && !authLoading && !profileGateLoading && !requiresProfileSetup)
   );
 
   if (authLoading && !user) {
