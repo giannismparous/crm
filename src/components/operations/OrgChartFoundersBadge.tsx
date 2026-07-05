@@ -2,6 +2,7 @@ import type { MouseEvent, KeyboardEvent } from "react";
 import { Crown } from "lucide-react";
 import { useT } from "../../contexts/I18nContext";
 import { isKeyboardComposing } from "../../utils/keyboardComposition";
+import { ShimmerPlaceholder } from "../ShimmerPlaceholder";
 import { resolveOrgChartPerson, type OrgChartMatchContext } from "../../utils/orgChartPersonMatch";
 import type { OrgChartMember } from "./OrgChartNode";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
@@ -18,16 +19,28 @@ function founderInitials(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-function FoundersAvatarPlaceholder({ memberName, index }: { memberName: string; index: number }) {
+function FoundersAvatarPlaceholder({
+  memberName,
+  index,
+  loading,
+}: {
+  memberName: string;
+  index: number;
+  loading: boolean;
+}) {
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center rounded-full bg-indigo-50 text-[10px] font-bold text-indigo-700 ring-2 ring-white ${ORG_CHART_ICON_BOX.sm} ${
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-50 ring-2 ring-white ${ORG_CHART_ICON_BOX.sm} ${
         index > 0 ? "-ml-2" : ""
       }`}
       title={memberName}
       aria-hidden
     >
-      {founderInitials(memberName)}
+      {loading ? (
+        <ShimmerPlaceholder roundedClassName="rounded-full" />
+      ) : (
+        <span className="text-[10px] font-bold text-indigo-700">{founderInitials(memberName)}</span>
+      )}
     </span>
   );
 }
@@ -68,10 +81,10 @@ function FoundersAvatarButton({
       onPointerDown={stopFlow}
       onClick={open}
       onKeyDown={onKeyDown}
-      className={`nodrag nopan nowheel relative flex shrink-0 items-center justify-center rounded-full bg-white transition hover:z-20 hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 ${ORG_CHART_ICON_BOX.sm} ${
+      className={`nodrag nopan nowheel org-chart-avatar-enter relative flex shrink-0 items-center justify-center rounded-full bg-white transition hover:z-20 hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 ${ORG_CHART_ICON_BOX.sm} ${
         isYou ? "ring-2 ring-accent ring-offset-1" : "ring-2 ring-white"
       } ${index > 0 ? "-ml-2" : ""}`}
-      style={{ zIndex }}
+      style={{ zIndex, animationDelay: `${index * 45}ms` }}
     >
       <OrgChartAvatar person={person} size="sm" highlight={isYou} />
       <span className="sr-only">{memberName}</span>
@@ -87,7 +100,7 @@ export function OrgChartFoundersBadge({
   matchContext: OrgChartMatchContext;
 }) {
   const t = useT();
-  const { people, onOpenPerson } = useOrgChartPeople();
+  const { people, peopleReady, onOpenPerson } = useOrgChartPeople();
   const founderContext = { ...matchContext, preferFounder: true };
 
   const rows = members.map((member) => ({
@@ -120,7 +133,12 @@ export function OrgChartFoundersBadge({
               onOpen={onOpenPerson}
             />
           ) : (
-            <FoundersAvatarPlaceholder key={member.name} memberName={member.name} index={index} />
+            <FoundersAvatarPlaceholder
+              key={member.name}
+              memberName={member.name}
+              index={index}
+              loading={!peopleReady}
+            />
           )
         )}
       </div>

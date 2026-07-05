@@ -21,6 +21,7 @@ import { MessagesChatStack } from "./components/chat/MessagesChatStack";
 import { useOrgFirestore } from "./useOrgFirestore";
 import type { AppNotification, AppointmentRsvpAnswer } from "./types";
 import { ActionFeedbackBanner } from "./components/ActionFeedbackBanner";
+import { ContentLoadingPanel } from "./components/ContentLoadingPanel";
 import { SyncingProgressBar } from "./components/SyncingProgressBar";
 import { useUserAppearance } from "./hooks/useAppearance";
 import { useTimezone } from "./hooks/useTimezone";
@@ -468,13 +469,7 @@ function App() {
             onFocusPersonHandled={() => setFocusPersonId(null)}
           />
         ) : tab === "operations" ? (
-          <Suspense
-            fallback={
-              <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                {t("common.loading")}
-              </p>
-            }
-          >
+          <Suspense fallback={<ContentLoadingPanel minHeightClass="min-h-[24rem] py-16" />}>
             <OperationsTab
               people={people}
               currentUserId={currentUserId}

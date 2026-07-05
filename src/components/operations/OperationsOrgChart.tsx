@@ -11,6 +11,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useT } from "../../contexts/I18nContext";
+import { ContentLoadingPanel } from "../ContentLoadingPanel";
 import { OrgChartPeopleProvider } from "./OrgChartPeopleContext";
 import { OrgChartNode, type OrgChartNodeData } from "./OrgChartNode";
 import { ORG_CHART_EDGES, ORG_CHART_LAYOUT_EDGES, ORG_CHART_NODES } from "./orgChartData";
@@ -76,6 +77,7 @@ export function OperationsOrgChart({
   onOpenPerson: (personId: string) => void;
 }) {
   const t = useT();
+  const peopleReady = people.length > 0;
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -84,11 +86,17 @@ export function OperationsOrgChart({
         <p className="mt-1 text-sm text-slate-600">{t("operations.orgChartSubtitle")}</p>
       </div>
       <div className="relative h-[min(72vh,42rem)] min-h-[20rem] overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 shadow-sm">
-        <OrgChartPeopleProvider people={people} currentUserId={currentUserId} onOpenPerson={onOpenPerson}>
-          <ReactFlowProvider>
-            <OperationsOrgChartCanvas />
-          </ReactFlowProvider>
-        </OrgChartPeopleProvider>
+        {!peopleReady ? (
+          <ContentLoadingPanel className="h-full rounded-none border-0 bg-slate-50/90 shadow-none" minHeightClass="h-full" />
+        ) : (
+          <div className="content-fade-in h-full">
+            <OrgChartPeopleProvider people={people} currentUserId={currentUserId} onOpenPerson={onOpenPerson}>
+              <ReactFlowProvider>
+                <OperationsOrgChartCanvas />
+              </ReactFlowProvider>
+            </OrgChartPeopleProvider>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -534,6 +534,14 @@ html[data-theme="dark"] .shadow-sm.ring-1 {
     width: 35%;
     animation: loading-bar-slide 1.25s ease-in-out infinite;
   }
+
+  .content-fade-in {
+    animation: content-fade-in 0.32s ease-out both;
+  }
+
+  .org-chart-avatar-enter {
+    animation: content-fade-in 0.28s ease-out both;
+  }
 }
 
 @keyframes shimmer {
@@ -551,6 +559,17 @@ html[data-theme="dark"] .shadow-sm.ring-1 {
   }
   100% {
     transform: translateX(400%);
+  }
+}
+
+@keyframes content-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

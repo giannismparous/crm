@@ -3,6 +3,7 @@ import type { Person } from "../types";
 import { useOpenTeamMember } from "../contexts/PersonNavContext";
 import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersistedTabState";
 import { useT } from "../contexts/I18nContext";
+import { ContentLoadingPanel } from "./ContentLoadingPanel";
 import { OperationsOrgChart } from "./operations/OperationsOrgChart";
 
 const StrategicPlanDocument = lazy(() =>
@@ -72,13 +73,7 @@ export function OperationsTab({
           onOpenPerson={(personId) => openTeamMember?.(personId)}
         />
       ) : isFounder ? (
-        <Suspense
-          fallback={
-            <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-              {t("common.loading")}
-            </p>
-          }
-        >
+        <Suspense fallback={<ContentLoadingPanel minHeightClass="min-h-[24rem] py-16" />}>
           <StrategicPlanDocument isFounder={isFounder} />
         </Suspense>
       ) : null}

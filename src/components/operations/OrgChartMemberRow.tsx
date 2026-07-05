@@ -21,7 +21,7 @@ export function OrgChartMemberRow({
 
   return (
     <div
-      className={`flex gap-2.5 rounded-lg ${isYou ? "bg-accent/10 px-2 py-1.5 ring-1 ring-accent/30" : ""} ${
+      className={`flex gap-2.5 rounded-lg transition-colors duration-300 ease-out ${isYou ? "bg-accent/10 px-2 py-1.5 ring-1 ring-accent/30" : ""} ${
         alignStart ? "items-start" : "items-center"
       }`}
     >
