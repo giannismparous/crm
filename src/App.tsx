@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { TabId } from "./types";
 import { AppBrand } from "./components/AppBrand";
-import { TabNav, TabNavMenu } from "./components/TabNav";
+import { TabNav, TabNavMenu, CalendarHeaderButton } from "./components/TabNav";
 import { TasksTab } from "./components/TasksTab";
 import { AppointmentsTab } from "./components/AppointmentsTab";
 import { ContactsTab } from "./components/ContactsTab";
@@ -351,15 +351,18 @@ function App() {
       >
         {error && !syncing ? error : ""}
       </span>
-      <NotificationsBell
-        notifications={bellNotifications}
-        appointments={appointments}
-        currentUserId={currentUserId}
-        onSelect={openNotification}
-        onMarkRead={markNotificationRead}
-        onMarkAllRead={markAllNotificationsRead}
-        onAppointmentRsvp={handleAppointmentRsvpFromBell}
-      />
+      <div className="flex items-center gap-0.5 sm:gap-1">
+        <CalendarHeaderButton active={tab === "calendar"} onClick={() => setTab("calendar")} />
+        <NotificationsBell
+          notifications={bellNotifications}
+          appointments={appointments}
+          currentUserId={currentUserId}
+          onSelect={openNotification}
+          onMarkRead={markNotificationRead}
+          onMarkAllRead={markAllNotificationsRead}
+          onAppointmentRsvp={handleAppointmentRsvpFromBell}
+        />
+      </div>
       <UserAccountMenu
         name={currentUserName}
         person={currentUserPerson}

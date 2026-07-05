@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { CalendarDays, ChevronDown } from "lucide-react";
 import { useT } from "../contexts/I18nContext";
 import type { TabId } from "../types";
 
-const TAB_IDS: TabId[] = ["tasks", "projects", "appointments", "team", "operations", "contacts", "reminders", "research", "calendar"];
+/** Primary sections in the header strip — calendar is a separate icon near notifications. */
+const PRIMARY_TAB_IDS: TabId[] = [
+  "tasks",
+  "projects",
+  "appointments",
+  "team",
+  "operations",
+  "contacts",
+  "reminders",
+  "research",
+];
 
 function useVisibleTabs(showContactsTab: boolean, showResearchTab: boolean) {
   const t = useT();
   return useMemo(() => {
-    const tabs = TAB_IDS.map((id) => ({
+    const tabs = PRIMARY_TAB_IDS.map((id) => ({
       id,
       label: t(`nav.${id}`),
       title: t(`nav.${id}Title`),
@@ -59,6 +69,33 @@ export function TabNav({
   );
 }
 
+/** Compact calendar entry — sits next to notifications so the tab strip does not clip. */
+export function CalendarHeaderButton({
+  active,
+  onClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={t("nav.calendarTitle")}
+      aria-label={t("nav.calendar")}
+      aria-current={active ? "page" : undefined}
+      className={`rounded-lg border p-1.5 transition ${
+        active
+          ? "border-accent/40 bg-accent/10 text-accent"
+          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      <CalendarDays className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+    </button>
+  );
+}
+
 /** Compact section picker for narrow viewports — keeps the header on one row. */
 export function TabNavMenu({
   active,
@@ -75,7 +112,10 @@ export function TabNavMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const visibleTabs = useVisibleTabs(showContactsTab, showResearchTab);
-  const activeTab = visibleTabs.find((tab) => tab.id === active) ?? visibleTabs[0];
+  const activeTab =
+    active === "calendar"
+      ? { id: "calendar" as TabId, label: t("nav.calendar"), title: t("nav.calendarTitle") }
+      : visibleTabs.find((tab) => tab.id === active) ?? visibleTabs[0];
 
   useEffect(() => {
     if (!open) return;
