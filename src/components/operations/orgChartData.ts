@@ -2,8 +2,8 @@ import type { Edge, Node } from "@xyflow/react";
 import type { OrgChartNodeData } from "./OrgChartNode";
 
 export const ORG_CHART_EDGES: Edge[] = [
-  { id: "e-founders-ceo", source: "founders", target: "ceo", type: "smoothstep" },
-  { id: "e-ceo-head-ops", source: "ceo", target: "head-ops", type: "smoothstep" },
+  { id: "e-founders-ceo", source: "founders", target: "ceo", type: "straight" },
+  { id: "e-ceo-head-ops", source: "ceo", target: "head-ops", type: "straight" },
   { id: "e-head-product", source: "head-ops", target: "dept-product", type: "smoothstep" },
   { id: "e-head-sales", source: "head-ops", target: "dept-sales", type: "smoothstep" },
   { id: "e-head-marketing", source: "head-ops", target: "dept-marketing", type: "smoothstep" },

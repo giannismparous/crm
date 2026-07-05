@@ -37,6 +37,28 @@ export function getOrgChartNodeSize(node: Node<OrgChartNodeData>): { width: numb
   return { width: ORG_CHART_DEPT_WIDTH, height: 60 + Math.max(1, memberCount) * 58 };
 }
 
+function nodeCenterX(node: LayoutNode): number {
+  const width = node.width ?? getOrgChartNodeSize(node).width;
+  return node.position.x + width / 2;
+}
+
+/** Dagre shifts CEO left/right to balance the wide ops subtree — keep the spine vertically stacked. */
+function alignExecutiveSpine(nodes: LayoutNode[]): LayoutNode[] {
+  const headOps = nodes.find((n) => n.id === "head-ops");
+  if (!headOps) return nodes;
+
+  const spineCenterX = nodeCenterX(headOps);
+  const spineIds = new Set(["founders", "ceo", "head-ops"]);
+
+  return nodes.map((node) => {
+    if (!spineIds.has(node.id)) return node;
+    const width = node.width ?? getOrgChartNodeSize(node).width;
+    return withChartHandles(node, {
+      position: { ...node.position, x: spineCenterX - width / 2 },
+    });
+  });
+}
+
 function placeConsultingBelowDepartments(nodes: LayoutNode[]): LayoutNode[] {
   const departments = nodes.filter((n) =>
     (DEPARTMENT_NODE_IDS as readonly string[]).includes(n.id)
@@ -110,6 +132,7 @@ export function layoutOrgChart(
     });
   });
 
+  layoutedNodes = alignExecutiveSpine(layoutedNodes);
   layoutedNodes = placeConsultingBelowDepartments(layoutedNodes);
 
   return { nodes: layoutedNodes, edges };
