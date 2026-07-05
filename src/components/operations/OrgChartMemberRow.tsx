@@ -1,4 +1,3 @@
-import { useT } from "../../contexts/I18nContext";
 import { orgChartPersonDescription } from "../../utils/orgChartPersonMatch";
 import { OrgChartAvatar, ORG_CHART_ICON_BOX } from "./OrgChartAvatar";
 import { OrgChartPersonLink } from "./OrgChartPersonLink";
@@ -16,7 +15,6 @@ export function OrgChartMemberRow({
   dotClass: string;
   nameClass?: string;
 }) {
-  const t = useT();
   const description = orgChartPersonDescription(person);
   const alignStart = Boolean(description);
   const isYou = useOrgChartIsYou(person);
@@ -46,11 +44,6 @@ export function OrgChartMemberRow({
             className={`${nameClass} ${isYou ? "!text-slate-900" : ""}`}
             emphasize={isYou}
           />
-          {isYou ? (
-            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-              {t("operations.orgChartYou")}
-            </span>
-          ) : null}
         </div>
         {description ? (
           <p className={`mt-0.5 text-[11px] leading-snug ${isYou ? "text-slate-700" : "text-slate-600"}`}>

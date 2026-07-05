@@ -1,6 +1,5 @@
 import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { useT } from "../../contexts/I18nContext";
 import {
   ORG_NODE_DEPARTMENT_HINT,
   orgChartPersonDescription,
@@ -85,7 +84,6 @@ const ACCENT: Record<
 };
 
 function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
-  const t = useT();
   const { people, currentUserId } = useOrgChartPeople();
   const accent = ACCENT[data.accent ?? "slate"];
   const matchContext = {
@@ -157,11 +155,6 @@ function OrgChartNodeInner({ id, data }: NodeProps<Node<OrgChartNodeData>>) {
                   className={isYou ? "text-base" : "text-sm"}
                   emphasize={isYou}
                 />
-                {isYou ? (
-                  <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                    {t("operations.orgChartYou")}
-                  </span>
-                ) : null}
               </div>
               {ceoDescription ? (
                 <p className={`text-xs leading-snug ${isYou ? "text-slate-700" : "text-slate-600"}`}>
