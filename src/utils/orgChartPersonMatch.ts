@@ -142,6 +142,7 @@ export function splitOrgChartNameList(text: string): string[] {
 }
 
 export const ORG_NODE_DEPARTMENT_HINT: Record<string, string> = {
+  "head-ops": "Operations",
   "dept-product": "Product",
   "dept-sales": "Sales",
   "dept-marketing": "Marketing",

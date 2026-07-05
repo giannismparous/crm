@@ -55,10 +55,13 @@ export const ORG_CHART_NODES: Node<OrgChartNodeData>[] = [
     position: { x: 0, y: 0 },
     data: {
       variant: "leader",
-      title: "Head of Operations",
-      name: "Δημήτρης",
-      subtitle: "Συντονισμός & λειτουργίες",
+      title: "Operations Leadership",
       accent: "teal",
+      preferFounder: true,
+      members: [
+        { name: "Δημήτρης", role: "Head of Operations & Co-Founder" },
+        { name: "Γιάννης", role: "Product & Technical Operations · Co-Founder" },
+      ],
     },
   },
   {
