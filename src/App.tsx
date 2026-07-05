@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { TabId } from "./types";
 import { AppBrand } from "./components/AppBrand";
 import { TabNav, TabNavMenu } from "./components/TabNav";
@@ -10,7 +10,6 @@ import { ProfileSetupScreen } from "./components/ProfileSetupScreen";
 import { CalendarTab } from "./components/CalendarTab";
 import { PersonalRemindersTab } from "./components/PersonalRemindersTab";
 import { ResearchTab } from "./components/ResearchTab";
-import { OperationsTab } from "./components/OperationsTab";
 import { ProjectsTab } from "./components/ProjectsTab";
 import { TeamTab } from "./components/TeamTab";
 import { NotificationsBell } from "./components/NotificationsBell";
@@ -34,6 +33,10 @@ import { useT } from "./contexts/I18nContext";
 import { useSyncUserLocale } from "./hooks/useSyncUserLocale";
 import { buildRsvpPatch } from "./utils/appointmentRsvp";
 import { isRegistrationInProgress } from "./firebase/registerWithSeed";
+
+const OperationsTab = lazy(() =>
+  import("./components/OperationsTab").then((m) => ({ default: m.OperationsTab }))
+);
 
 function App() {
   const [tab, setTabState] = useState<TabId>(() => {
@@ -461,11 +464,19 @@ function App() {
             onFocusPersonHandled={() => setFocusPersonId(null)}
           />
         ) : tab === "operations" ? (
-          <OperationsTab
-            people={people}
-            currentUserId={currentUserId}
-            canAccessStrategicPlan={canAccessStrategicPlan}
-          />
+          <Suspense
+            fallback={
+              <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                {t("common.loading")}
+              </p>
+            }
+          >
+            <OperationsTab
+              people={people}
+              currentUserId={currentUserId}
+              canAccessStrategicPlan={canAccessStrategicPlan}
+            />
+          </Suspense>
         ) : tab === "contacts" ? (
           <ContactsTab
             contacts={contacts}

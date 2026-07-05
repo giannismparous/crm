@@ -244,7 +244,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
   const projectsListFp = useRef("");
   const appointmentsListFp = useRef("");
   const personalRemindersListFp = useRef("");
-  const initialCollectionsRef = useRef({ people: false, tasks: false });
+  const initialPeopleSnapshotRef = useRef(false);
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
   const appointmentsRef = useRef<Appointment[]>([]);
@@ -354,7 +354,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
       projectsListFp.current = "";
       appointmentsListFp.current = "";
       personalRemindersListFp.current = "";
-      initialCollectionsRef.current = { people: false, tasks: false };
+      initialPeopleSnapshotRef.current = false;
       accessProfileRef.current = null;
       // Keep dataLoading true while auth is still resolving so the sync bar doesn't restart.
       if (!authLoading) setDataLoading(false);
@@ -371,7 +371,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
     const needsInitialLoad = dataReadyForUser.current !== user.uid;
     if (needsInitialLoad) {
       setDataLoading(true);
-      initialCollectionsRef.current = { people: false, tasks: false };
+      initialPeopleSnapshotRef.current = false;
     }
     setError(null);
 
@@ -393,17 +393,9 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
     };
 
     const notePeopleLoaded = () => {
-      initialCollectionsRef.current.people = true;
-      if (initialCollectionsRef.current.people && initialCollectionsRef.current.tasks) {
-        markDataReady();
-      }
-    };
-
-    const noteTasksLoaded = () => {
-      initialCollectionsRef.current.tasks = true;
-      if (initialCollectionsRef.current.people && initialCollectionsRef.current.tasks) {
-        markDataReady();
-      }
+      if (initialPeopleSnapshotRef.current) return;
+      initialPeopleSnapshotRef.current = true;
+      markDataReady();
     };
 
     if (profileSync.current !== user.uid) {
@@ -471,10 +463,7 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
         {
           normalize: (id, data) => normalizeTask(id, data),
           onData: (list) => {
-            applyFirestoreListIfChanged(tasksListFp, list, taskListVersion, (next) => {
-              setTasks(next);
-              noteTasksLoaded();
-            });
+            applyFirestoreListIfChanged(tasksListFp, list, taskListVersion, setTasks);
           },
           onError: fail,
         }
@@ -492,7 +481,6 @@ export function useOrgFirestore(options: UseOrgFirestoreOptions = {}) {
               (id, data) => normalizeTask(id, data),
               setTasks
             );
-            noteTasksLoaded();
           },
           (e) => fail(e.message)
         )
