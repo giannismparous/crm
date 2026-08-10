@@ -57,7 +57,8 @@ describe("entityStoragePaths", () => {
       currency: "EUR",
       lastContactedAt: "",
       generalNotes: `<img class="task-inline-image" data-storage-path="${path}" />`,
-      createdAt: new Date().toISOString(),
+      reminders: [],
+      list: "sales",
     };
     expect(storagePathsFromContact(contact)).toContain(path);
   });

@@ -3,7 +3,7 @@ import { readPersistedTabState, usePersistedTabState } from "../hooks/usePersist
 import { usePersistedFormDraft } from "../hooks/usePersistedFormDraft";
 import { clearFormDraft, isShallowDraftEmpty, readFormDraft } from "../utils/formDraftStorage";
 import { ChevronDown } from "lucide-react";
-import type { ContactReminder, ContactStage, ImageAttachment, SalesContact } from "../types";
+import type { ContactList, ContactReminder, ContactStage, ImageAttachment, SalesContact } from "../types";
 import { newContactDocId, newContactReminderDocId } from "../firebase/firestoreIds";
 import { deleteImagesFromStorage } from "../utils/imageAttachments";
 import { reportActionError } from "../utils/actionFeedback";
@@ -91,6 +91,7 @@ function isNewContactDraftEmpty(draft: NewContactDraft): boolean {
 const CONTACTS_VIEW_DEFAULTS = {
   query: "",
   selectedId: "",
+  listTab: "sales" as ContactList,
 };
 
 export function ContactsTab({
@@ -124,6 +125,9 @@ export function ContactsTab({
   const savedNewForm = useMemo(() => readFormDraft<NewContactDraft>(CONTACTS_NEW_DRAFT_KEY), []);
   const [selectedId, setSelectedId] = useState(() => saved.selectedId);
   const [query, setQuery] = useState(() => saved.query);
+  const [listTab, setListTab] = useState<ContactList>(() =>
+    saved.listTab === "reachOut" ? "reachOut" : "sales"
+  );
   const [showForm, setShowForm] = useState(() => Boolean(savedNewForm?.open));
   const [newContactDraft, setNewContactDraft] = useState(() =>
     savedNewForm?.data ? { ...savedNewForm.data } : emptyNewContactDraft()
@@ -131,7 +135,7 @@ export function ContactsTab({
   const [newContactDraftId, setNewContactDraftId] = useState(newContactDocId);
   const contactRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  usePersistedTabState("contacts", { query, selectedId });
+  usePersistedTabState("contacts", { query, selectedId, listTab });
 
   usePersistedFormDraft(
     CONTACTS_NEW_DRAFT_KEY,
@@ -139,38 +143,52 @@ export function ContactsTab({
     { isEmpty: isNewContactDraftEmpty }
   );
 
+  const listContacts = useMemo(
+    () => contacts.filter((c) => (c.list ?? "sales") === listTab),
+    [contacts, listTab]
+  );
+
   const filteredList = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return contacts.filter((c) => {
+    return listContacts.filter((c) => {
       if (!q) return true;
-      const blob = `${c.firstName} ${c.lastName} ${c.company} ${c.email} ${c.jobTitle}`.toLowerCase();
+      const blob = `${c.firstName} ${c.lastName} ${c.company} ${c.email} ${c.jobTitle} ${c.generalNotes}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [contacts, query]);
+  }, [listContacts, query]);
 
   const sortedList = useMemo(() => {
     const list = [...filteredList];
     list.sort((a, b) => {
       const ta = nextOpenReminderMs(a);
       const tb = nextOpenReminderMs(b);
-      if (ta === null && tb === null) return 0;
-      if (ta === null) return 1;
-      if (tb === null) return -1;
-      return ta - tb;
+      if (ta !== null || tb !== null) {
+        if (ta === null) return 1;
+        if (tb === null) return -1;
+        if (ta !== tb) return ta - tb;
+      }
+      if (listTab === "reachOut") {
+        return contactDisplayName(a).localeCompare(contactDisplayName(b), "el", {
+          sensitivity: "base",
+        });
+      }
+      return 0;
     });
     return list;
-  }, [filteredList]);
+  }, [filteredList, listTab]);
 
   useEffect(() => {
     if (!selectedId) return;
-    if (!contacts.some((c) => c.id === selectedId)) {
+    if (!listContacts.some((c) => c.id === selectedId)) {
       setSelectedId("");
     }
-  }, [contacts, selectedId]);
+  }, [listContacts, selectedId]);
 
   useEffect(() => {
     if (!focusContactId) return;
     if (!contacts.some((c) => c.id === focusContactId)) return;
+    const focused = contacts.find((c) => c.id === focusContactId);
+    if (focused) setListTab(focused.list ?? "sales");
     setShowForm(false);
     setSelectedId(focusContactId);
     const t = window.setTimeout(() => {
@@ -186,11 +204,12 @@ export function ContactsTab({
   }, [sortedList, selectedId]);
 
   const pendingReminders = useMemo(
-    () => contacts.reduce((n, c) => n + c.reminders.filter((r) => !r.done).length, 0),
-    [contacts]
+    () => listContacts.reduce((n, c) => n + c.reminders.filter((r) => !r.done).length, 0),
+    [listContacts]
   );
 
-  const companySuggestions = useMemo(() => uniqueCompanySuggestions(contacts), [contacts]);
+  const companySuggestions = useMemo(() => uniqueCompanySuggestions(listContacts), [listContacts]);
+  const isReachOut = listTab === "reachOut";
 
   async function addContact(payload: Omit<SalesContact, "id">) {
     const id = await onAddContact(payload, newContactDraftId);
@@ -222,7 +241,7 @@ export function ContactsTab({
   }
 
   async function finishMergeCreate(values: MergeFormValues, sources: MergeSourceSnapshot[], deleteIds: string[]) {
-    const payload = mergeFormToContactPayload(values);
+    const payload = mergeFormToContactPayload(values, listTab);
     const reminders = collectMergeReminders(sources);
     const id = await onAddContact({ ...payload, reminders: [] });
     for (const r of reminders) {
@@ -243,7 +262,8 @@ export function ContactsTab({
     sources: MergeSourceSnapshot[],
     deleteIds: string[]
   ) {
-    const payload = mergeFormToContactPayload(values);
+    const keeperList = contacts.find((c) => c.id === keeperId)?.list ?? listTab;
+    const payload = mergeFormToContactPayload(values, keeperList);
     await onUpdateContact(keeperId, payload);
     const keeper = contacts.find((c) => c.id === keeperId);
     const existingKeys = new Set(
@@ -316,16 +336,18 @@ export function ContactsTab({
       <aside className={`space-y-4 ${mobileDetailOpen ? "hidden lg:block" : ""}`}>
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">{t("contacts.title")}</h2>
+            <h2 className="font-display text-base font-semibold text-slate-900">
+              {t(isReachOut ? "contacts.list.reachOut" : "contacts.title")}
+            </h2>
             <div
               className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-slate-500 sm:gap-x-2 sm:text-xs"
               aria-label={t("contacts.summaryAria")}
             >
               <span className="inline-flex items-baseline gap-0.5 whitespace-nowrap">
-                <span className="tabular-nums font-semibold text-emerald-700">{contacts.length}</span>
-                <span className="font-normal">{t("contacts.count")}</span>
+                <span className="tabular-nums font-semibold text-emerald-700">{listContacts.length}</span>
+                <span className="font-normal">{t(isReachOut ? "contacts.orgCount" : "contacts.count")}</span>
               </span>
-              {query.trim() && filteredList.length !== contacts.length && (
+              {query.trim() && filteredList.length !== listContacts.length && (
                 <>
                   <span className="px-0.5 text-slate-300" aria-hidden>
                     |
@@ -355,6 +377,27 @@ export function ContactsTab({
             </button>
           )}
         </div>
+
+        <nav className="segment-track w-full" aria-label={t("contacts.listAria")}>
+          {(["sales", "reachOut"] as ContactList[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => {
+                setListTab(tab);
+                setShowForm(false);
+                setSelectedId("");
+                setQuery("");
+              }}
+              className={`inline-flex min-h-8 flex-1 items-center justify-center whitespace-nowrap rounded-md px-2 text-[11px] font-semibold leading-none transition sm:text-sm ${
+                listTab === tab ? "segment-tab-active" : "segment-tab-inactive bg-transparent shadow-none"
+              }`}
+            >
+              {t(`contacts.list.${tab}`)}
+            </button>
+          ))}
+        </nav>
+
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -366,6 +409,10 @@ export function ContactsTab({
           {sortedList.map((c) => {
             const active = selectedId === c.id;
             const hint = contactUrgencyHint(c);
+            const title = contactDisplayName(c);
+            const subtitle = isReachOut
+              ? c.jobTitle || c.company
+              : c.company;
             return (
               <li key={c.id}>
                 <button
@@ -384,16 +431,16 @@ export function ContactsTab({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="truncate text-sm font-semibold text-slate-900">
-                      {c.firstName} {c.lastName}
-                    </p>
+                    <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
                     <span
                       className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase ring-1 ring-inset ${STAGE_STYLES[c.stage]}`}
                     >
                       {translateContactStage(locale, c.stage)}
                     </span>
                   </div>
-                  <p className="truncate text-xs text-slate-500">{c.company}</p>
+                  {subtitle && subtitle !== title && (
+                    <p className="truncate text-xs text-slate-500">{subtitle}</p>
+                  )}
                   {hint && <p className="mt-0.5 text-[11px] font-medium text-slate-600">{hint}</p>}
                 </button>
               </li>
@@ -414,8 +461,9 @@ export function ContactsTab({
           <NewContactForm
           draft={newContactDraft}
           draftContactId={newContactDraftId}
+          contactList={listTab}
           onDraftChange={patchNewContactDraft}
-          contacts={contacts}
+          contacts={listContacts}
           companySuggestions={companySuggestions}
           onSubmit={(c) => void addContact(c)}
           onCancel={closeNewContactForm}
@@ -435,7 +483,7 @@ export function ContactsTab({
           <MobileDetailBack onBack={() => setSelectedId("")} />
           <ContactDetail
           contact={selected}
-          allContacts={contacts}
+          allContacts={listContacts}
           companySuggestions={companySuggestions}
           onSelectContact={setSelectedId}
           onChange={(patch) => updateContact(selected.id, patch)}
@@ -455,9 +503,11 @@ export function ContactsTab({
           className="hidden min-h-[min(420px,55vh)] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center lg:flex"
           aria-label={t("contacts.noSelectedAria")}
         >
-          <p className="text-sm font-medium text-slate-700">{t("contacts.noSelected")}</p>
+          <p className="text-sm font-medium text-slate-700">
+            {t(isReachOut ? "contacts.noSelectedOrg" : "contacts.noSelected")}
+          </p>
           <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-slate-500">
-            {t("contacts.noSelectedHint")}
+            {t(isReachOut ? "contacts.noSelectedOrgHint" : "contacts.noSelectedHint")}
           </p>
         </div>
       )}
@@ -468,6 +518,7 @@ export function ContactsTab({
 function NewContactForm({
   draft,
   draftContactId,
+  contactList,
   onDraftChange,
   contacts,
   companySuggestions,
@@ -478,6 +529,7 @@ function NewContactForm({
 }: {
   draft: NewContactDraft;
   draftContactId: string;
+  contactList: ContactList;
   onDraftChange: (patch: Partial<NewContactDraft>) => void;
   contacts: SalesContact[];
   companySuggestions: string[];
@@ -495,6 +547,7 @@ function NewContactForm({
   const [duplicatesExpanded, setDuplicatesExpanded] = useState(false);
   const [duplicatesOkay, setDuplicatesOkay] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
+  const isReachOut = contactList === "reachOut";
 
   const duplicateMatches = useMemo(
     () => findContactDuplicates(contacts, { email: draft.email, phone: draft.phone }),
@@ -560,6 +613,7 @@ function NewContactForm({
       phone: draft.phone.trim(),
       website: draft.website.trim(),
       stage: draft.stage,
+      list: contactList,
       estimatedValue: Number(draft.estimatedValue) || 0,
       currency: draft.currency,
       lastContactedAt: lastContactedAtFromLocal(draft.lastContactedAt),
@@ -572,7 +626,9 @@ function NewContactForm({
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
-          <h3 className="font-display text-xl font-semibold text-slate-900">{t("contacts.new.title")}</h3>
+          <h3 className="font-display text-xl font-semibold text-slate-900">
+            {t(isReachOut ? "contacts.new.titleOrg" : "contacts.new.title")}
+          </h3>
           <p className="mt-1 text-sm text-slate-500">{t("contacts.new.subtitle")}</p>
         </div>
         <button
@@ -586,21 +642,25 @@ function NewContactForm({
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Labeled label={t("contacts.firstName")}>
-            <input
-              value={draft.firstName}
-              onChange={(e) => onDraftChange({ firstName: e.target.value })}
-              className="input-base"
-            />
-          </Labeled>
-          <Labeled label={t("contacts.lastName")}>
-            <input
-              value={draft.lastName}
-              onChange={(e) => onDraftChange({ lastName: e.target.value })}
-              className="input-base"
-            />
-          </Labeled>
-        <Labeled label={t("contacts.company")}>
+          {!isReachOut && (
+            <>
+              <Labeled label={t("contacts.firstName")}>
+                <input
+                  value={draft.firstName}
+                  onChange={(e) => onDraftChange({ firstName: e.target.value })}
+                  className="input-base"
+                />
+              </Labeled>
+              <Labeled label={t("contacts.lastName")}>
+                <input
+                  value={draft.lastName}
+                  onChange={(e) => onDraftChange({ lastName: e.target.value })}
+                  className="input-base"
+                />
+              </Labeled>
+            </>
+          )}
+        <Labeled label={t(isReachOut ? "contacts.organization" : "contacts.company")}>
           <CompanySuggestInput
             entityKey={`${draftContactId}:company`}
             value={draft.company}
@@ -609,7 +669,7 @@ function NewContactForm({
             className="input-base"
           />
         </Labeled>
-        <Labeled label={t("contacts.jobTitle")}>
+        <Labeled label={t(isReachOut ? "contacts.category" : "contacts.jobTitle")}>
           <input
             value={draft.jobTitle}
             onChange={(e) => onDraftChange({ jobTitle: e.target.value })}
@@ -969,6 +1029,7 @@ function ContactDetail({
 }) {
   const t = useT();
   const { locale } = useI18n();
+  const isReachOut = (contact.list ?? "sales") === "reachOut";
   const [rTitle, setRTitle] = useState("");
   const [rDue, setRDue] = useState(() => defaultOrgDatetimeLocal(24));
   const [rNotes, setRNotes] = useState("");
@@ -1104,10 +1165,13 @@ function ContactDetail({
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
           <h3 className="font-display text-xl font-semibold text-slate-900">
-            {contact.firstName} {contact.lastName}
+            {contactDisplayName(contact)}
           </h3>
-          {contact.company.trim() && (
+          {!isReachOut && contact.company.trim() && (
             <p className="mt-1.5 text-sm text-slate-600">{contact.company}</p>
+          )}
+          {isReachOut && contact.jobTitle.trim() && (
+            <p className="mt-1.5 text-sm text-slate-600">{contact.jobTitle}</p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1127,25 +1191,29 @@ function ContactDetail({
       </header>
 
       <div className="mt-4 grid gap-4 pt-2 sm:mt-5 sm:grid-cols-2 sm:pt-3">
-        <Labeled label={t("contacts.firstName")}>
-          <BufferedTextInput
-            entityKey={`${contact.id}:firstName`}
-            value={contact.firstName}
-            onCommit={(firstName) => onChange({ firstName })}
-            trim
-            className="input-base"
-          />
-        </Labeled>
-        <Labeled label={t("contacts.lastName")}>
-          <BufferedTextInput
-            entityKey={`${contact.id}:lastName`}
-            value={contact.lastName}
-            onCommit={(lastName) => onChange({ lastName })}
-            trim
-            className="input-base"
-          />
-        </Labeled>
-        <Labeled label={t("contacts.company")}>
+        {!isReachOut && (
+          <>
+            <Labeled label={t("contacts.firstName")}>
+              <BufferedTextInput
+                entityKey={`${contact.id}:firstName`}
+                value={contact.firstName}
+                onCommit={(firstName) => onChange({ firstName })}
+                trim
+                className="input-base"
+              />
+            </Labeled>
+            <Labeled label={t("contacts.lastName")}>
+              <BufferedTextInput
+                entityKey={`${contact.id}:lastName`}
+                value={contact.lastName}
+                onCommit={(lastName) => onChange({ lastName })}
+                trim
+                className="input-base"
+              />
+            </Labeled>
+          </>
+        )}
+        <Labeled label={t(isReachOut ? "contacts.organization" : "contacts.company")}>
           <CompanySuggestInput
             entityKey={`${contact.id}:company`}
             value={contact.company}
@@ -1154,7 +1222,7 @@ function ContactDetail({
             className="input-base"
           />
         </Labeled>
-        <Labeled label={t("contacts.jobTitle")}>
+        <Labeled label={t(isReachOut ? "contacts.category" : "contacts.jobTitle")}>
           <BufferedTextInput
             entityKey={`${contact.id}:jobTitle`}
             value={contact.jobTitle}

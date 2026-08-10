@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "repair:research-notes": "node --env-file=.env scripts/repair-research-notes.cjs",
     "bootstrap:user": "node --env-file=.env scripts/bootstrap-auth-and-seed.cjs",
+    "import:reach-out": "node --env-file=.env scripts/import-reach-out-orgs.cjs",
     "set:founder": "node --env-file=.env scripts/set-founder.cjs",
     "cleanup:seed-people": "node --env-file=.env scripts/remove-seed-people.cjs",
     "cleanup:orphan-people": "node --env-file=.env scripts/cleanup-orphan-people.cjs",

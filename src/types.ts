@@ -478,6 +478,9 @@ export type ContactStage =
   | "customer"
   | "churned";
 
+/** Contacts tab pipeline: Sales CRM vs funding / outreach orgs. */
+export type ContactList = "sales" | "reachOut";
+
 export type ContactReminder = {
   id: string;
   title: string;
@@ -529,6 +532,8 @@ export type SalesContact = {
   phone: string;
   website: string;
   stage: ContactStage;
+  /** Which Contacts tab section this belongs to. Defaults to sales. */
+  list: ContactList;
   estimatedValue: number;
   currency: string;
   lastContactedAt: string;

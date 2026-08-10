@@ -1,4 +1,4 @@
-import type { ContactReminder, ContactStage, SalesContact } from "../types";
+import type { ContactList, ContactReminder, ContactStage, SalesContact } from "../types";
 import { normalizeContactEmail, normalizeContactPhone } from "./contactDuplicates";
 import {
   datetimeLocalToIso,
@@ -257,7 +257,10 @@ export function formatMergeFieldDisplay(field: MergeFieldKey, value: string): st
   return trimmed || "—";
 }
 
-export function mergeFormToContactPayload(values: MergeFormValues): Omit<SalesContact, "id" | "reminders"> {
+export function mergeFormToContactPayload(
+  values: MergeFormValues,
+  list: ContactList = "sales"
+): Omit<SalesContact, "id" | "reminders"> {
   const identity = normalizeContactIdentity({
     firstName: values.firstName,
     lastName: values.lastName,
@@ -273,6 +276,7 @@ export function mergeFormToContactPayload(values: MergeFormValues): Omit<SalesCo
     phone: values.phone.trim(),
     website: values.website.trim(),
     stage: values.stage as ContactStage,
+    list,
     estimatedValue: Number(values.estimatedValue) || 0,
     currency: values.currency,
     lastContactedAt: lastContactedAtFromLocal(values.lastContactedAt),

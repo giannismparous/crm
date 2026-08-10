@@ -296,12 +296,18 @@ export function normalizeAppointment(id: string, data: Record<string, unknown>):
   return apt;
 }
 
+const CONTACT_LISTS = ["sales", "reachOut"] as const;
+
 export function normalizeContact(
   id: string,
   data: Record<string, unknown>,
   reminders: ContactReminder[]
 ): SalesContact {
   const stage = STAGES.includes(data.stage as ContactStage) ? (data.stage as ContactStage) : "lead";
+  const listRaw = String(data.list ?? "sales");
+  const list = (CONTACT_LISTS as readonly string[]).includes(listRaw)
+    ? (listRaw as SalesContact["list"])
+    : "sales";
   return {
     id: typeof data.id === "string" ? data.id : id,
     firstName: String(data.firstName ?? ""),
@@ -312,6 +318,7 @@ export function normalizeContact(
     phone: String(data.phone ?? ""),
     website: String(data.website ?? ""),
     stage,
+    list,
     estimatedValue: typeof data.estimatedValue === "number" ? data.estimatedValue : Number(data.estimatedValue) || 0,
     currency: String(data.currency ?? "EUR"),
     lastContactedAt: toIso(data.lastContactedAt),

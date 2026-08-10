@@ -72,7 +72,11 @@ export function findContactDuplicates(
 
 export function contactDisplayName(c: SalesContact): string {
   const name = `${c.firstName} ${c.lastName}`.trim();
-  return name || "Unnamed contact";
+  // Company-only contacts store firstName as "-" (see normalizeContactIdentity).
+  if (name && name !== "-") return name;
+  const company = c.company.trim();
+  if (company) return company;
+  return "Unnamed contact";
 }
 
 function duplicateAckStorageKey(scope: string, email: string, phone: string): string {
